@@ -1,0 +1,10 @@
+# The @tickflow/dsh-stock-panel bundle patch: registers the client plugin
+# (a `dsh.client` row) into the browser roster. Applied as an insert over the
+# existing browser plugin roster by the profile's cordis.patch.yml.
+#
+# This makes the stock-panel detail slot available in the DSH Web details panel.
+- insert:
+    - id: stock-panel
+      name: '@tickflow/dsh-stock-panel'
+      config:
+        immediately: false
