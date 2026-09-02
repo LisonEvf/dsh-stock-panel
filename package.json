@@ -1,7 +1,7 @@
 {
-  "name": "@tickflow/dsh-stock-panel",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@lisonevf/dsh-stock-panel",
+  "version": "0.1.1",
+  "private": false,
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"
   },

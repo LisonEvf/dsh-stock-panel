@@ -5,6 +5,6 @@
 # This makes the stock-panel detail slot available in the DSH Web details panel.
 - insert:
     - id: stock-panel
-      name: '@tickflow/dsh-stock-panel'
+      name: '@lisonevf/dsh-stock-panel'
       config:
         immediately: false
