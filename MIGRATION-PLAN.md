@@ -160,7 +160,8 @@ B 轨（可选，__DSH_DATA_SOURCE__='http'）：
   - server_info 驱动的交易日/开闭市角标；竞价速览（auction，9:15-9:25 窗口）。
 - **验收**：TSLA/00700 可看报价与 K 线。
 
-### M11 — 打包发布与治理（P0，规模 S）
+### M11 — 打包发布与治理（P0，规模 S） ✅ 主体已交付（1.0.0，发出版待 registry 执行）
+- **实现**：scripts/sync-profile.mjs + scripts/check-bundle-size.mjs + .github/workflows/ci.yml；体积护栏 600KB（当前未压缩 ≈575KB）。CHANGELOG/发布执行/README 截图待补。
 - **内容**：
   1. 版本号 0.4.0+ 与 CHANGELOG；`pnpm publish` 到 GitHub Packages（package.json 已配）；
   2. `.github/workflows/ci.yml`：build + tsc(check 清单) + 冒烟（§7.3）；
@@ -305,5 +306,5 @@ B 轨（可选，__DSH_DATA_SOURCE__='http'）：
 3. 重启 `dsh web`（bundle rev 启动时重算，必须重启才生效）
 4. 浏览器硬刷新（Ctrl+Shift+R）
 
-> 待办：把步骤 1-2 固化为 `scripts/sync-profile.mjs`（读 `DSH_HOME`），纳入 M11。
+> ✅ 已固化为 `scripts/sync-profile.mjs`（M11/1.0.0）。
 

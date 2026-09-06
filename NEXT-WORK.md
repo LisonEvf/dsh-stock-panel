@@ -33,6 +33,10 @@
 >   `pages/GlobalPage.tsx`「外盘」Tab（美股/港股预设报价+日K，quote 缺失回退 K 线自算；
 >   期货多市场异动快览）；实测 HK quote/K、US/HK kline、varieties 均正常（网关侧美股 quote 空，
 >   页面已回退）。
+> - ✅ **W7**（M11 打包发布治理，1.0.0）：`scripts/sync-profile.mjs`（读 DSH_HOME，file:/link: 装即
+>   跳过）、`scripts/check-bundle-size.mjs`（client.js 护栏 600KB，当前未压缩 ≈575KB）、
+>   `.github/workflows/ci.yml`（install→prepare build→tsc→护栏）；README §打包发布与治理。
+>   待办：registry `pnpm publish` 执行、README screenshots/、CHANGELOG。
 > - ⏳ 待交易日（周一盘中）复验：实算数值跨日回归、强度差分真实行情表现、逐笔 bs_flag/vol 单位、
 >   事件捕获口径、监控命中 Toast/徽标交互与事件关键词盘中增量。
 

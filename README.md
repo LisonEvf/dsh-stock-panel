@@ -124,6 +124,22 @@ pnpm install
 pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 ```
 
+## 打包发布与治理（M11，1.0.0）
+
+- **质量门禁（本地/CI 一致）**：`pnpm build`（tsdown host + client + dts）→ 全量 `tsc --noEmit` 0 错误
+  → `node scripts/check-bundle-size.mjs`（client.js 护栏，默认 600KB；当前 ≈575KB **未压缩**，
+  保留可调试性未开 minify——瘦身手段留档：页面级动态 import / 外部化，见 MIGRATION-PLAN §7.4）。
+- **同步到 profile 安装副本**：`node scripts/sync-profile.mjs [--profile web]`（读 `DSH_HOME`；
+  安装即本仓库 `file:/link:` 时自动跳过并提示只需 build+重启）。之后重启 `dsh web` + 浏览器硬刷新。
+- **CI**：`.github/workflows/ci.yml`（pnpm install --frozen-lockfile → prepare 内 build → tsc → 体积护栏）。
+- **发布（GitHub Packages）**：`pnpm publish`（registry 已配 `npm.pkg.github.com`）；发布前过门禁 +
+  `node scripts/smoke-mcp.mjs` 复验字段语义（auction/transaction bs_flag 待交易日）。
+- **截图**：`screenshots/` 目录待补（M5 市场 / M6 梯队 / M8 选股 / M10 外盘 / 作战·复盘各一）。
+
+> 升级回归：DSH 升级重编译 ui-layout 后若 stock 列消失，`node scripts/patch-layout.mjs --check`
+> 显示 `patched: false` → 更新 `src/layout-patch.ts` 锚点与 `SUPPORTED_UI_LAYOUT_VERSION` 后
+> `--force` 重建（README §布局补丁引擎运维）。
+
 ## 本地开发加载
 
 1. `pnpm build`。
