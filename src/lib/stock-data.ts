@@ -363,3 +363,37 @@ export async function fetchTransactions(
   const data = await callToolJson('transaction', args)
   return toArray(data) as TransactionRow[]
 }
+
+// ===== M10：扩展市场（goods_quotes / goods_kline / goods_varieties） =====
+
+/** 商品行情行（goods_varieties：期货合约列表，change_pct 为涨跌幅%）。 */
+export interface GoodsVarietyRow {
+  name?: string
+  price?: number
+  change_pct?: number
+  [key: string]: any
+}
+
+/** 调用 goods_quotes（扩展市场报价：market 如 US_STOCK / HK_MAIN_BOARD / CFFEX_FUTURES）。 */
+export async function fetchGoodsQuote(market: string, code: string): Promise<QuoteRow | null> {
+  const data = await callToolJson('goods_quotes', { market, code })
+  const rows = Array.isArray(data) ? data : data ? [data] : []
+  return (rows[0] as QuoteRow) ?? null
+}
+
+/** 调用 goods_kline（扩展市场 K 线）。 */
+export async function fetchGoodsKlines(
+  market: string,
+  code: string,
+  period = 'DAILY',
+  count = 160,
+): Promise<McpKlineRow[]> {
+  const data = await callToolJson('goods_kline', { market, code, period, count })
+  return toArray(data) as McpKlineRow[]
+}
+
+/** 调用 goods_varieties（期货/期权合约列表）。 */
+export async function fetchGoodsVarieties(marketId: number, count = 60): Promise<GoodsVarietyRow[]> {
+  const data = await callToolJson('goods_varieties', { market_id: marketId, count })
+  return toArray(data) as GoodsVarietyRow[]
+}

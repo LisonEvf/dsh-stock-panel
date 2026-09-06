@@ -12,6 +12,7 @@ import { MarketOverview } from '@/pages/MarketOverview'
 import { LadderPage } from '@/pages/LadderPage'
 import { ScoutPage } from '@/pages/ScoutPage'
 import { IndicesPage } from '@/pages/IndicesPage'
+import { GlobalPage } from '@/pages/GlobalPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
 import { StockDetailPage } from '@/pages/StockDetailPage'
 import { WarPage } from '@/pages/WarPage'
@@ -22,7 +23,7 @@ import { getHits, markAllRead, subscribeAlerts, unreadCount } from '@/lib/alerts
 import type { MarketTag } from '@/lib/symbol'
 
 export type PanelTab =
-  | 'market' | 'ladder' | 'scout' | 'indices' | 'watchlist' | 'stock' | 'war' | 'review' | 'alerts'
+  | 'market' | 'ladder' | 'scout' | 'indices' | 'global' | 'watchlist' | 'stock' | 'war' | 'review' | 'alerts'
 
 export interface OpenStock {
   market: MarketTag
@@ -35,6 +36,7 @@ const TABS: { key: PanelTab; label: string }[] = [
   { key: 'ladder', label: '梯队' },
   { key: 'scout', label: '选股' },
   { key: 'indices', label: '指数' },
+  { key: 'global', label: '外盘' },
   { key: 'watchlist', label: '自选' },
   { key: 'stock', label: '个股' },
   { key: 'war', label: '作战' },
@@ -136,6 +138,7 @@ export function PanelApp() {
         {tab === 'ladder' && <LadderPage onOpenStock={openStock} />}
         {tab === 'scout' && <ScoutPage onOpenStock={openStock} />}
         {tab === 'indices' && <IndicesPage key={indexFocus ? `${indexFocus.market}${indexFocus.code}` : 'default'} initial={indexFocus} />}
+        {tab === 'global' && <GlobalPage />}
         {tab === 'watchlist' && <WatchlistPage onOpenStock={openStock} />}
         {tab === 'stock' &&
           (stock ? (

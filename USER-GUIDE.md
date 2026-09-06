@@ -18,10 +18,10 @@
    数据源离线/休市不影响面板出现，页面会显示对应空态提示（见 §5）。
 3. 自选、复盘存档、事件流历史、持仓与交易日志均为 **localStorage 本地存储**，刷新不丢。
 
-## 1. 界面结构：9 个 Tab
+## 1. 界面结构：10 个 Tab
 
 ```
-市场 | 梯队 | 选股 | 指数 | 自选 | 个股 | 作战 | 复盘 | 监控
+市场 | 梯队 | 选股 | 指数 | 外盘 | 自选 | 个股 | 作战 | 复盘 | 监控
 ```
 
 | Tab | 内容 | 数据 | 刷新 |
@@ -30,6 +30,7 @@
 | 梯队 | 涨停/跌停速览 + 连板梯队条形 + 按板数分组 + 板块热度 TOP12 | 全 A + kline(20)×N + belong_board | 30s |
 | 选股 | 6 预设策略/自定义条件 快照筛选；候选 ≤200 可跑 MA 金叉信号（命中高亮） | fetchAllA(20s TTL) + kline(80)×候选 | 手动 |
 | 指数 | 9 大指数切换 + 摘要 + 日 K（MA5/10/20+量）/ 分时双模式 | quote + kline + tick_chart | 15s |
+| 外盘 | 美股/港股 预设标的报价 + K 线（复用 KlineChart）；期货多市场异动快览 | goods_quote/kline/varieties | 手动 |
 | 自选 | 本地自选池 + 12s 实时价 + 搜索/代码添加 | watchlist-store + quote | 12s |
 | 个股 | 由市场/梯队/自选/作战点选打开：信息条 + 图表卡（日K 区间/MA 或 分时）+ 竞价回顾 + 资金面板 + 逐笔(折叠) + AI 分析 | kline + tick_chart + auction + capital_flow + transaction + AI(后端) | 手动 |
 | 作战 | 时段标签（休市/竞价/盘中）+ 温度计 + 局势 + 板块脉冲 + 事件流 + 竞价雷达 + 持仓决策台 | server_info + unusual/market_monitor + ladder + auction | 30s |

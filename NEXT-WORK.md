@@ -29,6 +29,10 @@
 >   MA5 上穿 MA20·放量上穿 MA60，detectSignal 纯函数 + runSignalOnCandidates pool≤8 带进度）
 >   + `pages/ScoutPage.tsx`「选股」Tab（结果行点开个股/信号命中高亮徽标）；
 >   真实数据冒烟：全 A 5556 只、6 预设命中 11–151、信号管线跑通。
+> - ✅ **W6**（M10 扩展市场，0.9.0）：`stock-data` goods 适配器（quote/kline/varieties）+
+>   `pages/GlobalPage.tsx`「外盘」Tab（美股/港股预设报价+日K，quote 缺失回退 K 线自算；
+>   期货多市场异动快览）；实测 HK quote/K、US/HK kline、varieties 均正常（网关侧美股 quote 空，
+>   页面已回退）。
 > - ⏳ 待交易日（周一盘中）复验：实算数值跨日回归、强度差分真实行情表现、逐笔 bs_flag/vol 单位、
 >   事件捕获口径、监控命中 Toast/徽标交互与事件关键词盘中增量。
 

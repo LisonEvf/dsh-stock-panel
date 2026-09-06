@@ -145,7 +145,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 
 ## M5：市场总览 / 指数 / 自选实时行情
 
-面板壳改为 **Tab 导航**（`src/panel/PanelApp.tsx`）：**市场 · 梯队 · 选股 · 指数 · 自选 · 个股 · 作战 · 复盘 · 监控**（梯队见「M6」，选股见「M8」，作战/复盘见文末「方法论批次」，监控见「M7」）。
+面板壳改为 **Tab 导航**（`src/panel/PanelApp.tsx`）：**市场 · 梯队 · 选股 · 指数 · 外盘 · 自选 · 个股 · 作战 · 复盘 · 监控**（梯队见「M6」，选股见「M8」，外盘见「M10」，作战/复盘见文末「方法论批次」，监控见「M7」）。
 全部数据**直连 MCP 数据源**（`192.168.31.196:8007/mcp`，opentdx 3.4.0），**无需 FastAPI 后端**：
 
 | Tab | 页面 | 数据工具 | 说明 |
@@ -160,7 +160,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 
 ## M6：涨停梯队 + 板块热度
 
-「梯队」Tab（`src/pages/LadderPage.tsx`，Tab 已增至：市场 · 梯队 · 选股 · 指数 · 自选 · 个股 · 作战 · 复盘 · 监控）。
+「梯队」Tab（`src/pages/LadderPage.tsx`，Tab 已增至：市场 · 梯队 · 选股 · 指数 · 外盘 · 自选 · 个股 · 作战 · 复盘 · 监控）。
 
 - **涨停池**：全 A 快照（`board_members("A")`）中 `close ≈ buy_price_limit` 精确判定。
 - **连板统计**：`src/lib/indicators.ts`（`countStreak`：主板 10% / 创业·科创 20% / 北交 30% / ST 5%，
@@ -197,6 +197,17 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 > 冒烟（真实数据）：全 A 5556 只 → 6 预设分别命中 11–151 只（头部为当日强势/活跃样本，合理）；
 > 信号检测与批量管线（进度回调/命中收集）跑通。
 > 口径：换手/量比为行情源当日字段，休市空数据时筛选自然 0 命中（页面有提示）；阈值均标注为经验初值可调。
+
+## M10：扩展市场（外盘）
+
+「外盘」Tab（`src/pages/GlobalPage.tsx`，位于指数之后）：
+
+- **美股 / 港股**：预设标的 chips（TSLA/NVDA/AAPL/MSFT/META/AMD/PLTR/BABA；腾讯/阿里/美团/小米/京东/快手/中移动）→
+  选中即拉 `goods_quote` + `goods_kline(DAILY,160)`（复用 KlineChart）；报价摘要优先 quote、
+  缺失时（实测网关侧美股 quote 空）自动回退 K 线末两收盘自算涨跌幅——UI 恒有值。
+- **期货**：`goods_varieties` 多市场（market_id 1–6）合并 → 「期货异动快览」top40（仅报价，无图；
+  合约行情市场编码待复验）。
+- **时段**：HK/US 周末/休市仍可回看最近交易日数据（实测 09-04 正常）。
 
 ## 方法论批次 N1–N7（蓝图：`PRODUCT-DESIGN.md` §8，依据：`WATCH-METHODOLOGY.md` / `STRATEGY-RESEARCH.md`）
 
