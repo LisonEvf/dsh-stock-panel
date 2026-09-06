@@ -21,8 +21,12 @@
 >   同时修复**数据层严重缺陷**：`stock-data.ts` `toArray` 对 callToolJson 已解析数组二次
 >   JSON.parse 致整层静默空返回（晚行情源恢复后真机冒烟复现并修复，
 >   kline/board_members/transaction/tick_chart/unusual/quote 实测返回正常）。
+> - ✅ **W4**（M7 本地监控/告警，0.7.0）：`lib/alerts.ts` 规则引擎（价格突破跌破/涨跌幅/异动关键词）
+>   + 命中记录 localStorage；`AlertWatcher` 常驻 PanelApp 根（12s 轮询 price/pct 规则标的 ≤10 +
+>   增量扫事件流关键词）；「监控」第 8 Tab（规则管理/命中列表）+ 未读徽标 + Toast 浮层；
+>   规则判定 × 真实行情/事件冒烟命中正确。飞书推送（B 轨）未做。
 > - ⏳ 待交易日（周一盘中）复验：实算数值跨日回归、强度差分真实行情表现、逐笔 bs_flag/vol 单位、
->   事件捕获口径。
+>   事件捕获口径、监控命中 Toast/徽标交互与事件关键词盘中增量。
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "@lisonevf/dsh-stock-panel",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": false,
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"

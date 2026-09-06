@@ -121,7 +121,8 @@ B 轨（可选，__DSH_DATA_SOURCE__='http'）：
 - **遗留**：封板率/炸板依赖 unusual 盘中事件（竞价快照无炸板事件，按需展示）；连板窗口 20 根封顶；
   E2E 实测单请求偶发 15s 超时（服务端慢调用），已降级不丢数据。
 
-### M7 — 本地监控中心（P0，规模 M）
+### M7 — 本地监控中心（P0，规模 M） ✅ 已交付（0.7.0）
+- **实现**：lib/alerts.ts（规则引擎+命中记录）+ components/AlertWatcher.tsx（常驻 12s Watcher）+ pages/AlertsPage.tsx（监控 Tab）+ PanelApp 徽标/Toast。飞书推送（B 轨桥接）未做。
 - **内容**：新增「监控」Tab（或市场页角标）：
   1. 规则类型：价格突破/跌破（自选+个股，复用 quote 轮询 12s）、市场异动关键词（unusual 流）、主力异动（market_monitor）；
   2. `lib/alerts.ts`：localStorage 规则 + 命中记录（JSONL 形态）+ 去重冷却；命中右下角 Toast（复用 DSH UI 风格）+ Tab 徽标；

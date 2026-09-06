@@ -145,7 +145,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 
 ## M5：市场总览 / 指数 / 自选实时行情
 
-面板壳改为 **Tab 导航**（`src/panel/PanelApp.tsx`）：**市场 · 梯队 · 指数 · 自选 · 个股 · 作战 · 复盘**（梯队见「M6」，作战/复盘见文末「方法论批次」）。
+面板壳改为 **Tab 导航**（`src/panel/PanelApp.tsx`）：**市场 · 梯队 · 指数 · 自选 · 个股 · 作战 · 复盘 · 监控**（梯队见「M6」，作战/复盘见文末「方法论批次」，监控见「M7」）。
 全部数据**直连 MCP 数据源**（`192.168.31.196:8007/mcp`，opentdx 3.4.0），**无需 FastAPI 后端**：
 
 | Tab | 页面 | 数据工具 | 说明 |
@@ -160,7 +160,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 
 ## M6：涨停梯队 + 板块热度
 
-「梯队」Tab（`src/pages/LadderPage.tsx`，Tab 已增至：市场 · 梯队 · 指数 · 自选 · 个股 · 作战 · 复盘）。
+「梯队」Tab（`src/pages/LadderPage.tsx`，Tab 已增至：市场 · 梯队 · 指数 · 自选 · 个股 · 作战 · 复盘 · 监控）。
 
 - **涨停池**：全 A 快照（`board_members("A")`）中 `close ≈ buy_price_limit` 精确判定。
 - **连板统计**：`src/lib/indicators.ts`（`countStreak`：主板 10% / 创业·科创 20% / 北交 30% / ST 5%，
@@ -169,6 +169,22 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
   保留 概念/行业/地区），按涨停数降序 TOP12（附板块指数涨跌幅与代表股）。
 - **并发**：`src/lib/pool.ts`（≤6 并发）；**请求超时**：`mcp.ts` 每请求 15s AbortSignal 兜底。
   30s 刷新；点任意行/板块代表股 → 跳「个股」Tab。
+
+## M7：本地监控 / 告警
+
+「监控」Tab（`src/pages/AlertsPage.tsx`，第 8 个 Tab；规则判定由常驻 Watcher 驱动）：
+
+- **规则类型**：价格突破 ≥ / 跌破 ≤（目标价）、涨跌幅 ≥/≤（x%，相对昨收）、异动关键词（事件流 desc/名称命中）；
+  开关 / 删除 / 新增（标的走本地全 A 搜索，`InstrumentSearch`）。
+- **常驻 Watcher**：`src/components/AlertWatcher.tsx` 挂载面板壳根节点（任意 Tab 生效），12s 轮询
+  price/pct 规则（标的去重 ≤10 拉实时报价，`pool≤4`）+ **增量**扫描事件流关键词规则（0 额外请求）；
+  命中 → `lib/alerts.ts` recordHit（60s 同文案去重）+ 内存冷却（同规则同标的 5 分钟一次）。
+- **提醒**：监控 Tab **红点未读徽标**（进入即清零）+ 面板底部 **Toast 浮层**（本会话新命中）；
+  命中记录 localStorage（≤200 环形，read 标记），重启不丢。
+- **预算**：price 规则标的数 ×1 请求/12s（上限 10）；页面隐藏/面板卸载即停。
+
+> 冒烟（2026-09-06 晚，真实行情/事件）：价格阈值/涨跌幅/关键词判定全部命中正确；规则 CRUD 正常。
+> 待交易日复验：命中 Toast/徽标交互、事件关键词盘中增量、重启保留。
 
 ## 方法论批次 N1–N7（蓝图：`PRODUCT-DESIGN.md` §8，依据：`WATCH-METHODOLOGY.md` / `STRATEGY-RESEARCH.md`）
 
