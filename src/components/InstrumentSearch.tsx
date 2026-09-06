@@ -11,10 +11,12 @@ interface SearchResult {
 interface Props {
   onSelect: (symbol: string) => void
   initialSymbol?: string
+  /** 覆盖外层宽度类（默认 w-48；窄列详情页可传 w-full min-w-0）。 */
+  className?: string
 }
 
-/** 标的搜索下拉：输入关键字 → 后端搜索 → 点击选中 */
-export function InstrumentSearch({ onSelect, initialSymbol }: Props) {
+/** 标的搜索下拉：输入关键字 → 后端/本地搜索 → 点击选中 */
+export function InstrumentSearch({ onSelect, initialSymbol, className = 'w-48' }: Props) {
   const [query, setQuery] = useState(initialSymbol ?? '')
   const [results, setResults] = useState<SearchResult[]>([])
   const [open, setOpen] = useState(false)
@@ -57,7 +59,7 @@ export function InstrumentSearch({ onSelect, initialSymbol }: Props) {
   }
 
   return (
-    <div ref={containerRef} className="relative w-48">
+    <div ref={containerRef} className={`relative ${className}`}>
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input

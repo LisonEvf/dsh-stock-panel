@@ -3,12 +3,155 @@
 @tailwind utilities;
 
 /*
- * DSH 插件样式隔离：所有插件根类放在 .dsh-plugin 下，
+ * DSH 插件样式隔离：所有插件根类放在 .dsh-stock 下，
  * 避免与 shell 全局样式冲突。
+ *
+ * 本插件现在是主布局第四列（sidebar | stock | center | details），
+ * 列内用 .dsh-stock 包裹根节点，复用 DSH 的亮/暗主题变量。
  */
-.dsh-plugin {
-  --ds-bg: var(--ds-bg, #ffffff);
-  --ds-fg: var(--ds-fg, #0f172a);
-  --ds-border: var(--ds-border, #e2e8f0);
-  --ds-muted: var(--ds-muted, #64748b);
+.dsh-stock {
+  /*
+   * 注意：不要写成 `--ds-bg: var(--ds-bg, ...)` 的自引用形式——
+   * 那会让自定义属性形成依赖环，值为 guaranteed-invalid，
+   * 所有 var(--ds-*) 消费点（background / border / color）都会失效。
+   * 内部组件是浅色 Tailwind 配色，这里固定浅色默认值；
+   * 若要跟随 dsh 明暗主题，把值换成宿主 token（如 var(--dsw-specific-sidebar-fill)）即可。
+   */
+  --ds-bg: #ffffff;
+  --ds-fg: #0f172a;
+  --ds-border: #e2e8f0;
+  --ds-muted: #64748b;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-bg);
+  color: var(--ds-fg);
 }
+
+.dsh-stock .ds-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ds-border);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dsh-stock .ds-toolbar .ds-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.dsh-stock .ds-toolbar .ds-title span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dsh-stock .ds-toolbar .ds-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ds-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.dsh-stock .ds-toolbar .ds-close:hover {
+  color: var(--ds-fg);
+  background: var(--ds-border);
+}
+
+.dsh-stock .ds-body {
+  flex: 1;
+  overflow: hidden;
+}
+
+/*
+ * preflight 关闭（避免污染 dsh shell 全局样式），这里只对本插件作用域
+ * 做最小 reset。用 :where() 把特异性压到 0，Tailwind 工具类可正常覆盖。
+ */
+.dsh-stock,
+.dsh-stock *,
+.dsh-stock *::before,
+.dsh-stock *::after {
+  box-sizing: border-box;
+}
+
+:where(.dsh-stock) button {
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+:where(.dsh-stock) input,
+:where(.dsh-stock) select,
+:where(.dsh-stock) textarea {
+  font: inherit;
+}
+
+:where(.dsh-stock) ul,
+:where(.dsh-stock) ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:where(.dsh-stock) h1,
+:where(.dsh-stock) h2,
+:where(.dsh-stock) h3,
+:where(.dsh-stock) p {
+  margin: 0;
+}
+
+:where(.dsh-stock) svg {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/*
+ * 竖向窄列排版工具类（M6.5 layout pass）：
+ *   .ds-no-scrollbar  — 横向 Tab/条带滚动时不显示滚动条
+ *   .ds-sticky-head   — 页面头部随列表滚动吸顶（窄列高屏，长列表很需要）
+ *   .ds-card          — 卡片统一样式（更紧凑的间距/圆角）
+ */
+.dsh-stock .ds-no-scrollbar {
+  scrollbar-width: none;
+}
+.dsh-stock .ds-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.dsh-stock .ds-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+}
+
+.dsh-stock .ds-card {
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.dsh-stock .ds-row-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 3px 6px;
+  text-align: left;
+}
+.dsh-stock .ds-row-btn:hover {
+  background: #ffffff;
+}
+

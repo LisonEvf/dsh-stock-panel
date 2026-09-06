@@ -1,12 +1,13 @@
 {
   "name": "@lisonevf/dsh-stock-panel",
-  "version": "0.1.1",
+  "version": "0.4.0",
   "private": false,
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"
   },
-  "description": "A股量化工作台 — DSH Web 插件（details 右侧面板）",
+  "description": "A股量化工作台 — DSH Web 插件（主布局第四列，MCP 数据源）",
   "type": "module",
+  "main": "./lib/index.js",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -14,9 +15,7 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-slots",
-        "@deepseek-ai/dsh-client-ui-details"
+        "@deepseek-ai/dsh-client-runtime"
       ],
       "immediately": false
     }
@@ -38,17 +37,15 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "cordis.patch.yml",
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts",
-    "cordis.patch.yml"
+    "lib/types/**/*.d.ts"
   ],
   "dependencies": {
     "@tanstack/react-query": "^5.55.0",
     "clsx": "^2.1.1",
-    "echarts": "^5.5.0",
-    "echarts-for-react": "^3.0.2",
     "lightweight-charts": "^4.2.0",
     "lucide-react": "^0.439.0",
     "react": "^18.3.1",
@@ -69,8 +66,9 @@
     "vite-plugin-css-injected-by-js": "^5.0.2"
   },
   "scripts": {
-    "build": "tsdown",
-    "prepare": "pnpm build", 
-    "watch": "tsdown --watch"
+    "build": "tsdown -c tsdown.config.ts && node scripts/build-client.mjs && node scripts/postbuild-dts.mjs",
+    "prepare": "pnpm build",
+    "watch": "tsdown --watch",
+    "publish": "npm publish --registry=https://npm.pkg.github.com"
   }
 }

@@ -1,10 +1,31 @@
-# The @tickflow/dsh-stock-panel bundle patch: registers the client plugin
-# (a `dsh.client` row) into the browser roster. Applied as an insert over the
-# existing browser plugin roster by the profile's cordis.patch.yml.
+# @lisonevf/dsh-stock-panel — host-side Cordis bundle patch.
 #
-# This makes the stock-panel detail slot available in the DSH Web details panel.
+# 这个文件是包的 `dsh.bundle.patch` 入口（见 package.json 的 `dsh.bundle.patch`）。
+# DSH 在启动时把它作为 cordis.patch.yml 层加载进 Loader，
+# 从而把 `@lisonevf/dsh-stock-panel` 注册成 Cordis entry（host 半）。
+#
+# 格式说明（DSH loader patch dialect）：
+#   - 顶层数组的每个元素是一个 loader patch entry。
+#   - 带 `id` 的元素是"补丁"，针对已存在 entry 覆盖 config / disable / insert。
+#   - 要"新增"一个 entry，必须用 `insert:` 列表，
+#     否则 DSH 会报 "patch: entry <id> not found"。
+#
+# 布局方案（layout-patch 引擎版）：
+#   host 半（lib/index.js）在 apply() 内**同步**运行内嵌补丁引擎
+#   （src/layout-patch.ts，随 lib/ 发布），把 ui-layout 主布局新增第四列
+#   （sidebar | stock | center | details），并把对话区改造成
+#   「左对话 + 右 stock.preview」split 布局。React UI 由 client 半通过
+#   `stock` / `stock.preview` 槽在主布局内渲染（不再是 shell.overlay 浮层）。
+#
+#   自愈：DSH 升级覆盖 bundle 后插件启动自动重打；锚点失配时中止不写并告警，
+#   插件照常启动——此时更新 src/layout-patch.ts 的锚点表与
+#   SUPPORTED_UI_LAYOUT_VERSION。
+
 - insert:
-    - id: stock-panel
+    - id: stock-panel-host
       name: '@lisonevf/dsh-stock-panel'
       config:
-        immediately: false
+        # 插件元数据（供 browser 半和宿主消费）
+        slot: 'stock'
+        previewSlot: 'stock.preview'
+        order: 100

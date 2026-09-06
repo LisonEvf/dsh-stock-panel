@@ -1,18 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import { createChart, ColorType, type IChartApi, type ISeriesApi } from 'lightweight-charts'
+import {
+  createChart,
+  ColorType,
+  type IChartApi,
+  type ISeriesApi,
+} from 'lightweight-charts'
 import { api, type KlineRow } from '@/lib/api'
 
-/** 把后端 KlineRow 转成 lightweight-charts v4 需要的格式 */
+/** 把 KlineRow 转成 lightweight-charts v4 需要的格式。 */
 function toSeriesData(rows: KlineRow[]) {
   const candlestick: { time: string; open: number; high: number; low: number; close: number }[] = []
   const volume: { time: string; value: number; color: string }[] = []
   for (const r of rows) {
-    const time = (typeof r.date === 'string' ? r.date.slice(0, 10) : String(r.date))
+    const time = (typeof r.date === 'string' ? r.date.slice(0, 10) : String(r.date)) as string
     const open = Number(r.open)
     const high = Number(r.high)
     const low = Number(r.low)
     const close = Number(r.close)
-    if ([open, high, low, close].some(n => Number.isNaN(n))) continue
+    if ([open, high, low, close].some((n) => Number.isNaN(n))) continue
     candlestick.push({ time, open, high, low, close })
     const vol = Number(r.volume ?? 0)
     if (!Number.isNaN(vol)) {
@@ -27,53 +32,23 @@ interface Props {
   symbol: string
   height?: number
   className?: string
-  onDataChange?: (rows: KlineRow[]) => void
+  /**
+   * 受控数据：由父级一次性拉取后传入（避免组件内部重复请求）。
+   * 传入（含空数组）时组件不再自行拉取；不传时退回组件内自取近 6 个月。
+   */
+  rows?: KlineRow[]
   onCross?: (row: KlineRow | null) => void
 }
 
-export function KlineChart({ symbol, height = 480, className, onDataChange, onCross }: Props) {
+export function KlineChart({ symbol, height = 480, className, rows, onCross }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const volRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const [status, setStatus] = useState<'loading' | 'empty' | 'error' | 'ok'>('loading')
   const [error, setError] = useState<string>('')
 
-  // 默认近 6 个月
-  const [range, setRange] = useState(() => {
-    const end = new Date()
-    const start = new Date()
-    start.setMonth(start.getMonth() - 6)
-    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }
-  })
-
-  useEffect(() => {
-    if (!symbol) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await api.klineDaily(symbol, 120, range)
-        if (cancelled) return
-        const { candlestick, volume } = toSeriesData(res.rows)
-        candleRef.current?.setData(candlestick)
-        if (volume.length && chartRef.current) {
-          const vol = chartRef.current.addHistogramSeries({
-            color: '#94a3b8',
-            priceScaleId: 'vol',
-          })
-          vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0.05 } })
-          vol.setData(volume)
-        }
-        setStatus(res.rows.length ? 'ok' : 'empty')
-        onDataChange?.(res.rows)
-      } catch (e) {
-        if (cancelled) return
-        setError((e as Error).message)
-        setStatus('error')
-      }
-    })()
-    return () => { cancelled = true }
-  }, [symbol, range, onDataChange])
-
+  // 首次装载：创建图表 + K 线 + 量柱（各只创建一次）。
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -102,10 +77,28 @@ export function KlineChart({ symbol, height = 480, className, onDataChange, onCr
     })
     candleRef.current = candle
 
+    const vol = chart.addHistogramSeries({
+      color: '#94a3b8',
+      priceScaleId: 'vol',
+    })
+    vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0.05 } })
+    volRef.current = vol
+
     if (onCross) {
       chart.subscribeCrosshairMove((param) => {
         const main = param.point ? param.seriesData.get(candle) : undefined
-        onCross?.(main as unknown as KlineRow | null)
+        if (!main) {
+          onCross(null)
+          return
+        }
+        const { time, open, high, low, close } = main as {
+          time: string
+          open: number
+          high: number
+          low: number
+          close: number
+        }
+        onCross({ date: String(time).slice(0, 10), open, high, low, close } as KlineRow)
       })
     }
 
@@ -117,10 +110,58 @@ export function KlineChart({ symbol, height = 480, className, onDataChange, onCr
       ro.disconnect()
       chart.remove()
       chartRef.current = null
+      candleRef.current = null
+      volRef.current = null
     }
-  }, [height, onCross])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [height])
 
-  void setRange
+  // 数据渲染：受控 rows（优先）；未提供 rows 时退回组件内自取（兼容复用方）。
+  useEffect(() => {
+    if (!chartRef.current) return
+
+    const render = (list: KlineRow[]) => {
+      const { candlestick, volume } = toSeriesData(list)
+      candleRef.current?.setData(candlestick)
+      volRef.current?.setData(volume)
+      setStatus(list.length ? 'ok' : 'empty')
+      setError('')
+    }
+
+    // 受控模式：父级已给数据，直接渲染，不再发请求。
+    if (Array.isArray(rows)) {
+      render(rows)
+      return
+    }
+
+    // 自取模式（近 6 个月）：目前仅 StockDetailPage 使用且已改受控，
+    // 保留此路径仅为组件可独立复用。
+    if (!symbol) {
+      setStatus('empty')
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const end = new Date()
+        const start = new Date()
+        start.setMonth(start.getMonth() - 6)
+        const res = await api.klineDaily(symbol, 120, {
+          start: start.toISOString().slice(0, 10),
+          end: end.toISOString().slice(0, 10),
+        })
+        if (cancelled) return
+        render(res.rows)
+      } catch (e) {
+        if (cancelled) return
+        setError((e as Error).message)
+        setStatus('error')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [rows, symbol])
 
   return (
     <div className={className} ref={containerRef} style={{ height }}>

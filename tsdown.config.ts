@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from 'tsdown'
 import type { Plugin } from 'rolldown'
@@ -29,8 +29,10 @@ function cssAsString(): Plugin {
 }
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/client.ts'],
+  entry: ['src/index.ts'],
   format: 'esm',
+  // dts 产物由 tsdown 生成分片（lib/index-*.d.ts），
+  // 入口 .d.ts（lib/types/index.d.ts 等）由 package.json 的 postbuild 脚本补齐。
   dts: true,
   sourcemap: true,
   clean: true,
