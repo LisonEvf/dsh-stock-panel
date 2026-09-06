@@ -1,12 +1,15 @@
 /**
  * MCP over HTTP 客户端（JSON-RPC 2.0 + SSE / JSON）。
  *
- * 数据桥接：browser 半 POST 到同源路由 /api/stock-panel/mcp，
- * 由 host 半（src/index.ts 的 registerMcpBridge）转发到远端 MCP 服务器
- * （默认 http://192.168.31.196:8007/mcp）。host 半在服务端发起请求，
- * 无 CORS 问题，也无需 FastAPI 后端。
- *
- * 可通过全局变量 __DSH_MCP_ENDPOINT__ 覆盖远端 MCP 服务器地址。
+ * ⚠️ 数据路径（2026-09 起）：默认行情传输 = 本机 opentdx JSON 网关
+ * （src/lib/gateway.ts → http://127.0.0.1:8017/call，见 gateway/README.md）。
+ * 本模块保持「远端 MCP」客户端实现，并导出 invokeTool() 统一分发：
+ *   - window.__DSH_TDX_TRANSPORT__ !== 'mcp'（默认 'tdx'）→ 先走本地网关；
+ *   - 网关不可达（10s 冷却）或显式 'mcp' → 走本模块远端 MCP：
+ *     browser 半 POST 到同源路由 /api/stock-panel/mcp，由 host 半
+ *     （src/index.ts 的 registerMcpBridge）转发到远端 MCP 服务器
+ *     （默认 http://192.168.31.196:8007/mcp）。
+ *   - 可通过全局变量 __DSH_MCP_ENDPOINT__ 覆盖远端 MCP 服务器地址。
  *
  * ⚠️ 响应解析：远端 opentdx MCP 服务器对 tools/* 请求始终以
  * `text/event-stream`（event: message / data: {...}）返回，个别实现也可能
@@ -20,6 +23,8 @@
  *   3. POST ...  body: tools/list   → 工具列表
  *   4. POST ...  body: tools/call    → 调用工具（带 sessionId）
  */
+
+import { gatewayCall, TdxGatewayUnavailableError } from './gateway'
 
 export interface McpTool {
   name: string
@@ -234,4 +239,69 @@ let client: McpClient | null = null
 export function getMcp(): McpClient {
   if (!client) client = new McpClient()
   return client
+}
+
+// ================================================================
+// 传输层分发：本机 opentdx 网关（默认 'tdx'） vs 远端 MCP（'mcp'）
+// ================================================================
+
+/**
+ * 行情传输模式：
+ *   - 'tdx'（默认）：本机 JSON 网关（gateway/，直连 TRADE\opentdx），
+ *     不可达时自动回退远端 MCP（见 invokeTool）；
+ *   - 'mcp'：强制远端 MCP（192.168.31.196:8007，经 host 桥接）。
+ * 可用 window.__DSH_TDX_TRANSPORT__ 覆盖。__DSH_DATA_SOURCE__('mcp'|'http')
+ * 仍专管 api.ts 的「后端特性开关」（关键价位/AI/后端自选），两者互不干扰。
+ */
+export type TdxTransportMode = 'tdx' | 'mcp'
+
+export function getTdxTransportMode(): TdxTransportMode {
+  if (typeof window === 'undefined') return 'tdx'
+  return (window as any).__DSH_TDX_TRANSPORT__ === 'mcp' ? 'mcp' : 'tdx'
+}
+
+/** 网关不可达冷却截止时间（回退远端 MCP，避免每请求白等超时）。 */
+let gatewayDownUntil = 0
+
+export function gatewayLatchActive(): boolean {
+  return Date.now() < gatewayDownUntil
+}
+
+export function resetGatewayLatch(): void {
+  gatewayDownUntil = 0
+}
+
+/** 网关 payload → McpCallResult（content/structuredContent 双形态，兼容现有适配层）。 */
+function toMcpResult(data: any): McpCallResult {
+  const payload = data ?? null
+  return {
+    content: [{ type: 'text', text: JSON.stringify(payload) }],
+    structuredContent: { result: payload },
+  }
+}
+
+/**
+ * 统一工具调用入口（stock-data.ts / 页面轮询 / 诊断句柄都走这里）。
+ * 返回与 McpClient.callTool 同型的 McpCallResult；失败抛 Error。
+ */
+export async function invokeTool(
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<McpCallResult> {
+  if (getTdxTransportMode() === 'tdx' && !gatewayLatchActive()) {
+    try {
+      const data = await gatewayCall(name, args)
+      return toMcpResult(data)
+    } catch (err) {
+      if (err instanceof TdxGatewayUnavailableError) {
+        // 网关未启动/超时：冷却 10s 期间直接走远端 MCP，页面不中断。
+        gatewayDownUntil = Date.now() + 10_000
+        console.warn('[stock-panel] tdx 网关不可达，10s 内回退远端 MCP:', (err as Error).message)
+      } else {
+        // 网关在线但工具业务失败：如实抛错（与 MCP 行为一致，不触发回退）。
+        throw err
+      }
+    }
+  }
+  return getMcp().callTool(name, args)
 }

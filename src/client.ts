@@ -31,7 +31,7 @@ import panelCss from './index.css'
 import { PanelApp } from './panel/PanelApp'
 // 运行时诊断句柄（浏览器控制台可直接调用）。
 import { getDataSource } from './lib/api'
-import { getMcp } from './lib/mcp'
+import { getMcp, invokeTool } from './lib/mcp'
 import { getWatchlist } from './lib/watchlist-store'
 
 /**
@@ -148,10 +148,10 @@ export function apply(ctx: DshClientCtx): void {
   // 注入插件样式（Tailwind 工具类 + .dsh-stock 组件规则）。
   injectPanelStyles()
 
-  // MCP 数据源配置：前端直连远端 MCP 服务器（默认 192.168.31.196:8007/mcp），
-  // 无需 FastAPI 后端。可通过全局变量覆盖：
-  //   window.__DSH_MCP_ENDPOINT__  → 自定义端点
-  //   window.__DSH_DATA_SOURCE__   → 'mcp' | 'http'
+  // 行情传输配置（默认本机 opentdx JSON 网关，无需 FastAPI 后端）：
+  //   window.__DSH_TDX_TRANSPORT__  → 'tdx'(默认, 本机网关) | 'mcp'(远端 MCP)
+  //   window.__DSH_TDX_GATEWAY__     → 自定义网关端点（默认 http://127.0.0.1:8017）
+  //   window.__DSH_DATA_SOURCE__     → api.ts 后端特性开关：'mcp' | 'http'（见 lib/api.ts）
   if (typeof window !== 'undefined') {
     ;(window as any).__DSH_DATA_SOURCE__ = (window as any).__DSH_DATA_SOURCE__ || 'mcp'
   }
@@ -164,10 +164,11 @@ export function apply(ctx: DshClientCtx): void {
   if (typeof window !== 'undefined') {
     const panel = (window as any).__STOCK_PANEL__
     ;(window as any).__STOCK_PANEL__ = {
-      version: '0.3.5-m5',
+      version: '0.5.0-gateway',
       dataSource: () => getDataSource(),
+      transport: () => (window as any).__DSH_TDX_TRANSPORT__ || 'tdx',
       listTools: () => getMcp().listTools(),
-      callTool: (name: string, args: Record<string, unknown>) => getMcp().callTool(name, args),
+      callTool: (name: string, args: Record<string, unknown>) => invokeTool(name, args),
       watchlist: () => getWatchlist(),
       ...(panel && typeof panel === 'object' ? panel : {}),
     }

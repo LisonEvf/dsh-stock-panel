@@ -1,8 +1,8 @@
 /**
  * 股票数据适配层（M5 版）：通过 MCP 工具获取数据，转换成前端组件所需格式。
  *
- * 数据源：远端 MCP 服务器（http://192.168.31.196:8007/mcp，opentdx 3.4.0），
- * 由 host 半（src/index.ts）桥接，无需 FastAPI 后端。
+ * 数据源：默认本机 opentdx JSON 网关（http://127.0.0.1:8017/call，见 gateway/README.md），
+ * 网关不可达自动回退远端 MCP（192.168.31.196:8007/mcp）；由 mcp.ts invokeTool 统一分发。
  *
  * 工具返回约定（已实测）：
  *   - quote / kline / tick_chart / unusual / market_monitor / board_members
@@ -11,7 +11,7 @@
  *   - 涨跌幅不在响应里，一律由 close/pre_close 推算。
  */
 
-import { getMcp, type McpCallResult } from './mcp'
+import { invokeTool, type McpCallResult } from './mcp'
 import { marketIdToTag, type MarketTag } from './symbol'
 
 // ===== 原始行类型（与服务端字段一致） =====
@@ -118,14 +118,25 @@ function extractStructured(result: McpCallResult): any | null {
   return sc
 }
 
-/** 解析工具文本为数组（兼容 数组 / {rows:[]} / {data:[]} / 单对象）。 */
-function toArray(text: string | null): any[] {
-  if (!text) return []
-  let data: any
-  try {
-    data = JSON.parse(text)
-  } catch {
-    return []
+/**
+ * 归一化为数组（兼容三种输入）：
+ *   - 已解析的数组（callToolJson 的主返回形态）→ 原样返回；
+ *   - JSON 字符串（工具 text 直读）→ JSON.parse 后再分形；
+ *   - 对象 {rows|data|items: [...]} / 单对象 → rows/data/items 或包一层。
+ * ⚠️ 历史坑：曾对已解析数组再 JSON.parse（数组会被字符串化成 "a,b" 而解析失败
+ * → 静默返回空，整层数据在网关传输下全空）。2026-09-06 冒烟复现后修复。
+ */
+function toArray(input: unknown): any[] {
+  if (input == null) return []
+  if (Array.isArray(input)) return input
+  let data: any = input
+  if (typeof input === 'string') {
+    if (!input.trim()) return []
+    try {
+      data = JSON.parse(input)
+    } catch {
+      return []
+    }
   }
   if (Array.isArray(data)) return data
   if (data && Array.isArray(data.rows)) return data.rows
@@ -137,7 +148,7 @@ function toArray(text: string | null): any[] {
 
 /** 通用工具调用：返回解析后的任意 JSON 数组/对象。 */
 export async function callToolJson(name: string, args: Record<string, unknown>): Promise<any> {
-  const result = await getMcp().callTool(name, args)
+  const result = await invokeTool(name, args)
   if (result.isError) {
     const msg = extractText(result) || '工具调用失败'
     throw new Error(`${name}: ${msg}`)
@@ -324,4 +335,31 @@ export async function fetchAuctionSeries(market: MarketTag, code: string): Promi
   } catch {
     return []
   }
+}
+
+/**
+ * 逐笔成交行（transaction，实测字段：time HH:MM:SS / price / vol / trade_count / bs_flag）。
+ * ⚠️ bs_flag 语义（1=主动买/外盘 or 0=主动卖）与 vol 单位（手/股）待盘中复验，
+ * UI 先按 1=买 0=卖 呈现并标注口径。
+ */
+export interface TransactionRow {
+  time?: string
+  price?: number
+  vol?: number
+  trade_count?: number
+  bs_flag?: number
+  [key: string]: any
+}
+
+/** 调用 transaction（逐笔成交）：query_date 为 YYYY-MM-DD 时查历史，缺省最近交易日。 */
+export async function fetchTransactions(
+  market: MarketTag,
+  code: string,
+  count = 200,
+  date?: string | null,
+): Promise<TransactionRow[]> {
+  const args: Record<string, unknown> = { market, code, count }
+  if (date) args.query_date = date
+  const data = await callToolJson('transaction', args)
+  return toArray(data) as TransactionRow[]
 }

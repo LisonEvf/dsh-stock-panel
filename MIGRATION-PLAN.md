@@ -47,7 +47,7 @@
   桥接路由/工具透传/client bundle 均已在临时实例无头验证通过；**剩余 = 主 GUI 重启后的浏览器点击验收**（§11）。
 - 关键价位 / AI 分析仍走 HTTP 后端 → 见 §6 B 轨（levels.py 纯函数可移植 TS）。
 - `Watchlist.tsx`（旧 M3 组件，走后端）→ ✅ 已随 0.4.0 基线删除（被 `WatchlistPage` 取代）。
-- `IntradayChart.tsx`（个股分时）已迁移但未接入个股页 → M6/M8 接入（后续 M9 批次）。
+- `IntradayChart.tsx`（M1 HTTP 版个股分时）→ ✅ M9/0.6.0 已由 `StockIntraday.tsx`（纯 MCP）取代接入。
 
 ---
 
@@ -140,15 +140,17 @@ B 轨（可选，__DSH_DATA_SOURCE__='http'）：
 - **验收**：任意字段条件即时出结果；"MA5 上穿 MA20"策略在 ≤30s 出 TOP 列表且与后端策略抽查一致率 ≥80%。
 - **前置**：M6 的 indicators.ts 扩展 + 并发调度器（`lib/pool.ts`：并发数/退避/取消）。
 
-### M9 — 个股页增强（P1，规模 M）
+### M9 — 个股页增强（P1，规模 M） ✅ 2026-09-06 完成（0.6.0；第 5 项 B 轨 levels 移植除外）
 - **内容**：
-  1. 接入 `IntradayChart`（当日/历史分时，个股已有 M1 组件）；
-  2. 日 K 增加区间切换（近 3 月/6 月/1 年/全部）、MA 开关（复用 M5 IndexChart 经验）；
-  3. 资金面板：`capital_flow`（当日/5 日主力净流入）条状迷你图；
-  4. 盘口/逐笔：`transaction` 最近成交列表（折叠）；
-  5. **B 轨**：关键价位移植 `levels.py` 为 `lib/levels.ts` 纯函数（9 类价位本地算，MCP 下也可见）——纯函数移植工作量中等，收益大。
-- **验收**：个股页无后端也可看图/分时/资金；价位在 http 源下显示。
-- **前置**：M5 KlineChart 的 range 参数化已就绪。
+  1. ✅ 个股分时接入（新组件 `components/StockIntraday.tsx`，纯 MCP `tick_chart`，
+     基线日期 = 最近日 K 交易日，收盘后/休市可回看；替代 M1 期 HTTP 版 `IntradayChart`）；
+  2. ✅ 日 K 区间切换（近 3 月/6 月/1 年/全部）+ MA5/10/20 开关（`KlineChart` 受控 rows +
+     按区间重取；A 股配色红涨绿跌统一）；
+  3. ✅ 资金面板：`capital_flow`（当日/5 日主力净流入）—— 已于 N7 接入；
+  4. ✅ 逐笔成交：`components/StockTransactions.tsx`（`transaction` 最新 60 条，折叠；
+     `bs_flag` 方向与 vol 单位语义**待盘中复验**）；
+  5. **B 轨**：关键价位移植 `levels.py` → `lib/levels.ts` 纯函数（未做，仍待办）。
+- **验收**：个股页无后端可看图/分时/资金/逐笔（MCP 模式已过冒烟）；价位在 http 源下显示（不变）。
 
 ### M10 — 扩展市场 + 系统打磨（P2，规模 S-M）
 - **内容**：`goods_quotes/kline`（港股/美股/期货）做成"扩展市场"Tab（表格式 + 迷你图，量小）；

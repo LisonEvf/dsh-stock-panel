@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type AiStockReport, type KlineRow } from '@/lib/api'
 import { InstrumentSearch } from '@/components/InstrumentSearch'
 import { KlineChart } from '@/components/KlineChart'
+import { StockIntraday } from '@/components/StockIntraday'
+import { StockTransactions } from '@/components/StockTransactions'
 import { StockInfoBar } from '@/components/StockInfoBar'
 import { PriceLevels } from '@/components/PriceLevels'
 import { AiAnalysisHost } from '@/components/AiAnalysisHost'
@@ -17,19 +19,27 @@ import { useWatchlist } from '@/lib/watchlist-store'
 import type { OpenStock } from '@/panel/PanelApp'
 
 /**
- * 股票工作台个股详情页（N7 版）。
+ * 股票工作台个股详情页（M9/W3 版）。
  *
  * 布局（自上而下，适配右侧窄列）：
  *   1. 顶栏：标的搜索 + 现价 + 加自选星标
  *   2. 信息条：自定义指标（市值/换手/振幅…）
- *   3. 日 K 图（lightweight-charts；受控 rows，由本页一次性拉取）
- *   4. 竞价回顾（当日）+ 资金面板（当日/5 日，N7）
+ *   3. 图表卡：日K（区间：近3月/6月/1年/全部 + MA5/10/20 开关）｜ 分时（tick_chart）
+ *   4. 竞价回顾（当日）+ 资金面板（当日/5 日，N7）+ 逐笔成交（折叠，M9）
  *   5. AI 四维分析（流式）+ 报告历史
  *
- * 数据源（api.ts 适配层）：日 K/报价/搜索默认走 MCP 数据源（无后端可用）；
+ * 数据源：日K/分时/逐笔/报价/搜索全部直连 MCP（api.ts 适配层，无后端可用）；
  * 关键价位（levels）与 AI 四维分析仍依赖 FastAPI 后端（B 轨）——MCP 模式下
  * 价位区块隐藏、AI 区块报错提示，均为预期降级。
  */
+
+/** 日 K 区间（天数为交易日根数；默认近6月 = 初始拉取根数一致，避免重复取数）。 */
+const RANGES: { key: string; label: string; days: number }[] = [
+  { key: '3月', label: '3月', days: 66 },
+  { key: '6月', label: '6月', days: 120 },
+  { key: '1年', label: '1年', days: 250 },
+  { key: '全部', label: '全部', days: 1000 },
+]
 
 interface State {
   symbol: string
@@ -57,6 +67,14 @@ export function StockDetailPage({ open, onBack }: Props) {
   const cancelledRef = useRef(false)
   const { items: watchlist, toggle: toggleWatch, isWatched } = useWatchlist()
 
+  // M9：图表卡状态（模式 / 区间 / MA 开关 / 区间取数忙）
+  const [chartMode, setChartMode] = useState<'day' | 'min'>('day')
+  const [rangeKey, setRangeKey] = useState('6月')
+  const [showMA, setShowMA] = useState(true)
+  const [chartBusy, setChartBusy] = useState(false)
+  /** 当前 rows 对应根数（初始 120=近6月；与 RANGES 对齐避免重复取数）。 */
+  const rowsDaysRef = useRef(120)
+
   // 持久化信息条字段偏好
   useEffect(() => {
     saveInfoFields(state.fields)
@@ -74,6 +92,11 @@ export function StockDetailPage({ open, onBack }: Props) {
     if (!symbol) return
     setLoading(true)
     setError('')
+    setChartMode('day')
+    setRangeKey('6月')
+    setShowMA(true)
+    setChartBusy(false)
+    rowsDaysRef.current = 120
     const p = parseSymbol(symbol)
     const full = p ? `${p.market}${p.code}` : symbol
     Promise.allSettled([
@@ -123,6 +146,46 @@ export function StockDetailPage({ open, onBack }: Props) {
   const latestClose = useMemo(() => {
     const latest = state.rows[state.rows.length - 1]
     return latest ? Number(latest.close) : 0
+  }, [state.rows])
+
+  // M9：日 K 区间切换 → 按需重取（根数与当前 rows 一致则跳过；失败保留旧数据）。
+  useEffect(() => {
+    if (!state.symbol || chartMode !== 'day') return
+    const cfg = RANGES.find((r) => r.key === rangeKey)
+    if (!cfg || cfg.days === rowsDaysRef.current) {
+      setChartBusy(false)
+      return
+    }
+    let cancelled = false
+    setChartBusy(true)
+    api
+      .klineDaily(state.symbol, cfg.days)
+      .then((res) => {
+        if (cancelled) return
+        const next = (res as { rows: KlineRow[] }).rows
+        rowsDaysRef.current = cfg.days
+        setState((s) => ({ ...s, rows: next }))
+      })
+      .catch(() => {
+        /* 数据源异常：保留旧区间数据，不打断浏览 */
+      })
+      .finally(() => {
+        if (!cancelled) setChartBusy(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [state.symbol, chartMode, rangeKey])
+
+  // 分时基线：最近一根日 K 的交易日 + 前一交易日收盘（昨收虚线）。
+  const minBase = useMemo(() => {
+    if (state.rows.length < 1) return null
+    const last = state.rows[state.rows.length - 1]
+    const prev = state.rows.length >= 2 ? state.rows[state.rows.length - 2] : null
+    return {
+      baseDate: String(last.date).slice(0, 10),
+      prevClose: prev ? Number(prev.close) || 0 : 0,
+    }
   }, [state.rows])
 
   // N7：个股级竞价回顾 / 资金面板的标的
@@ -224,17 +287,67 @@ export function StockDetailPage({ open, onBack }: Props) {
           />
         )}
 
-        {/* 日 K 图 */}
+        {/* M9：图表卡（日K：区间 + MA 开关；分时） */}
         {state.symbol && (
           <div className="mt-1.5 rounded-lg border border-slate-100 bg-slate-50/40 p-1.5">
-            {loading ? (
+            <div className="mb-1 flex items-center gap-1">
+              <button
+                onClick={() => setChartMode('day')}
+                className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${chartMode === 'day' ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400'}`}
+              >
+                日K
+              </button>
+              <button
+                onClick={() => setChartMode('min')}
+                disabled={!minBase}
+                className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${chartMode === 'min' ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400 disabled:opacity-40'}`}
+                title={minBase ? '当日/最近交易日分时' : '暂无日K数据，分时不可用'}
+              >
+                分时
+              </button>
+              {chartMode === 'day' && (
+                <button
+                  onClick={() => setShowMA((v) => !v)}
+                  className={`ml-auto rounded px-1.5 py-0.5 text-[9px] font-medium ${showMA ? 'bg-blue-50 text-blue-500' : 'bg-white text-slate-300'}`}
+                  title="MA5/10/20 均线叠加开关"
+                >
+                  MA {showMA ? '开' : '关'}
+                </button>
+              )}
+            </div>
+            {chartMode === 'day' && (
+              <div className="mb-1 flex items-center gap-0.5">
+                {RANGES.map((r) => (
+                  <button
+                    key={r.key}
+                    onClick={() => setRangeKey(r.key)}
+                    className={`rounded px-1 py-px font-mono text-[9px] ${rangeKey === r.key ? 'bg-emerald-100 text-emerald-600' : 'text-slate-400 hover:bg-white'}`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+                {chartBusy && <span className="ml-auto text-[9px] text-slate-300">取数中…</span>}
+              </div>
+            )}
+            {loading && !state.rows.length ? (
               <div className="flex h-64 items-center justify-center text-sm text-slate-400">K 加载中…</div>
-            ) : (
-              <KlineChart
-                symbol={state.symbol}
-                height={300}
-                rows={state.rows}
+            ) : chartMode === 'day' ? (
+              state.rows.length ? (
+                <KlineChart symbol={state.symbol} height={280} rows={state.rows} showMA={showMA} />
+              ) : (
+                <div className="flex h-64 items-center justify-center text-[11px] text-slate-300">暂无历史 K 线数据</div>
+              )
+            ) : minBase && symParts ? (
+              <StockIntraday
+                key={state.symbol}
+                market={symParts.market}
+                code={symParts.code}
+                baseDate={minBase.baseDate}
+                prevClose={minBase.prevClose}
+                height={280}
               />
+            ) : (
+              <div className="flex h-64 items-center justify-center text-[11px] text-slate-300">暂无日K数据，分时不可用</div>
             )}
           </div>
         )}
@@ -247,11 +360,12 @@ export function StockDetailPage({ open, onBack }: Props) {
           </div>
         )}
 
-        {/* N7：竞价回顾（当日）+ 资金面板（当日/5日，仅方向确认） */}
+        {/* N7/M9：竞价回顾（当日）+ 资金面板（当日/5日）+ 逐笔成交（折叠） */}
         {symParts && (
           <div className="mt-2.5 space-y-1.5">
             <StockAuctionReview key={state.symbol} market={symParts.market} code={symParts.code} />
             <StockCapitalFlow key={state.symbol} market={symParts.market} code={symParts.code} />
+            <StockTransactions key={state.symbol} market={symParts.market} code={symParts.code} />
           </div>
         )}
 

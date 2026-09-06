@@ -2,3 +2,8 @@ node_modules/
 /lib/
 dist/
 *.log
+
+# 本地 opentdx 网关运行产物
+gateway/*.pid
+gateway/*.log.*
+gateway/state/

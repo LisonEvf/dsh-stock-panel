@@ -153,7 +153,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 | 市场 | `src/pages/MarketOverview.tsx` | `board_members("A", 6000)` + `quote`(指数) + `unusual`(SH/SZ/BJ) | 一次拉全 A 5566 只 → 广度 / 涨跌分布 / 涨幅·跌幅·成交·换手榜单 / 涨停·跌停（按 `buy_price_limit` 精确判定）/ 异动速递；20s 轮询 |
 | 指数 | `src/pages/IndicesPage.tsx` + `src/components/IndexChart.tsx` | `quote` + `kline(DAILY)` + `tick_chart` | 9 大指数切换；日 K（K 线 + MA5/10/20 + 量）/ 分时（价格 + 均价 + 昨收线）双模式 |
 | 自选 | `src/pages/WatchlistPage.tsx` | `quote`（逐只并行）+ 本地搜索 | **自选改存 localStorage**（`src/lib/watchlist-store.ts`）；12s 轮询实时价；点行打开个股 |
-| 个股 | `src/pages/StockDetailPage.tsx` | `kline` 等 | 由市场/自选点选打开（`open` 入参）；搜索走本地全 A 索引（`searchInstruments`） |
+| 个股 | `src/pages/StockDetailPage.tsx` | `kline` + `tick_chart` + `auction` + `capital_flow` + `transaction` | 由市场/自选点选打开（`open` 入参）；搜索走本地全 A 索引（`searchInstruments`）。M9/W3：**日K（近3月/6月/1年/全部 区间 + MA5/10/20 开关）｜ 分时（当日/最近交易日，昨收虚线）** + 逐笔成交（折叠，最新 60 条，方向/单位语义待盘中复验） |
 
 > 数据源端点按环境而定：本机为 `192.168.31.196:8007`。若不可达，面板会优雅降级/提示
 > （UI 仍照常出现）。
@@ -193,8 +193,12 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 - **已知占位**：作战页盘中温度计输入仍为近似初值（昨日池 ∩ 实时涨停 的联动口径留待下轮）；
   事件流盘中捕获质量需交易日复验（`unusual/market_monitor` 仅在盘中给增量）。
 
-> 验证现状（0.4.0）：**全量 `tsc --noEmit` 0 错误**（2026-09-06 已清理 src/test-*/mock-* 脚手架，
-> 并把 vite/client 的空 `*.css` 声明换成带 default 导出的本地声明，消除既有噪音）；`pnpm build` exit 0。
+> 验证现状（0.6.0）：**全量 `tsc --noEmit` 0 错误**；`pnpm build` exit 0。
+> 2026-09-06 晚行情源恢复（本机 8017 网关回放 09-04 收盘数据）后跑了**适配层真机冒烟**，
+> 复现并修复一处**数据层严重缺陷**：`stock-data.ts` 的 `toArray` 对 callToolJson 已解析的
+> 数组再二次 `JSON.parse`（数组被字符串化成 "a,b" 解析失败 → 整层数据静默返回空，
+> 周六休市空数据掩盖了它）。已改为「数组原样 / 字符串再解析 / 对象分形」三态兼容；
+> kline / board_members / transaction / tick_chart / unusual / quote 全链路实测返回正常。
 > 真机验收（2026-09-06，周日休市，A 股行情源空返回）：
 > - ✅ 面板/7 Tab 加载正常；市场页琥珀空态提示、指数页「行情源暂无指数数据」空态（不再无限"加载中"）、
 >   复盘页缺数据时存档禁用并提示、作战页休市停止轮询——均按预期；
