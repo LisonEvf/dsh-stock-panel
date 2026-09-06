@@ -35,35 +35,6 @@ export function getDataSource(): DataSource {
   return dataSource
 }
 
-// ===== B 轨后端可用性探测（AI 四维分析 / 关键价位） =====
-
-let backendProbe: { at: number; ok: boolean } | null = null
-const BACKEND_PROBE_TTL = 60_000 // 60s 缓存，避免每个标的/每次渲染都探测
-
-/**
- * 探测 FastAPI 后端是否在线（B 轨：AI 分析 / 关键价位端点）。
- * 纯 MCP 模式下 DSH 主机无 /api/stock-analysis/* 路由 → 404/网络拒绝 → false。
- * 探测结果 60s 缓存；后端可服务时返回 true，否则 false（不抛错）。
- */
-export async function detectBackend(timeoutMs = 4000): Promise<boolean> {
-  const now = Date.now()
-  if (backendProbe && now - backendProbe.at < BACKEND_PROBE_TTL) return backendProbe.ok
-  const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), timeoutMs)
-  try {
-    const res = await fetch(`${BASE}/api/stock-analysis/reports`, {
-      headers: { Accept: 'application/json' },
-      signal: ac.signal,
-    })
-    backendProbe = { at: Date.now(), ok: res.ok }
-  } catch {
-    backendProbe = { at: Date.now(), ok: false }
-  } finally {
-    clearTimeout(timer)
-  }
-  return backendProbe.ok
-}
-
 // 后端 API 客户端（DSH 插件版）
 //
 // Dev: Vite 代理 /api 到后端端口（默认 3018），VITE_API_BASE 可覆盖。

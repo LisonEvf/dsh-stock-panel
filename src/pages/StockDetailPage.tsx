@@ -29,8 +29,8 @@ import type { OpenStock } from '@/panel/PanelApp'
  *   5. AI 四维分析（流式）+ 报告历史
  *
  * 数据源：日K/分时/逐笔/报价/搜索全部直连 MCP（api.ts 适配层，无后端可用）；
- * 关键价位（levels）与 AI 四维分析仍依赖 FastAPI 后端（B 轨）——MCP 模式下
- * 价位区块隐藏、AI 区块报错提示，均为预期降级。
+ * 关键价位（levels）仍依赖 FastAPI 后端（B 轨，MCP 模式隐藏）；AI 四维分析已改为
+ * 「对话联动」（host 半注册 stock_quote/stock_kline 等工具，见 AiAnalysisHost）。
  */
 
 /** 日 K 区间（天数为交易日根数；默认近6月 = 初始拉取根数一致，避免重复取数）。 */

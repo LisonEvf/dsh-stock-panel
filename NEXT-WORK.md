@@ -37,6 +37,10 @@
 >   跳过）、`scripts/check-bundle-size.mjs`（client.js 护栏 600KB，当前未压缩 ≈575KB）、
 >   `.github/workflows/ci.yml`（install→prepare build→tsc→护栏）；README §打包发布与治理。
 >   待办：registry `pnpm publish` 执行、README screenshots/、CHANGELOG。
+> - ✅ **W8**（对话行情工具 · AI 零后端，1.1.0）：host 半注册对话工具 stock_quote / stock_kline /
+>   stock_tick / stock_unusual（`src/host-data.ts` 网关→远端 MCP 双路径直连 + `src/host-tools.ts`），
+>   当前对话助手可直接取数做四维分析；个股页 AI 区块改「对话联动 · 复制指令」；
+>   FastAPI B2 依赖退役。host 取数双路径冒烟通过（重启 dsh web 后即可在对话调用）。
 > - ⏳ 待交易日（周一盘中）复验：实算数值跨日回归、强度差分真实行情表现、逐笔 bs_flag/vol 单位、
 >   事件捕获口径、监控命中 Toast/徽标交互与事件关键词盘中增量。
 

@@ -169,7 +169,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 | 市场 | `src/pages/MarketOverview.tsx` | `board_members("A", 6000)` + `quote`(指数) + `unusual`(SH/SZ/BJ) | 一次拉全 A 5566 只 → 广度 / 涨跌分布 / 涨幅·跌幅·成交·换手榜单 / 涨停·跌停（按 `buy_price_limit` 精确判定）/ 异动速递；20s 轮询 |
 | 指数 | `src/pages/IndicesPage.tsx` + `src/components/IndexChart.tsx` | `quote` + `kline(DAILY)` + `tick_chart` | 9 大指数切换；日 K（K 线 + MA5/10/20 + 量）/ 分时（价格 + 均价 + 昨收线）双模式 |
 | 自选 | `src/pages/WatchlistPage.tsx` | `quote`（逐只并行）+ 本地搜索 | **自选改存 localStorage**（`src/lib/watchlist-store.ts`）；12s 轮询实时价；点行打开个股 |
-| 个股 | `src/pages/StockDetailPage.tsx` | `kline` + `tick_chart` + `auction` + `capital_flow` + `transaction` | 由市场/自选点选打开（`open` 入参）；搜索走本地全 A 索引（`searchInstruments`）。M9/W3：**日K（近3月/6月/1年/全部 区间 + MA5/10/20 开关）｜ 分时（当日/最近交易日，昨收虚线）** + 逐笔成交（折叠，最新 60 条，方向/单位语义待盘中复验） |
+| 个股 | `src/pages/StockDetailPage.tsx` | `kline` + `tick_chart` + `auction` + `capital_flow` + `transaction` | 由市场/自选点选打开（`open` 入参）；搜索走本地全 A 索引（`searchInstruments`）。M9/W3：**日K（近3月/6月/1年/全部 区间 + MA5/10/20 开关）｜ 分时（当日/最近交易日，昨收虚线）** + 逐笔成交（折叠，最新 60 条，方向/单位语义待盘中复验）；AI 分析＝**对话联动**（见 §对话行情工具） |
 
 > 数据源端点按环境而定：本机为 `192.168.31.196:8007`。若不可达，面板会优雅降级/提示
 > （UI 仍照常出现）。
@@ -213,6 +213,22 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 > 冒烟（真实数据）：全 A 5556 只 → 6 预设分别命中 11–151 只（头部为当日强势/活跃样本，合理）；
 > 信号检测与批量管线（进度回调/命中收集）跑通。
 > 口径：换手/量比为行情源当日字段，休市空数据时筛选自然 0 命中（页面有提示）；阈值均标注为经验初值可调。
+
+## 对话行情工具（chat 联动 · 零 FastAPI）
+
+AI 个股分析不再需要 FastAPI 后端（B 轨退役）：host 半（`src/index.ts`，inject `['webServer','tools']`）
+向**当前对话**注册行情工具，助手可直接取数分析：
+
+- `stock_quote`：实时报价摘要（现价/涨跌幅/昨收/开高低/量比/换手/成交额）；
+- `stock_kline`：日 K（默认 60 根，≤250），逐行 日期/开收高低/较开盘涨跌%；
+- `stock_tick`：当日/最近交易日分时（≤150 点抽样）；
+- `stock_unusual`：市场异动事件（涨停/炸板/跌停/拉升…，SH/SZ/BJ）。
+
+实现：`src/host-data.ts`（Node 直连：本机 8017 网关优先 → 远端 MCP `192.168.31.196:8007` 兜底，
+含 SSE 解析与会话重建）+ `src/host-tools.ts`（raw ToolDefinition，不引入构建期依赖）。
+个股页 AI 区块改为**一键复制分析指令**（粘贴到对话发送，助手会调工具取数后给四维结论）。
+验证：host 取数在网关与远端 MCP 双路径实测返回正常（quote/kline/tick/unusual）。
+> 提示：对话里也可直接说「用行情工具分析 600519」；工具可用性以对话工具清单为准。
 
 ## M10：扩展市场（外盘）
 

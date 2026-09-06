@@ -177,7 +177,7 @@ B 轨（可选，__DSH_DATA_SOURCE__='http'）：
 | 原功能 | 处置 | 触发条件 |
 | --- | --- | --- |
 | 关键价位（9 类） | B1：移植 levels.py → TS 纯函数（优先） | 无（本地算，MCP 可用） |
-| AI 四维分析 | B2：保留 HTTP；后续可改 DSH LLM 工具调用 | dataSource='http' |
+| AI 四维分析 | B2→✅ 1.1.0 改为「对话工具联动」（host 注册 stock_quote/kline/tick/unusual，零后端） | 无需后端（对话内使用） |
 | 完整 Screener（20 策略+自定义信号） | B3：仅 http；M8 提供轻量版 | dataSource='http' |
 | Backtest（vectorbt） | B4：仅 http；UI 内嵌 iframe/链接 | dataSource='http' |
 | Monitor 后端 SSE + 飞书 | B5：M7 本地版 + 桥接推送 | 本地版 MCP 可用；飞书需后端桥 |

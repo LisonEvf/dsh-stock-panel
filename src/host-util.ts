@@ -18,6 +18,10 @@ export interface HostCtx {
       handler: (req: unknown, res: unknown) => void | Promise<void>
     }) => () => void
   }
+  /** 工具注册表（dsh-tools，web 预设恒有）。对话行情工具经它注册。 */
+  tools?: {
+    register: (definition: unknown) => () => void
+  }
 }
 
 /** 安全获取 ctx 属性，未注入时返回 undefined 而非抛异常。 */

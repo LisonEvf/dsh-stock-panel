@@ -1,0 +1,203 @@
+/**
+ * host 半对话工具（chat 联动，零 FastAPI）。
+ *
+ * 给当前对话注册行情工具，助手可自行取数做个股/市场分析：
+ *   stock_quote / stock_kline / stock_tick / stock_unusual
+ *
+ * 注册方式：raw ToolDefinition（不依赖 @deepseek-ai/dsh-tools 的 defineTool 构建期
+ * 导入——包只在运行态宿主侧存在；字段对齐 dsh-tools 的 ToolDefinition 约定：
+ * name/description/parameters(JSON Schema)/output{schema,render}/execute(args)).
+ */
+
+import { hostKline, hostQuote, hostTick, hostUnusual } from './host-data'
+
+interface ToolParamsSpec {
+  type: 'object'
+  properties: Record<string, { type: string; description: string; enum?: string[] }>
+  required: string[]
+}
+
+interface RawToolDef {
+  name: string
+  description: string
+  parameters: ToolParamsSpec
+  output: { schema: { type: string }; render: (args: unknown, value: unknown) => unknown[] }
+  execute: (args: Record<string, unknown>) => Promise<unknown>
+}
+
+/** 仅 A 股解析：支持 SH600519 / 600519 / sz000001 / 000001.sz 等。 */
+export function hostParseSymbol(raw: unknown): { market: 'SH' | 'SZ' | 'BJ'; code: string } | null {
+  const s = String(raw ?? '').trim().toUpperCase().replace(/\.(SH|SZ|BJ)$/i, '')
+  const m = s.match(/^(SH|SZ|BJ)(\d{6})$/)
+  if (m) return { market: m[1] as 'SH' | 'SZ' | 'BJ', code: m[2] }
+  const digits = s.replace(/[^0-9]/g, '')
+  const code = digits.slice(-6)
+  if (!/^\d{6}$/.test(code)) return null
+  const market = code.startsWith('6') ? 'SH' : code.startsWith('0') || code.startsWith('3') ? 'SZ' : code.startsWith('4') || code.startsWith('8') || code.startsWith('9') ? 'BJ' : 'SH'
+  return { market, code }
+}
+
+function f(n: unknown, digits = 2): string {
+  const v = Number(n)
+  return Number.isFinite(v) ? v.toFixed(digits) : '—'
+}
+
+function sign(n: number): string {
+  return n > 0 ? '+' : n < 0 ? '−' : ''
+}
+
+/** 报价 → 一行摘要（含涨跌幅/量比/换手/成交额）。 */
+function quoteText(q: Record<string, unknown>): string {
+  const close = Number(q.close ?? 0)
+  const pre = Number(q.pre_close ?? 0)
+  const pct = pre > 0 ? ((close - pre) / pre) * 100 : 0
+  const vr = Number(q.vol_ratio ?? 0)
+  const turn = Number(q.turnover ?? 0)
+  const amountYi = (Number(q.amount ?? 0) / 1e8).toFixed(1)
+  return `${q.name ?? q.code} ${q.code} 现价 ${f(close)}（${sign(pct)}${f(Math.abs(pct))}%）昨收 ${f(pre)} 开 ${f(q.open)} 高 ${f(q.high)} 低 ${f(q.low)} 量比 ${vr > 0 ? f(vr) : '—'} 换手 ${turn > 0 ? `${f(turn)}%` : '—'} 额 ${amountYi}亿`
+}
+
+/** 日 K → 紧凑行（升序，展示末尾 days 根）。 */
+function klineText(rows: Record<string, unknown>[], days: number): string {
+  const want = Math.min(rows.length, Math.max(5, Math.min(days, 90)))
+  const show = rows.slice(rows.length - want)
+  const head = `日K ${rows.length} 根，展示最近 ${show.length} 根（旧→新）`
+  const lines = show.map((r) => {
+    const c = Number(r.close ?? 0)
+    const o = Number(r.open ?? 0)
+    const pct = o > 0 ? ((c - o) / o) * 100 : 0
+    return `${String(r.datetime).slice(0, 10)} 开${f(o)} 收${f(c)} 高${f(r.high)} 低${f(r.low)}（较开盘 ${sign(pct)}${f(Math.abs(pct))}%）`
+  })
+  return [head, ...lines].join('\n')
+}
+
+/** 分时 → 抽样行（≤150 点）。 */
+function tickText(rows: Record<string, unknown>[]): string {
+  const cap = 150
+  let show = rows
+  if (rows.length > cap) {
+    const step = rows.length / cap
+    show = rows.filter((_, i) => Math.floor(i / step) !== Math.floor((i - 1) / step) || i === rows.length - 1)
+  }
+  const head = `分时 ${rows.length} 点（抽样 ${show.length}，time 价格 均价 vol）`
+  const lines = show.map((r) => `${r.time ?? '—'} ${f(r.price)} ${r.avg != null ? f(r.avg) : '—'} ${r.vol ?? '—'}`)
+  return [head, ...lines].join('\n')
+}
+
+/** 异动 → 行（time name code desc value）。 */
+function unusualText(rows: Record<string, unknown>[]): string {
+  if (!rows.length) return '当前市场无异动事件'
+  return rows
+    .map((r) => `${r.time ?? '—'} ${r.code ?? ''} ${r.name ?? ''} ${r.desc ?? ''}${r.value ? ` ${r.value}` : ''}`)
+    .join('\n')
+}
+
+/** 纯文本工具工厂：返回 string，模型侧以 text 呈现。 */
+function textTool(
+  name: string,
+  description: string,
+  properties: ToolParamsSpec['properties'],
+  required: string[],
+  execute: RawToolDef['execute'],
+): RawToolDef {
+  return {
+    name,
+    description,
+    parameters: { type: 'object', properties, required },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
+    execute,
+  }
+}
+
+function defs(): RawToolDef[] {
+  return [
+    textTool(
+      'stock_quote',
+      '查询 A 股实时报价摘要（现价/涨跌幅/昨收/开高低/量比/换手/成交额）。适合判断个股强弱与盘中状态。symbol 形如 SH600519 / 000001 / sz000001。',
+      { symbol: { type: 'string', description: 'A 股代码，如 SH600519、600519、SZ000001' } },
+      ['symbol'],
+      async (args) => {
+        const p = hostParseSymbol(args.symbol)
+        if (!p) return `无效代码：${args.symbol}（需 6 位数字，可带 SH/SZ/BJ 前缀）`
+        try {
+          const q = await hostQuote(p.market, p.code)
+          return quoteText(q as Record<string, unknown>)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+    textTool(
+      'stock_kline',
+      '查询 A 股日 K 线（默认 60 根，最多 250 根），每行 日期 开/收/高/低 与较开盘涨跌%，用于趋势/形态/量价分析。',
+      {
+        symbol: { type: 'string', description: 'A 股代码，如 SH600519、600519' },
+        days: { type: 'number', description: '根数（默认 60，范围 5–250）' },
+      },
+      ['symbol'],
+      async (args) => {
+        const p = hostParseSymbol(args.symbol)
+        if (!p) return `无效代码：${args.symbol}`
+        const days = Math.max(5, Math.min(250, Number(args.days) || 60))
+        try {
+          const rows = await hostKline(p.market, p.code, days)
+          if (!rows.length) return `${p.market}${p.code} 暂无日 K 数据（休市/停牌/代码有误）`
+          return klineText(rows, days)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+    textTool(
+      'stock_tick',
+      '查询 A 股当日/最近交易日分时（1 分钟粒度，最多抽样 150 点）：time 价格 均价 vol。用于看日内节奏与承接。',
+      { symbol: { type: 'string', description: 'A 股代码，如 SH600519、000001' } },
+      ['symbol'],
+      async (args) => {
+        const p = hostParseSymbol(args.symbol)
+        if (!p) return `无效代码：${args.symbol}`
+        try {
+          const rows = await hostTick(p.market, p.code)
+          if (!rows.length) return `${p.market}${p.code} 暂无分时数据`
+          return tickText(rows)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+    textTool(
+      'stock_unusual',
+      '查询 A 股市场异动事件（涨停/炸板/跌停/拉升/大单等），用于市场情绪与复盘。market 可选 SH/SZ/BJ，默认 SH。',
+      { market: { type: 'string', description: '市场 SH/SZ/BJ（默认 SH）', enum: ['SH', 'SZ', 'BJ'] } },
+      [],
+      async (args) => {
+        const market = ['SZ', 'BJ'].includes(String(args.market).toUpperCase()) ? String(args.market).toUpperCase() : 'SH'
+        try {
+          const rows = await hostUnusual(market, 20)
+          return unusualText(rows)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+  ]
+}
+
+/**
+ * 注册全部行情对话工具。tools 为 ctx.tools（未注入时静默跳过，不影响布局/面板）。
+ * 返回工具数；注册失败的单个工具不影响其余。
+ */
+export function registerStockTools(tools: { register: (def: unknown) => () => void } | undefined): number {
+  if (!tools) return 0
+  let n = 0
+  for (const d of defs()) {
+    try {
+      tools.register(d as unknown)
+      n++
+    } catch (err) {
+      console.warn('[stock-panel] 工具注册失败:', d.name, (err as Error).message)
+    }
+  }
+  if (n > 0) console.log(`[stock-panel] 对话行情工具已注册 ×${n}`)
+  return n
+}

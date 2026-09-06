@@ -22,6 +22,7 @@
  */
 import { applyLayoutPatch, ensureLayoutPatchAtBoot, layoutPatchState, revertLayoutPatch, revertLayoutPatchIfNeeded } from './layout-patch'
 import { getOwnPropertySafe, registerMcpBridge, type HostCtx } from './host-util'
+import { registerStockTools } from './host-tools'
 
 /** 插件契约（host 半暴露给 browser 半和宿主）。 */
 export interface StockPanelContract {
@@ -41,7 +42,7 @@ export interface StockPanelContract {
  *     永远拿到 undefined，桥接静默不注册）。
  */
 export const name = '@lisonevf/dsh-stock-panel'
-export const inject = ['webServer']
+export const inject = ['webServer', 'tools']
 
 /** host 半插件体。ctx 由 Cordis host 运行时注入。 */
 export function apply(ctx: HostCtx): (() => void) | void {
@@ -67,6 +68,10 @@ export function apply(ctx: HostCtx): (() => void) | void {
   if (ws) {
     registerMcpBridge(ws as NonNullable<HostCtx['webServer']>)
   }
+
+  // 对话行情工具（chat 联动，零 FastAPI）：当前对话助手可直接调用取数分析。
+  // ctx.tools 经 inject 声明就绪；仍做安全兜底，失败不影响布局/桥接。
+  registerStockTools(getOwnPropertySafe(ctx, 'tools') as HostCtx['tools'] | undefined)
 
   // 卸载（fiber dispose / 进程退出 / 插件被移除）时还原 ui-layout，
   // 避免共享 junction 上的 bundle 残留空 stock 列。已有 pristine 备份且
