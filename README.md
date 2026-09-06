@@ -178,16 +178,20 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 | --- | --- | --- | --- |
 | N1 | 复盘模式（盘眼/预期清单/存档） | `lib/review-store.ts` + `src/pages/ReviewPage.tsx` | ✅ 构建通过 |
 | N2 | 竞价雷达（竞价时段挂载） | `lib/auction-analysis.ts` + `components/AuctionRadar.tsx`（挂入 WarPage） | ✅ |
-| N3 | 强度差分 / 低位首板候选 | `lib/strength.ts` | ✅（复盘/作战引用面待接） |
+| N3 | 强度差分 / 低位首板候选 | `lib/strength.ts` + 复盘页接入（观察池 ≤120 → 强度列 / 低位首板候选 → 一键加预期） | ✅（复盘引用面已接 0.5.0；作战引用面待接） |
 | N4 | 事件流 / 板块脉冲 / 局势归类 | `lib/event-stream.ts` + `board-pulse.ts` + `situation.ts` + WarPage | ✅ |
-| N5 | 情绪温度计（仓位总闸） | `lib/regime.ts`（ReviewPage/WarPage 展示） | ✅ |
+| N5 | 情绪温度计（仓位总闸） | `lib/regime.ts` + `lib/review-metrics.ts`（复盘实算：v3 昨日池建档驱动 晋级率/炸板率/首板溢价；作战盘中仍为近似） | ✅ |
 | N6 | 持仓决策台 + 凯利仓位 | `lib/positions.ts` + `sizing.ts` + `components/PositionDesk.tsx` | ✅ |
 | N7 | 个股页竞价回顾 + 资金面板 | `components/StockAuctionReview.tsx` + `StockCapitalFlow.tsx`（接入 StockDetailPage） | ✅ |
 
 配套：
 - **时段/交易日**：`lib/session-clock.ts`（server_info 驱动，已按实测字段修复判定）；
 - **协议冒烟**：`node scripts/smoke-mcp.mjs`（握手/工具表已验证；`auction.unmatched` 正负、matched 单位等字段语义待行情源恢复后复验）；
-- **已知占位**：温度计输入中的 `promoteRate/brokenRate/firstBoardPremium` 目前为近似初值（待用昨日快照实算，N5+）。
+- **昨日快照建档（0.5.0）**：复盘存档携带当日涨停池摘要（`review-store` v3 键，v2 旧档自动迁移），
+  次日复盘**实算** 晋级率 / 首板溢价（昨日池 ∩ 今日池）+ 炸板率（当日事件捕获口径），
+  盘眼下方琥珀小字标注「实算 vs 近似」口径（缺昨日存档/未捕获时透明回落近似，不假装精度）。
+- **已知占位**：作战页盘中温度计输入仍为近似初值（昨日池 ∩ 实时涨停 的联动口径留待下轮）；
+  事件流盘中捕获质量需交易日复验（`unusual/market_monitor` 仅在盘中给增量）。
 
 > 验证现状（0.4.0）：**全量 `tsc --noEmit` 0 错误**（2026-09-06 已清理 src/test-*/mock-* 脚手架，
 > 并把 vite/client 的空 `*.css` 声明换成带 default 导出的本地声明，消除既有噪音）；`pnpm build` exit 0。

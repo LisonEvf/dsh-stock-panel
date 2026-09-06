@@ -19,6 +19,7 @@ import { fetchAllA, computeBreadth, fetchIndexQuotes, type Breadth, type IndexQu
 import { computeRegime, bandLabel, bandColor, type Regime, type RegimeInputs } from '@/lib/regime'
 import { getEvents, subscribeEvents, type EventItem } from '@/lib/event-stream'
 import {
+  getPrevSnapshot,
   getReview,
   saveReview,
   today,
@@ -26,8 +27,19 @@ import {
   type MainLine,
   type ReviewSnapshot,
 } from '@/lib/review-store'
+import { buildLimitUpPool, computePrevDayMetrics, indexTodayRows } from '@/lib/review-metrics'
+import {
+  classifyStrength,
+  computeStrengthBatch,
+  selectLowBoardCandidates,
+  strongKindColor,
+  strongKindLabel,
+  type LowBoardCandidate,
+  type StrengthRow,
+  type StrongKind,
+} from '@/lib/strength'
 import { fmtBigNum } from '@/lib/format'
-import { inferMarket } from '@/lib/symbol'
+import { inferMarket, type MarketTag } from '@/lib/symbol'
 import type { OpenStock } from '@/panel/PanelApp'
 
 const UP = '#c74040'
@@ -64,6 +76,31 @@ function uid(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
+/** 本地日期键（YYYY-MM-DD，事件 ts 所在日）。 */
+function localDateKey(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+function eventOnDay(e: EventItem, day: string): boolean {
+  return localDateKey(new Date(e.ts)) === day
+}
+
+/** 'SH600000' → { market, code }（预期清单/涨停池建档行的 symbol 格式）。 */
+function splitSymbol(symbol: string): { market: MarketTag; code: string } | null {
+  const m = symbol.match(/^(SH|SZ|BJ)(\d{6})$/)
+  return m ? { market: m[1] as MarketTag, code: m[2] } : null
+}
+
+/** 强度类别 → 预期清单状态初值（W1：一键从差分行加预期）。 */
+const KIND_STATE: Record<StrongKind, ExpectItem['state']> = {
+  trueStrong: 'strong', // 真强 → 强一致
+  inertia: 'highRisk', // 惯性假强 → 高位风险
+  weakening: 'recession', // 转弱 → 退潮
+  weak2strong: 'weak2strong', // 弱转强
+  flat: 'divergence', // 平 → 分歧
+}
+
 export function ReviewPage({ onOpenStock }: Props) {
   const day = today()
   const [ladder, setLadder] = useState<LadderSnapshot | null>(null)
@@ -78,6 +115,16 @@ export function ReviewPage({ onOpenStock }: Props) {
   const [msg, setMsg] = useState('')
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [picking, setPicking] = useState(false)
+  /** 温度计输入口径标注（实算 vs 近似），缺证据时透明提示。 */
+  const [metricsNote, setMetricsNote] = useState('')
+  /** N3 强度差分结果（观察池 = 今日池 ∪ 上一交易日池 ∪ 板块代表，≤120）。 */
+  const [strength, setStrength] = useState<{ rows: StrengthRow[]; running: boolean; error: string }>({
+    rows: [],
+    running: false,
+    error: '',
+  })
+  const strengthKeyRef = useRef('')
+  const strengthAbortRef = useRef(false)
   const busyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -101,23 +148,59 @@ export function ReviewPage({ onOpenStock }: Props) {
       const b = computeBreadth(allRows)
       const known = l.limitUp.filter((s) => s.streakKnown)
       const maxStreak = known.length ? Math.max(...known.map((s) => s.streak)) : 0
+      // 无真实行情（数据源不可用/休市）→ 温度计与存档置空，避免占位公式误导
+      const noMarket = b.up + b.down + l.limitUp.length + l.limitDownCount === 0
+      if (noMarket) setError('行情源暂无数据（MCP 超时或休市）：涨停池 / 盘眼暂不可用，无法存档')
+
+      // N5+：用上一交易日涨停池（v3 limitUpPool）实算晋级率/炸板率/首板溢价。
+      // 事件流只统计当日捕获（事件库跨日累积，避免污染口径）。
+      const prevSnap = getPrevSnapshot(day)
+      const todayEv = getEvents().filter((e) => eventOnDay(e, day))
+      const calc = noMarket
+        ? null
+        : computePrevDayMetrics({
+            prevPool: prevSnap?.limitUpPool,
+            todayPoolSymbols: new Set(l.limitUp.map((s) => `${s.market}${s.code}`)),
+            todayRow: indexTodayRows(allRows),
+            todayBreakSymbols: new Set(
+              todayEv
+                .filter((e) => e.kind === 'break' || /炸板|开板/.test(e.desc))
+                .map((e) => `${e.market}${e.code}`),
+            ),
+            hasCaptureToday: todayEv.length > 0,
+          })
       const inputs: RegimeInputs = {
         limitUp: l.limitUp.length,
         limitDown: l.limitDownCount,
         maxStreak,
-        // 晋级率/炸板率/首板溢价需昨日快照（N1 尚未建档）：沿用盘中骨架的近似初值
-        promoteRate: 0.4,
-        brokenRate: 0.2,
-        firstBoardPremium: 1.5,
+        // 实算优先；无证据（无昨日存档/事件未捕获）回落近似初值，并由
+        // metricsNote 显式标注口径，禁止假装精度（PRODUCT-DESIGN §2.3 纪律）。
+        promoteRate: calc?.promoteRate ?? 0.4,
+        brokenRate: calc?.brokenRate ?? 0.2,
+        firstBoardPremium: calc?.firstBoardPremium ?? 1.5,
         upRatio: b.up / Math.max(1, b.up + b.down),
         amountYi: b.amountSum / 1e8,
+      }
+      // 口径标注（琥珀小字）：实算项给出样本量，缺证据项注明近似及原因
+      if (calc) {
+        const parts: string[] = []
+        if (calc.promoteRate !== null)
+          parts.push(`晋级率 ${(calc.promoteRate * 100).toFixed(0)}%（昨日池 ${calc.prevPoolSize}）`)
+        else if (prevSnap) parts.push('晋级率近似：昨日存档无涨停池（v2 旧档）')
+        else parts.push('晋级率近似：缺上一交易日存档')
+        if (calc.brokenRate !== null)
+          parts.push(`炸板率 ${(calc.brokenRate * 100).toFixed(0)}%（捕获 ${calc.breakSamples}）`)
+        else parts.push('炸板率近似：当日盘中事件未捕获')
+        if (calc.firstBoardPremium !== null)
+          parts.push(`首板溢价 ${calc.firstBoardPremium >= 0 ? '+' : ''}${calc.firstBoardPremium.toFixed(2)}%（${calc.premiumSamples} 只）`)
+        else parts.push('首板溢价近似：无昨日首板样本')
+        setMetricsNote(parts.join(' · '))
+      } else {
+        setMetricsNote('')
       }
       setLadder(l)
       setBreadth(b)
       setIndices(idx)
-      // 无真实行情（数据源不可用/休市）→ 温度计与存档置空，避免占位公式误导
-      const noMarket = b.up + b.down + l.limitUp.length + l.limitDownCount === 0
-      if (noMarket) setError('行情源暂无数据（MCP 超时或休市）：涨停池 / 盘眼暂不可用，无法存档')
       setRegime(noMarket ? null : computeRegime(inputs))
       setEvents(getEvents())
       // 主线建议：板块热度 TOP3（板块名 + 代表股符号）
@@ -146,13 +229,57 @@ export function ReviewPage({ onOpenStock }: Props) {
     return () => abortRef.current?.abort()
   }, [load])
 
+  // N3：强度差分自动装配。观察池 = 今日涨停池 ∪ 上一交易日池 ∪ 板块代表（≤120），
+  // 去重后并行拉 DAILY(5) 算 3 日动量差分/量比/连板 → 真强·惯性·转弱·弱转强分类。
+  // 休市/无行情跳过；同类候选只跑一次（key 含 fetchedAt，手动刷新会重算）。
+  useEffect(() => {
+    if (!ladder || !breadth) return
+    const noMarket = breadth.up + breadth.down + ladder.limitUp.length + ladder.limitDownCount === 0
+    if (noMarket) return
+    const seen = new Set<string>()
+    const cands: { market: MarketTag; code: string; name: string }[] = []
+    const push = (market: MarketTag, code: string, name: string) => {
+      const sym = `${market}${code}`
+      if (seen.has(sym) || cands.length >= 120) return
+      seen.add(sym)
+      cands.push({ market, code, name })
+    }
+    for (const s of ladder.limitUp) push(s.market, s.code, s.name)
+    for (const p of getPrevSnapshot(day)?.limitUpPool ?? []) {
+      const parts = splitSymbol(p.symbol)
+      if (parts) push(parts.market, parts.code, p.name)
+    }
+    for (const b of ladder.boards) {
+      if (b.repCode) push(inferMarket(b.repCode), b.repCode, b.rep)
+    }
+    if (cands.length === 0) return
+    const key = `${ladder.fetchedAt}|${cands.map((c) => `${c.market}${c.code}`).join('|')}`
+    if (key === strengthKeyRef.current) return
+    strengthKeyRef.current = key
+    strengthAbortRef.current = false
+    setStrength((s) => ({ ...s, running: true, error: '' }))
+    void computeStrengthBatch(cands, 6)
+      .then((rows) => {
+        if (strengthAbortRef.current) return
+        setStrength({ rows, running: false, error: '' })
+      })
+      .catch((e) => {
+        if (strengthAbortRef.current) return
+        setStrength((s) => ({ ...s, running: false, error: (e as Error).message || '强度差分失败' }))
+      })
+    return () => {
+      strengthAbortRef.current = true
+    }
+  }, [ladder, breadth, day])
+
+  const dayEvents = useMemo(() => events.filter((e) => eventOnDay(e, day)), [events, day])
   const breakEvents = useMemo(
-    () => events.filter((e) => e.kind === 'break' || /炸板|开板/.test(e.desc)).slice(0, 8),
-    [events],
+    () => dayEvents.filter((e) => e.kind === 'break' || /炸板|开板/.test(e.desc)).slice(0, 8),
+    [dayEvents],
   )
   const limitDownEvents = useMemo(
-    () => events.filter((e) => e.kind === 'limitDown').slice(0, 6),
-    [events],
+    () => dayEvents.filter((e) => e.kind === 'limitDown').slice(0, 6),
+    [dayEvents],
   )
 
   const tierCounts = useMemo(() => {
@@ -165,23 +292,55 @@ export function ReviewPage({ onOpenStock }: Props) {
   }, [ladder])
   const maxTier = Math.max(1, ...tierCounts.map(([, c]) => c))
 
-  /** 预期清单新增/编辑/删除（本地草稿，存档时统一写入 review-store）。 */
-  const addExpectation = (s: LadderStock) => {
+  // 板块代表股 → 扩散占比（近似口径：代表股板块涨停数 / 全市场涨停数）。
+  const boardConc = useMemo(() => {
+    const m = new Map<string, number>()
+    const total = ladder?.limitUp.length ?? 1
+    for (const b of ladder?.boards ?? []) {
+      if (b.repCode && total > 0) m.set(b.repCode, Math.min(1, b.limitUpCount / total))
+    }
+    return m
+  }, [ladder])
+
+  // 非"平"的强度行（按 真强→弱转强→惯性→转弱 排序，≤20 行）。
+  const kindRows = useMemo(() => {
+    const order: Record<string, number> = { trueStrong: 0, weak2strong: 1, inertia: 2, weakening: 3 }
+    return strength.rows
+      .map((row) => ({ row, kind: classifyStrength(row) }))
+      .filter((x) => x.kind !== 'flat')
+      .sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9) || b.row.delta3 - a.row.delta3)
+      .slice(0, 20)
+  }, [strength.rows])
+
+  // 低位首板候选（≤10；扩散占比近似，见上）。
+  const lowBoards = useMemo(
+    () => selectLowBoardCandidates(strength.rows, (code) => boardConc.get(code) ?? 0, 10),
+    [strength.rows, boardConc],
+  )
+
+  /**
+   * 预期清单新增（本地草稿，存档时统一写入 review-store）。
+   * 涨停池/强度行/低位首板共用；state 可由强度类别推导覆盖。
+   */
+  const addExpFrom = (
+    spec: { market: MarketTag; code: string; name: string; streak: number },
+    state?: ExpectItem['state'],
+  ) => {
     if (expectations.length >= 5) return
-    const symbol = `${s.market}${s.code}`
+    const symbol = `${spec.market}${spec.code}`
     if (expectations.some((e) => e.symbol === symbol)) return
     setExpectations((prev) => [
       ...prev,
       {
         id: uid(),
         symbol,
-        name: s.name,
+        name: spec.name,
         tags: {
           themeDay: 1,
-          level: s.streak >= 4 ? 'high' : s.streak >= 2 ? 'mid' : 'low',
-          role: s.streak >= 3 ? 'leader' : 'catchup',
+          level: spec.streak >= 4 ? 'high' : spec.streak >= 2 ? 'mid' : 'low',
+          role: spec.streak >= 3 ? 'leader' : 'catchup',
         },
-        state: s.streak >= 4 ? 'highRisk' : s.streak >= 3 ? 'strong' : 'divergence',
+        state: state ?? (spec.streak >= 4 ? 'highRisk' : spec.streak >= 3 ? 'strong' : 'divergence'),
         scenario: '',
         auctionOK: '',
         failIf: '',
@@ -190,6 +349,10 @@ export function ReviewPage({ onOpenStock }: Props) {
     ])
     setPicking(false)
   }
+  const addExpectation = (s: LadderStock) => addExpFrom(s)
+  /** N3：从强度差分行一键加入（state 按强度类别定初值）。 */
+  const addFromRow = (row: StrengthRow, kind: StrongKind) =>
+    addExpFrom({ market: row.market, code: row.code, name: row.name, streak: row.streak }, KIND_STATE[kind])
 
   const updateExp = (id: string, patch: Partial<ExpectItem>) => {
     setExpectations((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)))
@@ -222,6 +385,8 @@ export function ReviewPage({ onOpenStock }: Props) {
       mainLine,
       expectations,
       notable,
+      // v3：涨停池建档（供次日实算晋级率/首板溢价与竞价对照底座）
+      limitUpPool: buildLimitUpPool(ladder.limitUp),
     }
     saveReview(snap)
     setSavedAt(snap.savedAt)
@@ -274,6 +439,12 @@ export function ReviewPage({ onOpenStock }: Props) {
                 ))}
               </div>
             )}
+            {/* 温度计输入口径：实算 vs 近似（N5+ 透明化） */}
+            {metricsNote && (
+              <div className="mb-1 rounded bg-amber-50/80 px-1 py-0.5 text-[8px] leading-relaxed text-amber-700/90">
+                {metricsNote}
+              </div>
+            )}
             {/* 指数行 */}
             <div className="ds-no-scrollbar flex items-center gap-1.5 overflow-x-auto pb-0.5">
               {indices.slice(0, 6).map((ix) => (
@@ -320,6 +491,102 @@ export function ReviewPage({ onOpenStock }: Props) {
                 ))}
               </div>
             </div>
+          )}
+
+          {/* N3（复盘引用面）：强度差分 + 低位首板候选（观察池 = 今日池 ∪ 上一交易日池 ∪ 板块代表） */}
+          {strength.running && (
+            <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5 text-[10px] text-slate-400">
+              强度差分分析中…（观察池 ≤120 只 · DAILY(5) · 约 10–40s）
+            </div>
+          )}
+          {!strength.running && strength.error && (
+            <div className="mb-1.5 rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1 text-[10px] text-amber-600">
+              {strength.error}
+            </div>
+          )}
+          {!strength.running && strength.rows.length > 0 && (
+            <>
+              <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-[10px] font-medium text-slate-400">
+                    强度差分 · 观察池（{strength.rows.length} 只已算）
+                  </span>
+                  <span className="text-[8px] text-slate-300" title="真强=放量封板·动能增强；惯性=Δ3&lt;0 的假强；转弱=高位放量滞涨">
+                    真强 vs 惯性 · 剔"平"
+                  </span>
+                </div>
+                <div className="space-y-0.5">
+                  {kindRows.map(({ row, kind }) => (
+                    <div key={row.symbol} className="flex items-center gap-1 rounded bg-white px-1 py-0.5">
+                      <button
+                        onClick={() => onOpenStock({ market: row.market, code: row.code, name: row.name })}
+                        className="min-w-0 flex-1 truncate text-left text-[11px] text-slate-700 hover:text-emerald-600"
+                        title={`${row.name} ${row.code} · 5日累计 ${row.cum5.toFixed(1)}% · Δ3 ${row.delta3 > 0 ? '+' : ''}${row.delta3.toFixed(1)} · 量比 ${row.volRatio.toFixed(2)}`}
+                      >
+                        {row.name}
+                      </button>
+                      <span className="shrink-0 font-mono text-[8px] text-slate-300">{row.code.slice(-4)}</span>
+                      <span
+                        className="shrink-0 rounded px-1 text-[8px] font-medium"
+                        style={{ color: strongKindColor(kind), backgroundColor: `${strongKindColor(kind)}1a` }}
+                      >
+                        {strongKindLabel(kind)}
+                      </span>
+                      <span className="shrink-0 font-mono text-[8px] tabular-nums text-slate-400">
+                        {row.pct_today > 0 ? '+' : ''}{row.pct_today.toFixed(1)}%
+                      </span>
+                      <button
+                        onClick={() => addFromRow(row, kind)}
+                        className="shrink-0 rounded px-1 text-[10px] leading-none text-emerald-500 hover:bg-emerald-50"
+                        title="加入预期清单"
+                      >
+                        ＋
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {lowBoards.length > 0 && (
+                <div className="mb-1.5 rounded-md border border-slate-100 bg-emerald-50/40 px-2 py-1.5">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[10px] font-medium text-slate-400">
+                      低位首板候选（低位新方向 · 观察池）
+                    </span>
+                    <span className="text-[8px] text-slate-300" title="综合分：首板 · 量比健康(1.5~5) · 位置低(cum5) · 动能增强 · 板块扩散">
+                      量比健康 · 位置低 · 扩散
+                    </span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {lowBoards.map((c) => (
+                      <div key={c.row.symbol} className="flex items-center gap-1 rounded bg-white px-1 py-0.5">
+                        <button
+                          onClick={() => onOpenStock({ market: c.row.market, code: c.row.code, name: c.row.name })}
+                          className="min-w-0 flex-1 truncate text-left text-[11px] text-slate-700 hover:text-emerald-600"
+                          title={`${c.row.name} ${c.row.code} · 量比 ${c.row.volRatio.toFixed(2)} · 5日累计 ${c.row.cum5.toFixed(1)}% · Δ3 ${c.row.delta3 > 0 ? '+' : ''}${c.row.delta3.toFixed(1)}`}
+                        >
+                          {c.row.name}
+                        </button>
+                        <span className="shrink-0 font-mono text-[8px] text-slate-300">{c.row.code.slice(-4)}</span>
+                        <span className="shrink-0 font-mono text-[8px] tabular-nums text-slate-400">
+                          量比 {c.row.volRatio.toFixed(2)}
+                        </span>
+                        <span className="shrink-0 rounded bg-emerald-100 px-1 font-mono text-[8px] font-semibold text-emerald-600">
+                          {c.score.toFixed(0)}
+                        </span>
+                        <button
+                          onClick={() => addFromRow(c.row, classifyStrength(c.row))}
+                          className="shrink-0 rounded px-1 text-[10px] leading-none text-emerald-500 hover:bg-emerald-50"
+                          title="加入预期清单"
+                        >
+                          ＋
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {limitDownEvents.length > 0 && (
