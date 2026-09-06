@@ -25,6 +25,10 @@
 >   + 命中记录 localStorage；`AlertWatcher` 常驻 PanelApp 根（12s 轮询 price/pct 规则标的 ≤10 +
 >   增量扫事件流关键词）；「监控」第 8 Tab（规则管理/命中列表）+ 未读徽标 + Toast 浮层；
 >   规则判定 × 真实行情/事件冒烟命中正确。飞书推送（B 轨）未做。
+> - ✅ **W5**（M8 轻量选股，0.8.0）：`lib/screener.ts`（全 A 快照条件筛选/6 预设策略/客户端信号
+>   MA5 上穿 MA20·放量上穿 MA60，detectSignal 纯函数 + runSignalOnCandidates pool≤8 带进度）
+>   + `pages/ScoutPage.tsx`「选股」Tab（结果行点开个股/信号命中高亮徽标）；
+>   真实数据冒烟：全 A 5556 只、6 预设命中 11–151、信号管线跑通。
 > - ⏳ 待交易日（周一盘中）复验：实算数值跨日回归、强度差分真实行情表现、逐笔 bs_flag/vol 单位、
 >   事件捕获口径、监控命中 Toast/徽标交互与事件关键词盘中增量。
 
