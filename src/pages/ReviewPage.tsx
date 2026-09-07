@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ClipboardList, Flame, Plus, RefreshCw, Save, X } from 'lucide-react'
 import { loadLadder, type LadderSnapshot, type LadderStock } from '@/lib/ladder'
-import { fetchAllA, computeBreadth, fetchIndexQuotes, type Breadth, type IndexQuote } from '@/lib/market'
+import { fetchAllA, computeBreadth, fetchIndexQuotes, type AShareRow, type Breadth, type IndexQuote } from '@/lib/market'
 import { computeRegime, bandLabel, bandColor, type Regime, type RegimeInputs } from '@/lib/regime'
 import { getEvents, subscribeEvents, type EventItem } from '@/lib/event-stream'
 import {
@@ -26,8 +26,16 @@ import {
   type ExpectItem,
   type MainLine,
   type ReviewSnapshot,
+  type WindFlagRef,
+  type WindFlagTag,
 } from '@/lib/review-store'
-import { buildLimitUpPool, computePrevDayMetrics, indexTodayRows } from '@/lib/review-metrics'
+import {
+  buildLimitUpPool,
+  computePrevDayMetrics,
+  computePrevPoolPerf,
+  indexTodayRows,
+  listPrevPoolBigLosers,
+} from '@/lib/review-metrics'
 import {
   classifyStrength,
   computeStrengthBatch,
@@ -38,8 +46,17 @@ import {
   type StrengthRow,
   type StrongKind,
 } from '@/lib/strength'
+import {
+  PrevPoolPerfBlock,
+  SurgeBoardsBlock,
+  AmountTopBlock,
+  LossBlock,
+  WindFlagBlock,
+  type WindFlagCandidate,
+} from '@/components/ReviewPanels'
 import { fmtBigNum } from '@/lib/format'
 import { inferMarket, type MarketTag } from '@/lib/symbol'
+import { watchAddSymbol } from '@/lib/watchlist-store'
 import type { OpenStock } from '@/panel/PanelApp'
 
 const UP = '#c74040'
@@ -66,6 +83,17 @@ const ROLE_OPTS: { v: ExpectItem['tags']['role']; l: string }[] = [
   { v: 'leader', l: '龙头' },
   { v: 'follower', l: '跟风' },
   { v: 'catchup', l: '补涨' },
+]
+
+/** 复盘七步引导（视觉暗示：按序完成 = 一天复盘闭环）。 */
+const STEPS: { id: string; label: string; hint: string }[] = [
+  { id: 'mood', label: '情绪', hint: '涨停/跌停/昨日涨停表现——先看天气再看衣服' },
+  { id: 'tier', label: '梯队', hint: '最高板 + 中间档是否断层（资金敢不敢接力）' },
+  { id: 'board', label: '板块', hint: '涨停潮 ≥3 的板块 = 资金阵地' },
+  { id: 'money', label: '资金', hint: '成交额前 20 大票涨跌（机构/存量博弈）' },
+  { id: 'loss', label: '亏钱', hint: '昨日涨停今日大跌/跌停 = 雷区，记共性' },
+  { id: 'flag', label: '风向标', hint: '5-8 只有特点的票，明日观察它们强弱' },
+  { id: 'plan', label: '计划', hint: '明日交易计划：板块跟踪/竞价信号出手/信号收手' },
 ]
 
 interface Props {
@@ -115,8 +143,18 @@ export function ReviewPage({ onOpenStock }: Props) {
   const [msg, setMsg] = useState('')
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [picking, setPicking] = useState(false)
+  /** N9：全 A 行（成交额榜 / 昨涨停今表现输入）。 */
+  const [rows, setRows] = useState<AShareRow[]>([])
   /** 温度计输入口径标注（实算 vs 近似），缺证据时透明提示。 */
   const [metricsNote, setMetricsNote] = useState('')
+  /** N9：昨日涨停今日整体表现（复盘第一步：先看天气再看衣服）。 */
+  const [prevPerf, setPrevPerf] = useState<ReturnType<typeof computePrevPoolPerf> | null>(null)
+  /** N9：昨日涨停今日大面/跌停清单（复盘第五步：亏钱效应·雷区）。 */
+  const [prevLosers, setPrevLosers] = useState<{ symbol: string; name: string; pct: number; atLimitDown: boolean }[]>([])
+  /** N9：亏钱共性备注（第五步收尾：把共性记下来，存档）。 */
+  const [riskNote, setRiskNote] = useState('')
+  /** N9：今日标记风向标（第六步：≤8 只，存档供次日竞价对照）。 */
+  const [windFlags, setWindFlags] = useState<WindFlagRef[]>([])
   /** N3 强度差分结果（观察池 = 今日池 ∪ 上一交易日池 ∪ 板块代表，≤120）。 */
   const [strength, setStrength] = useState<{ rows: StrengthRow[]; running: boolean; error: string }>({
     rows: [],
@@ -155,13 +193,18 @@ export function ReviewPage({ onOpenStock }: Props) {
       // N5+：用上一交易日涨停池（v3 limitUpPool）实算晋级率/炸板率/首板溢价。
       // 事件流只统计当日捕获（事件库跨日累积，避免污染口径）。
       const prevSnap = getPrevSnapshot(day)
+      const todayRow = indexTodayRows(allRows)
+      // N9 七步法①：昨日涨停今日整体表现（先看天气再看衣服，接力意愿/杀高位）
+      setPrevPerf(noMarket ? null : computePrevPoolPerf(prevSnap?.limitUpPool, todayRow))
+      // N9 七步法⑤：亏钱效应样本（昨日涨停今日大面/跌停 → 雷区）
+      setPrevLosers(noMarket ? [] : listPrevPoolBigLosers(prevSnap?.limitUpPool, todayRow, -5))
       const todayEv = getEvents().filter((e) => eventOnDay(e, day))
       const calc = noMarket
         ? null
         : computePrevDayMetrics({
             prevPool: prevSnap?.limitUpPool,
             todayPoolSymbols: new Set(l.limitUp.map((s) => `${s.market}${s.code}`)),
-            todayRow: indexTodayRows(allRows),
+            todayRow,
             todayBreakSymbols: new Set(
               todayEv
                 .filter((e) => e.kind === 'break' || /炸板|开板/.test(e.desc))
@@ -210,12 +253,15 @@ export function ReviewPage({ onOpenStock }: Props) {
           leader: b.repCode ? `${inferMarket(b.repCode)}${b.repCode}` : null,
         })),
       )
-      // 已存过今日复盘 → 回填清单与存档时间
+      // 已存过今日复盘 → 回填清单、亏钱共性、风向标与存档时间
       const prev = getReview(day)
       if (prev) {
         setExpectations(prev.expectations)
         setSavedAt(prev.savedAt)
+        setRiskNote(prev.riskNote ?? '')
+        setWindFlags(prev.windFlags ?? [])
       }
+      setRows(allRows)
     } catch (e) {
       if (!ac.signal.aborted) setError((e as Error).message || '加载失败')
     } finally {
@@ -318,6 +364,58 @@ export function ReviewPage({ onOpenStock }: Props) {
     [strength.rows, boardConc],
   )
 
+  // N9 六步法⑥：风向标候选 = 涨停池（含连板/一字）+ 强度弱转强 + 低位首板（≤16，去重）。
+  const windCandidates = useMemo<WindFlagCandidate[]>(() => {
+    const seen = new Set<string>()
+    const out: WindFlagCandidate[] = []
+    const push = (c: WindFlagCandidate) => {
+      const sym = `${c.market}${c.code}`
+      if (seen.has(sym) || out.length >= 16) return
+      seen.add(sym)
+      out.push(c)
+    }
+    for (const s of ladder?.limitUp.slice(0, 12) ?? []) {
+      push({
+        market: s.market,
+        code: s.code,
+        name: s.name,
+        streak: s.streak,
+        hint: s.streakKnown ? (s.oneWord ? `${s.streak}板·一字` : `${s.streak}板`) : '涨停',
+      })
+    }
+    // 断板反包/弱转强（强度差分 weak2strong）
+    for (const { row, kind } of kindRows) {
+      if (kind === 'weak2strong') push({ market: row.market, code: row.code, name: row.name, streak: row.streak, hint: '断板反包·弱转强' })
+    }
+    // 低位放量启动
+    for (const lb of lowBoards.slice(0, 5)) {
+      push({ market: lb.row.market, code: lb.row.code, name: lb.row.name, streak: lb.row.streak, hint: '低位放量' })
+    }
+    return out
+  }, [ladder, kindRows, lowBoards])
+
+  /** 标记风向标（≤8，去重；同步加入自选便于次日竞价对照）。 */
+  const markWind = (c: WindFlagCandidate, tag: WindFlagTag) => {
+    if (windFlags.length >= 8) return
+    const symbol = `${c.market}${c.code}`
+    if (windFlags.some((f) => f.symbol === symbol)) return
+    watchAddSymbol(symbol, c.name)
+    setWindFlags((prev) => [...prev, { symbol, name: c.name, tag }])
+  }
+  const unmarkWind = (symbol: string) => {
+    setWindFlags((prev) => prev.filter((f) => f.symbol !== symbol))
+  }
+
+  /** 连板梯队断层（六步法②：中间档缺失 = 资金不敢接力）。 */
+  const tierGaps = useMemo(() => {
+    if (tierCounts.length === 0) return { max: 0, gaps: [] as number[] }
+    const map = new Map(tierCounts)
+    const max = Math.max(...tierCounts.map(([n]) => n))
+    const gaps: number[] = []
+    for (let n = 2; n < max; n++) if (!map.has(n)) gaps.push(n)
+    return { max, gaps }
+  }, [tierCounts])
+
   /**
    * 预期清单新增（本地草稿，存档时统一写入 review-store）。
    * 涨停池/强度行/低位首板共用；state 可由强度类别推导覆盖。
@@ -387,10 +485,13 @@ export function ReviewPage({ onOpenStock }: Props) {
       notable,
       // v3：涨停池建档（供次日实算晋级率/首板溢价与竞价对照底座）
       limitUpPool: buildLimitUpPool(ladder.limitUp),
+      // v3.1：亏钱共性备注 + 风向标（七步复盘第 5/6 步输出，供次日竞价对照）
+      riskNote: riskNote.trim() || undefined,
+      windFlags: windFlags.length > 0 ? windFlags : undefined,
     }
     saveReview(snap)
     setSavedAt(snap.savedAt)
-    setMsg(`已存档 ${day} 复盘（${expectations.length}/5 条预期）`)
+    setMsg(`已存档 ${day} 复盘（预期 ${expectations.length}/5 · 风向标 ${windFlags.length}/8）`)
     setTimeout(() => setMsg(''), 3000)
   }
 
@@ -420,11 +521,26 @@ export function ReviewPage({ onOpenStock }: Props) {
       {msg && <div className="mb-1.5 rounded bg-emerald-50 px-2 py-1 text-[10px] text-emerald-600">{msg}</div>}
       {loading && !ladder && <div className="py-8 text-center text-xs text-slate-300">复盘数据装配中（涨停池 K 线较慢）…</div>}
 
+      {/* 七步复盘引导条：按序完成 = 一天的复盘闭环（视觉暗示流程目标） */}
+      <div className="ds-no-scrollbar mb-1.5 flex items-center gap-1 overflow-x-auto rounded-md border border-slate-100 bg-white/70 px-1.5 py-1">
+        {STEPS.map((s, i) => (
+          <div key={s.id} className="flex shrink-0 items-center gap-1">
+            {i > 0 && <span className="text-[8px] text-slate-200">›</span>}
+            <span
+              className={`whitespace-nowrap rounded px-1.5 py-0.5 text-[9px] font-medium ${s.id === 'plan' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}
+              title={s.hint}
+            >
+              {i + 1} {s.label}
+            </span>
+          </div>
+        ))}
+      </div>
+
       {breadth && regime && (
         <>
-          {/* ① 今日盘眼 */}
+          {/* ① 整体情绪：温度计 + 广度（先看天气再看衣服） */}
           <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
-            <div className="mb-1 text-[10px] font-medium text-slate-400">今日盘眼</div>
+            <div className="mb-1 text-[10px] font-medium text-slate-400">① 整体情绪 · 今日盘眼</div>
             <div className="mb-1 flex items-center gap-1.5">
               <span className="font-mono text-[16px] font-bold leading-none tabular-nums" style={{ color: bandColor(regime.band) }}>
                 {regime.temperature}
@@ -470,12 +586,15 @@ export function ReviewPage({ onOpenStock }: Props) {
             )}
           </div>
 
-          {/* ② 自动回顾：梯队 + 广度 + 炸板/大面 */}
+          {/* ①b 昨日涨停整体表现：昨日涨停今天赚还是亏（杀高位 vs 有溢价） */}
+          <PrevPoolPerfBlock perf={prevPerf} />
+
+          {/* ② 连板梯队：最高板是天花板，中间档不能断层 */}
           {tierCounts.length > 0 && (
             <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
               <div className="mb-1 flex items-center justify-between">
                 <span className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
-                  <Flame className="h-3 w-3 text-red-500" />涨停梯队（{breadth.up > 0 ? `${ladder?.limitUp.length ?? 0} 只` : '—'}）
+                  <Flame className="h-3 w-3 text-red-500" />② 连板梯队（{breadth.up > 0 ? `${ladder?.limitUp.length ?? 0} 只` : '—'}）
                 </span>
                 <span className="text-[9px] text-slate-300">上涨 {breadth.up} · 下跌 {breadth.down} · 大面(≤-3%) {breadth.strongDown}</span>
               </div>
@@ -490,13 +609,28 @@ export function ReviewPage({ onOpenStock }: Props) {
                   </div>
                 ))}
               </div>
+              {tierGaps.max > 0 && tierGaps.gaps.length > 0 ? (
+                <div className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] leading-snug text-amber-600">
+                  ⚠️ 梯队断层：{tierGaps.gaps.map((n) => `${n}板`).join(' / ')} 无承接 → 资金不敢接力，高位股随时崩
+                </div>
+              ) : (
+                <div className="mt-1 text-[8px] text-slate-300">
+                  {tierGaps.max > 0 ? `最高 ${tierGaps.max} 板 · 梯队完整（1~${tierGaps.max} 板均有承接）` : '—'}
+                </div>
+              )}
             </div>
           )}
 
-          {/* N3（复盘引用面）：强度差分 + 低位首板候选（观察池 = 今日池 ∪ 上一交易日池 ∪ 板块代表） */}
+          {/* ③ 板块结构：涨停潮 ≥3 = 资金阵地（涨停是单兵，板块才是阵地） */}
+          <SurgeBoardsBlock boards={ladder?.boards ?? []} onOpenStock={onOpenStock} />
+
+          {/* ④ 资金流向：成交额前 20 大票涨跌（涨幅榜给散户，成交额榜给猎人） */}
+          <AmountTopBlock rows={rows} onOpenStock={onOpenStock} />
+
+          {/* N3（复盘引用面）：强度差分 + 低位首板候选（候选池 = 今日池 ∪ 上一交易日池 ∪ 板块代表；供 ⑥ 风向标与 ⑦ 计划取材） */}
           {strength.running && (
             <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5 text-[10px] text-slate-400">
-              强度差分分析中…（观察池 ≤120 只 · DAILY(5) · 约 10–40s）
+              强度差分分析中…（候选池 ≤120 只 · DAILY(5) · 约 10–40s）
             </div>
           )}
           {!strength.running && strength.error && (
@@ -509,7 +643,7 @@ export function ReviewPage({ onOpenStock }: Props) {
               <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[10px] font-medium text-slate-400">
-                    强度差分 · 观察池（{strength.rows.length} 只已算）
+                    强弱甄别 · 候选池（{strength.rows.length} 只已算）
                   </span>
                   <span className="text-[8px] text-slate-300" title="真强=放量封板·动能增强；惯性=Δ3&lt;0 的假强；转弱=高位放量滞涨">
                     真强 vs 惯性 · 剔"平"
@@ -623,10 +757,22 @@ export function ReviewPage({ onOpenStock }: Props) {
         </>
       )}
 
-      {/* ③ 预期清单编辑器（≤5） */}
+      {/* ⑤ 亏钱效应：昨日涨停今日大面/跌停 = 雷区样本 + 共性记录（盯亏钱效应会冷静） */}
+      <LossBlock samples={prevLosers} riskNote={riskNote} onRiskNote={setRiskNote} />
+
+      {/* ⑥ 风向标：把今天有特点的票标记进明日观察（≤8，强则板块强） */}
+      <WindFlagBlock
+        candidates={windCandidates}
+        marked={windFlags}
+        onMark={markWind}
+        onUnmark={unmarkWind}
+        onOpenStock={onOpenStock}
+      />
+
+      {/* ⑦ 明日交易计划：预期清单（≤5；板块跟踪 / 竞价信号出手 / 信号收手） */}
       <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-[10px] font-medium text-slate-400">预期清单 · {expectations.length}/5</span>
+          <span className="text-[10px] font-medium text-slate-400">⑦ 明日交易计划 · 预期清单 · {expectations.length}/5</span>
           <button
             onClick={() => setPicking((v) => !v)}
             className="flex items-center gap-0.5 rounded bg-emerald-500 px-1.5 py-0.5 text-[9px] font-medium text-white hover:bg-emerald-600"
@@ -756,10 +902,10 @@ export function ReviewPage({ onOpenStock }: Props) {
         disabled={!breadth || !regime || loading}
         className="flex w-full items-center justify-center gap-1.5 rounded-md bg-emerald-600 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
       >
-        <Save className="h-3.5 w-3.5" />存档今日复盘
+        <Save className="h-3.5 w-3.5" />完成七步复盘 · 存档今日
       </button>
       <div className="mt-1 text-center text-[9px] text-slate-300">
-        预期清单 ≤5 · 存档按日覆盖 · 供次日竞价对照（保存后刷新不丢）
+        预期清单 ≤5 · 风向标 ≤8 · 存档按日覆盖 · 供次日竞价对照（保存后刷新不丢）
       </div>
     </div>
   )

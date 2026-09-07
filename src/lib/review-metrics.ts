@@ -32,18 +32,22 @@ export function buildLimitUpPool(
   }))
 }
 
-/** 全 A 今日行索引（symbol → pct/是否涨停），供首板溢价等按 code 查价。 */
+/** 全 A 今日行索引（symbol → pct/涨停/跌停），供首板溢价等按 code 查价。 */
 export interface TodayRow {
   pct: number
+  /** 今日是否封涨停（close ≈ 涨停价）。 */
   atLimit: boolean
+  /** 今日是否跌停（close ≈ 跌停价）。 */
+  atLimitDown: boolean
 }
 
-/** 全 A 快照 → 按 `${market}${code}` 索引（涨停判定与 ladder 同口径：触及涨停价）。 */
+/** 全 A 快照 → 按 `${market}${code}` 索引（涨停/跌停判定与 ladder 同口径：触及涨跌停价）。 */
 export function indexTodayRows(rows: AShareRow[]): Map<string, TodayRow> {
   const m = new Map<string, TodayRow>()
   for (const r of rows) {
     const atLimit = r.buy_price_limit > 0 && Math.abs(r.close - r.buy_price_limit) < 1e-6
-    m.set(`${r.market}${r.code}`, { pct: r.pct, atLimit })
+    const atLimitDown = r.sell_price_limit > 0 && Math.abs(r.close - r.sell_price_limit) < 1e-6
+    m.set(`${r.market}${r.code}`, { pct: r.pct, atLimit, atLimitDown })
   }
   return m
 }
@@ -122,4 +126,75 @@ export function computePrevDayMetrics(args: PrevDayCalcArgs): PrevDayCalc {
   }
 
   return { promoteRate, firstBoardPremium, brokenRate, prevPoolSize, premiumSamples, breakSamples }
+}
+
+// ===== 复盘七步 · ① 整体情绪 / ⑤ 亏钱效应（用户方法论文本落地）=====
+
+/** 昨日涨停池今日整体表现（复盘第 1 步核心：昨日涨停今天赚还是亏）。 */
+export interface PrevPoolPerf {
+  /** 有今日行情的样本数。 */
+  samples: number
+  /** 昨日涨停今日平均涨跌幅（%）。 */
+  avgPct: number | null
+  /** 红盘家数 / 红盘占比。 */
+  redCount: number
+  redRate: number | null
+  /** 今日仍涨停（晋级/连板）家数。 */
+  againLimit: number
+  /** 昨涨停今大跌（≤-5%）家数——亏钱效应扩散度。 */
+  bigLoseCount: number
+  /** 昨涨停今跌停家数——最狠的亏钱样本。 */
+  limitDownCount: number
+}
+
+/** 昨日涨停池整体表现（输入 = v3 存档 limitUpPool + 今日全 A 索引）。 */
+export function computePrevPoolPerf(
+  pool: LimitUpPoolItem[] | undefined,
+  todayRow: Map<string, TodayRow>,
+): PrevPoolPerf {
+  if (!pool || pool.length === 0) return { samples: 0, avgPct: null, redCount: 0, redRate: null, againLimit: 0, bigLoseCount: 0, limitDownCount: 0 }
+  let sum = 0
+  let red = 0
+  let again = 0
+  let bigLose = 0
+  let down = 0
+  let samples = 0
+  for (const p of pool) {
+    const row = todayRow.get(p.symbol)
+    if (!row) continue
+    samples++
+    sum += row.pct
+    if (row.pct > 0) red++
+    if (row.atLimit) again++
+    if (row.pct <= -5) bigLose++
+    if (row.atLimitDown) down++
+  }
+  if (samples === 0) return { samples: 0, avgPct: null, redCount: 0, redRate: null, againLimit: 0, bigLoseCount: 0, limitDownCount: 0 }
+  return {
+    samples,
+    avgPct: sum / samples,
+    redCount: red,
+    redRate: red / samples,
+    againLimit: again,
+    bigLoseCount: bigLose,
+    limitDownCount: down,
+  }
+}
+
+/** 亏钱效应样本：昨日涨停今日大跌（≤-5% 或跌停），升序排列（最惨在前）。 */
+export function listPrevPoolBigLosers(
+  pool: LimitUpPoolItem[] | undefined,
+  todayRow: Map<string, TodayRow>,
+  thresholdPct = -5,
+): { symbol: string; name: string; pct: number; atLimitDown: boolean }[] {
+  if (!pool) return []
+  const out: { symbol: string; name: string; pct: number; atLimitDown: boolean }[] = []
+  for (const p of pool) {
+    const row = todayRow.get(p.symbol)
+    if (!row) continue
+    if (row.atLimitDown || row.pct <= thresholdPct) {
+      out.push({ symbol: p.symbol, name: p.name, pct: row.pct, atLimitDown: row.atLimitDown })
+    }
+  }
+  return out.sort((a, b) => a.pct - b.pct).slice(0, 20)
 }

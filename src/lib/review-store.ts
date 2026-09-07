@@ -61,6 +61,16 @@ export interface MainLine {
   leader: string | null
 }
 
+/** 风向标（复盘第 6 步：从当日候选标记的"有特点的票"，次日盯盘用）。 */
+export interface WindFlagRef {
+  symbol: string // 'SH603138'
+  name: string
+  tag: WindFlagTag
+}
+
+/** 风向标类型（复盘七步法第 6 步语义）。 */
+export type WindFlagTag = 'dayLeader' | 'rebound' | 'lowVolume' | 'strongHold' | 'other'
+
 /** 复盘快照（PRODUCT-DESIGN §4.2；v3 增 limitUpPool）。 */
 export interface ReviewSnapshot {
   day: string // '2026-09-04'
@@ -76,6 +86,10 @@ export interface ReviewSnapshot {
    * 并作为次日竞价雷达的对照底座之一。旧 v2 存档无此字段（可选）。
    */
   limitUpPool?: LimitUpPoolItem[]
+  /** 亏钱效应共性备注（复盘七步法第 5 步：把雷区共性记下来；人工文本，可选）。 */
+  riskNote?: string
+  /** 风向标清单（复盘七步法第 6 步：标记的有特点标的 ≤8 只；可选，兼容旧档）。 */
+  windFlags?: WindFlagRef[]
 }
 
 const STORAGE_KEY = 'dsh-stock-panel:review:v3'
@@ -170,6 +184,15 @@ export function getPrevSnapshot(day: string): ReviewSnapshot | null {
     if (s.day < day) return s
   }
   return null
+}
+
+/**
+ * 找「今日竞价要对照的预期清单」：优先今日已存档（盘前/当日计划），
+ * 否则取最近一份更早日期的复盘清单（其预期目标即今日）。与
+ * WATCH-METHODOLOGY §4「开盘对照昨日预期」+ PRODUCT-DESIGN §P2 口径一致。
+ */
+export function getLatestPlan(day: string): ReviewSnapshot | null {
+  return getReview(day) ?? getPrevSnapshot(day)
 }
 
 /**

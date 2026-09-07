@@ -11,7 +11,7 @@
  *   auction（竞价逐点）、regime（温度计）。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { RefreshCw, Zap, Target, Activity } from 'lucide-react'
 import { captureOnce, getEvents, isPostClose, type EventItem } from '@/lib/event-stream'
 import { buildClock, phaseIcon, phaseLabel, type SessionPhase } from '@/lib/session-clock'
@@ -21,10 +21,15 @@ import { judgeSituation, situationLabel, situationColor, type Situation } from '
 import { computeRegime, type Regime, bandLabel, bandColor } from '@/lib/regime'
 import { loadLadder, type LadderSnapshot } from '@/lib/ladder'
 import { fetchAllA, computeBreadth, type AShareRow } from '@/lib/market'
-import { getReview } from '@/lib/review-store'
+import { getLatestPlan, getReview, subscribeReview, today } from '@/lib/review-store'
+import { getDayRun, subscribeDayRun } from '@/lib/dayrun'
+import { getPositions, subscribePositions } from '@/lib/positions'
 import { getWatchlist, subscribeWatchlist, type WatchItem } from '@/lib/watchlist-store'
 import { AuctionRadar } from '@/components/AuctionRadar'
 import { PositionDesk } from '@/components/PositionDesk'
+import { SessionMission } from '@/components/SessionMission'
+import { ExpectVerdictPanel } from '@/components/ExpectVerdictPanel'
+import { QAnswers } from '@/components/QAnswers'
 import type { MarketTag } from '@/lib/symbol'
 import type { OpenStock } from '@/panel/PanelApp'
 
@@ -45,12 +50,38 @@ export function WarPage({ onOpenStock }: Props) {
   const [msg, setMsg] = useState('')
   const busyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
+  // 当日任务进度变更（dayrun 判定/Q 卡、持仓、复盘存档）→ 触发任务条重算
+  const [, force] = useReducer((x: number) => x + 1, 0)
 
   // 自选订阅（竞价观察池；变更时静默更新，不打断盘中轮询）
   useEffect(() => subscribeWatchlist(() => setWatchlist(getWatchlist())), [])
+  // N8：任务进度订阅（判定写回 / Q 卡答案 / 持仓变化 / 今日复盘存档）
+  useEffect(() => subscribeDayRun(force), [])
+  useEffect(() => subscribePositions(force), [])
+  useEffect(() => subscribeReview(force), [])
 
   /** 竞价窗口（9:15–9:25）展示竞价雷达。 */
   const showRadar = phase === 'auction'
+
+  // N8：当日任务进度（SessionMission 输入）
+  const day = today()
+  const plan = getLatestPlan(day)
+  const planExpectations = plan?.expectations ?? []
+  const run = getDayRun(day)
+  const positions = getPositions()
+  const judgedCount = planExpectations.filter((e) => run?.verdicts[e.symbol]).length
+  const q3Answered = positions.filter((p) => run?.q3?.bySymbol[p.symbol]).length
+  const missionProps = {
+    phase,
+    expectationsTotal: planExpectations.length,
+    expectationsJudged: judgedCount,
+    q1: !!run?.q1,
+    q2: !!run?.q2,
+    q3AnsweredPositions: q3Answered,
+    positionCount: positions.length,
+    q3Idle: !!run?.q3?.idle,
+    hasTodayReview: !!getReview(day),
+  }
 
   const load = useCallback(async (force = false) => {
     if (busyRef.current) return
@@ -163,12 +194,23 @@ export function WarPage({ onOpenStock }: Props) {
       {msg && <div className="mb-1.5 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-600">{msg}</div>}
       {loading && !events.length && <div className="py-8 text-center text-xs text-slate-300">盘中数据加载中…</div>}
 
-      {/* N2 竞价雷达：仅竞价时段（9:15–9:25）展示，与昨日预期对照 */}
+      {/* N8 时段任务条：每个时段该完成的唯一目标 + 检查清单 + 倒计时 */}
+      <SessionMission {...missionProps} />
+
+      {/* N8 昨日预期 × 今日竞价判定（竞价/盘前展示，逐条写回 dayrun） */}
+      {(phase === 'auction' || phase === 'premarket') && (
+        <ExpectVerdictPanel day={day} />
+      )}
+
+      {/* N8 竞价雷达：仅竞价时段（9:15–9:25）展示，与昨日预期对照 */}
       {showRadar && (
         <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
           <AuctionRadar onOpenStock={onOpenStock} watchlist={watchlist} />
         </div>
       )}
+
+      {/* N8 盘中三问必答卡：盘中只答 Q1-Q3（系统局势候选仅在温度计有数据时提供） */}
+      {phase === 'trading' && <QAnswers autoSituation={regime ? situation : null} />}
 
       <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
         <div className="mb-1 text-[10px] font-medium text-slate-400">局势</div>
