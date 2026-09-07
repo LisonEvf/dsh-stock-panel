@@ -262,6 +262,8 @@ export function getTdxTransportMode(): TdxTransportMode {
 
 /** 网关不可达冷却截止时间（回退远端 MCP，避免每请求白等超时）。 */
 let gatewayDownUntil = 0
+/** 告警节流：同一冷却窗口内只 console.warn 一次，避免并发请求洪泛日志。 */
+let gatewayWarnedAt = 0
 
 export function gatewayLatchActive(): boolean {
   return Date.now() < gatewayDownUntil
@@ -269,6 +271,7 @@ export function gatewayLatchActive(): boolean {
 
 export function resetGatewayLatch(): void {
   gatewayDownUntil = 0
+  gatewayWarnedAt = 0
 }
 
 /** 网关 payload → McpCallResult（content/structuredContent 双形态，兼容现有适配层）。 */
@@ -295,8 +298,13 @@ export async function invokeTool(
     } catch (err) {
       if (err instanceof TdxGatewayUnavailableError) {
         // 网关未启动/超时：冷却 10s 期间直接走远端 MCP，页面不中断。
+        // 告警节流：同冷却窗口只 warn 一次（并发请求不重复刷日志）。
         gatewayDownUntil = Date.now() + 10_000
-        console.warn('[stock-panel] tdx 网关不可达，10s 内回退远端 MCP:', (err as Error).message)
+        const now = Date.now()
+        if (now - gatewayWarnedAt >= 10_000) {
+          gatewayWarnedAt = now
+          console.warn('[stock-panel] tdx 网关不可达，10s 冷却期内回退远端 MCP:', (err as Error).message)
+        }
       } else {
         // 网关在线但工具业务失败：如实抛错（与 MCP 行为一致，不触发回退）。
         throw err

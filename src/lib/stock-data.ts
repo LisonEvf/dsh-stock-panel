@@ -265,7 +265,9 @@ export interface AShareRow {
 export function toAShareRow(raw: QuoteRow): AShareRow | null {
   const close = Number(raw.close)
   const preClose = Number(raw.pre_close)
-  if (!raw.code || !Number.isFinite(close) || !Number.isFinite(preClose) || preClose <= 0) {
+  // 非交易时段/数据源退化会返回 close=0（或字段缺失）：按无效行剔除，
+  // 避免渲染全场 -100%、涨停跌停 0 的假行情（交给页面走"暂无 A 股数据"空态）。
+  if (!raw.code || !Number.isFinite(close) || close <= 0 || !Number.isFinite(preClose) || preClose <= 0) {
     return null
   }
   return {

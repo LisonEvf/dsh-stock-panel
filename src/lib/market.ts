@@ -64,7 +64,8 @@ export async function fetchIndexQuotes(): Promise<IndexQuote[]> {
   const settled = await Promise.allSettled(
     INDEX_LIST.map(async (idx) => {
       const q = await fetchQuote(idx.market, idx.code)
-      if (!q || !Number.isFinite(q.close) || !q.pre_close) return null
+      // 休市/数据源退化时 close 可能为 0：按无效剔除（避免渲染 -100% 假行情）
+      if (!q || !Number.isFinite(q.close) || q.close <= 0 || !Number.isFinite(q.pre_close) || q.pre_close <= 0) return null
       return {
         market: idx.market,
         code: idx.code,
