@@ -28,7 +28,7 @@ try {
   console.error('[patch-layout] failed to load lib/index.js — run `pnpm build` first.', err?.message ?? err)
   process.exit(1)
 }
-const { applyLayoutPatch, revertLayoutPatch, layoutPatchState } = engine
+const { applyLayoutPatch, revertLayoutPatch, layoutPatchState, reportPath } = engine
 
 const args = process.argv.slice(2)
 const targetArg = args.includes('--target') ? args[args.indexOf('--target') + 1] : undefined
@@ -42,8 +42,13 @@ function printState() {
   console.log(`[patch-layout] exists:          ${state.exists}`)
   console.log(`[patch-layout] patched:         ${state.patched === null ? 'unknown' : state.patched}`)
   console.log(`[patch-layout] ui-layout ver:   ${state.version ?? '(unreadable)'}`)
-  console.log(`[patch-layout] expected ver:    ${state.expectedVersion}`)
+  console.log(`[patch-layout] validated range: ${state.expectedVersion}`)
   console.log(`[patch-layout] pristine backup: ${state.backupExists}`)
+  console.log(`[patch-layout] report file:     ${state.reportExists ? reportPath() : '（无）'}`)
+  if (state.exists && state.patched === false) {
+    console.log('[patch-layout] ⚠ stock 列缺失/补丁未应用。若 version 不在 validated range，')
+    console.log('[patch-layout]   请按 src/layout-patch.ts 顶部注释更新规则；失配明细见 report 文件。')
+  }
 }
 
 function fail(message) {

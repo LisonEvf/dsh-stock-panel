@@ -1,8 +1,8 @@
 /**
- * 股票数据适配层（M5 版）：通过 MCP 工具获取数据，转换成前端组件所需格式。
+ * 股票数据适配层（M5 版）：通过行情工具获取数据，转换成前端组件所需格式。
  *
- * 数据源：默认本机 opentdx JSON 网关（http://127.0.0.1:8017/call，见 gateway/README.md），
- * 网关不可达自动回退远端 MCP（192.168.31.196:8007/mcp）；由 mcp.ts invokeTool 统一分发。
+ * 数据源：embedded（host 半进程内 node-tdx 直连，见 lib/endpoints.ts），
+ * 覆盖全部 15 个行情工具；远端 MCP 已移除，无兜底。由 mcp.ts invokeTool 统一分发。
  *
  * 工具返回约定（已实测）：
  *   - quote / kline / tick_chart / unusual / market_monitor / board_members

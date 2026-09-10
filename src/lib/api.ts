@@ -12,11 +12,11 @@ import type { MarketTag } from './symbol'
 export type { StockLevels, PriceLevel, LevelType }
 
 // 数据源配置：
-//   - 'mcp'：直接调用远端 MCP 服务器（http://192.168.31.196:8007/mcp），无需 FastAPI 后端
+//   - 'mcp'：走内置 node-tdx 工具接口（embedded，见 lib/stock-data.ts / lib/mcp.ts），
+//     无需 FastAPI 后端，也无需远端 MCP 服务器
 //   - 'http'：调用 FastAPI 后端（需要后端运行）
 //
-// 默认 'mcp'。可通过全局变量 __DSH_DATA_SOURCE__ 覆盖。
-// ⚠️ MCP 模式要求 8007 服务器开放 CORS（Access-Control-Allow-Origin）。
+// 默认 'mcp'（= 内置 node-tdx）。可通过全局变量 __DSH_DATA_SOURCE__ 覆盖。
 
 /** 数据源：'mcp' | 'http' */
 export type DataSource = 'mcp' | 'http'
@@ -87,6 +87,10 @@ export interface KlineRow {
   close: number
   volume?: number
   amount?: number
+  /** 换手率（%）；筹码衰减用。 */
+  turnover?: number
+  /** 流通股本（股）；turnover 缺失时回退计算用。 */
+  float_shares?: number
   change_pct?: number
   ma5?: number | null
   ma10?: number | null
@@ -185,7 +189,7 @@ export const api = {
     dateRange?: { start: string; end: string },
     extColumns?: string,
   ): Promise<KlineDailyResponse> => {
-    // MCP 数据源：直接调用远端 MCP 服务器
+    // MCP 数据源：走内置 node-tdx 工具接口（embedded）
     if (dataSource === 'mcp') {
       try {
         // symbol 格式可能是 "SH000001" 或 "000001"，解析 market + code
@@ -201,6 +205,8 @@ export const api = {
           close: r.close,
           volume: r.vol ?? r.volume ?? 0,
           amount: r.amount,
+          turnover: r.turnover,
+          float_shares: r.float_shares,
         }))
         return {
           symbol: code,

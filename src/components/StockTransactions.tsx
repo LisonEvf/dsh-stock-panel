@@ -6,9 +6,10 @@
  * 顶部悬浮标注口径，避免把不确定的语义当事实（PRODUCT-DESIGN §2.3 纪律）。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { fetchTransactions, type TransactionRow } from '@/lib/stock-data'
+import { useSwr, swrKey } from '@/lib/cache'
 import type { MarketTag } from '@/lib/symbol'
 
 const BUY = '#c74040'
@@ -46,34 +47,16 @@ interface Props {
 
 export function StockTransactions({ market, code }: Props) {
   const [open, setOpen] = useState(false)
-  const [rows, setRows] = useState<ReturnType<typeof toDisplay>>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const loadingRef = useRef(false)
 
-  useEffect(() => {
-    if (!open || rows.length || loadingRef.current) return
-    let cancelled = false
-    loadingRef.current = true
-    setLoading(true)
-    setError('')
-    void fetchTransactions(market, code, 60)
-      .then((raw) => {
-        if (cancelled) return
-        setRows(toDisplay(raw))
-      })
-      .catch((e) => {
-        if (cancelled) return
-        setError((e as Error).message || '逐笔加载失败')
-      })
-      .finally(() => {
-        loadingRef.current = false
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [open, rows.length, market, code])
+  // 懒加载缓存：展开时才取数；命中缓存立即展示（秒开），后台验证失败会下线重试。
+  const txSwr = useSwr(swrKey.transactions(market, code), () => fetchTransactions(market, code, 60), {
+    ttl: 60_000,
+    enabled: open,
+  })
+  const raw = txSwr.data ?? []
+  const rows = useMemo(() => toDisplay(raw), [raw])
+  const loading = txSwr.status === 'loading'
+  const error = txSwr.error
 
   return (
     <div className="rounded-md border border-slate-100 bg-white">

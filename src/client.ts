@@ -31,8 +31,32 @@ import panelCss from './index.css'
 import { PanelApp } from './panel/PanelApp'
 // 运行时诊断句柄（浏览器控制台可直接调用）。
 import { getDataSource } from './lib/api'
-import { getMcp, invokeTool } from './lib/mcp'
+import { invokeTool } from './lib/mcp'
+import { getTransportMode, endpointDiagnostics } from './lib/endpoints'
 import { getWatchlist } from './lib/watchlist-store'
+
+/** 内置 node-tdx 覆盖的全部行情工具（与 python opentdx-mcp 15 工具契约一致）。 */
+const EMBEDDED_TOOLS: Array<{ name: string; description: string }> = [
+  { name: 'quote', description: '获取股票实时报价（含 OHLC/成交量/成交额/量比等）' },
+  { name: 'kline', description: '获取 A 股 K 线（升序，旧→新）' },
+  { name: 'tick_chart', description: '获取分时图' },
+  { name: 'transaction', description: '获取逐笔成交' },
+  { name: 'auction', description: '获取集合竞价数据' },
+  { name: 'unusual', description: '获取市场异动数据' },
+  { name: 'board_members', description: '获取板块成分股行情（含排序）' },
+  { name: 'capital_flow', description: '获取个股资金流向' },
+  { name: 'symbol_info', description: '获取个股简要特征' },
+  { name: 'belong_board', description: '查询个股所属板块列表' },
+  { name: 'market_monitor', description: '获取主力监控数据' },
+  { name: 'server_info', description: '获取服务器交易日、交易时段与状态参数' },
+  { name: 'goods_quotes', description: '获取扩展市场报价（期货/港股/美股）' },
+  { name: 'goods_kline', description: '获取扩展市场 K 线' },
+  { name: 'goods_varieties', description: '获取商品品种列表（期货/期权合约）' },
+  { name: 'hist_concept_query', description: '查一只票的 HIST 自挖概念（所在共动类 + 最近共动邻居）' },
+  { name: 'hist_concept_classes', description: '当天全部 HIST 自挖类概要（类id/大小/类内相关/强边密度）' },
+  { name: 'hist_concept_class', description: '查看某个 HIST 自挖类的完整成员表' },
+  { name: 'hist_concept_status', description: 'HIST 自挖概念引擎状态' },
+]
 
 /**
  * 把编译好的插件样式注入 <head>（仅一次）。
@@ -148,9 +172,10 @@ export function apply(ctx: DshClientCtx): void {
   // 注入插件样式（Tailwind 工具类 + .dsh-stock 组件规则）。
   injectPanelStyles()
 
-  // 行情传输配置（默认本机 opentdx JSON 网关，无需 FastAPI 后端）：
-  //   window.__DSH_TDX_TRANSPORT__  → 'tdx'(默认, 本机网关) | 'mcp'(远端 MCP)
-  //   window.__DSH_TDX_GATEWAY__     → 自定义网关端点（默认 http://127.0.0.1:8017）
+  // 行情传输配置（单一配置源 src/lib/endpoints.ts，默认 embedded 进程内直连）：
+  //   window.__DSH_TDX_TRANSPORT__ → 'embedded'(默认, host 半内置 node-tdx)
+  //                               | 'http'(遗留外部网关)
+  //   window.__DSH_TDX_GATEWAY__     → 'http' 模式的网关端点（默认 127.0.0.1:8017）
   //   window.__DSH_DATA_SOURCE__     → api.ts 后端特性开关：'mcp' | 'http'（见 lib/api.ts）
   if (typeof window !== 'undefined') {
     ;(window as any).__DSH_DATA_SOURCE__ = (window as any).__DSH_DATA_SOURCE__ || 'mcp'
@@ -164,10 +189,11 @@ export function apply(ctx: DshClientCtx): void {
   if (typeof window !== 'undefined') {
     const panel = (window as any).__STOCK_PANEL__
     ;(window as any).__STOCK_PANEL__ = {
-      version: '0.5.0-gateway',
+      version: '1.1.0-slot-guard',
       dataSource: () => getDataSource(),
-      transport: () => (window as any).__DSH_TDX_TRANSPORT__ || 'tdx',
-      listTools: () => getMcp().listTools(),
+      transport: () => getTransportMode(),
+      endpoints: () => endpointDiagnostics(),
+      listTools: () => EMBEDDED_TOOLS,
       callTool: (name: string, args: Record<string, unknown>) => invokeTool(name, args),
       watchlist: () => getWatchlist(),
       ...(panel && typeof panel === 'object' ? panel : {}),
@@ -175,9 +201,69 @@ export function apply(ctx: DshClientCtx): void {
   }
 
   // 主布局最右列。width 由 ui-layout 的 computeColumns 决定，经 props 传入。
-  slots.register({
-    name: 'stock',
-    id: 'stock-panel',
-    priority: 100,
-  }, () => createElement(StockPanel))
+  //
+  // 守护注册（0.1.2-rc.1 槽位校验 + 时序兜底）：
+  //   1) 若 ui-layout 模块为 pristine（client-modules 快照早于 host 布局补丁的
+  //      「干净首启」场景），root children 表未声明 'stock' —— 直接注册会抛
+  //      `slot "stock" is not declared ...` 并拖垮整个 GUI boot；
+  //   2) 即便磁盘已补丁，本 client 行在浏览器 boot 图里的 apply 顺序仍可能早于
+  //      ui-layout（其 apply 才把 root children 声明进注册表）。
+  // 处理：try 注册失败 → 不中断启动，按退避重试若干次（ui-layout apply 后 stock
+  // 槽即被声明，重试必然成功；slot 注册表是响应式的，迟到注册也会让空列即时填充）。
+  // 全部重试失败（仅 pristine 场景）才告警降级，留待下一次重启由 host 落盘补丁生效。
+  const registerStock = () => {
+    slots.register({
+      name: 'stock',
+      id: 'stock-panel',
+      priority: 100,
+    }, () => createElement(StockPanel))
+    if (typeof window !== 'undefined') {
+      ;(window as any).__STOCK_PANEL__ = {
+        ...(window as any).__STOCK_PANEL__,
+        slotRegistered: true,
+        slotError: undefined,
+      }
+    }
+  }
+  const tryRegister = (attempt: number): void => {
+    try {
+      registerStock()
+      if (typeof console !== 'undefined') {
+        console.log(`[stock-panel] stock slot registered (attempt ${attempt + 1})`)
+      }
+    } catch (err) {
+      const remaining = RETRY_DELAYS.length - attempt - 1
+      if (remaining > 0 && typeof setTimeout !== 'undefined') {
+        const delay = RETRY_DELAYS[attempt] ?? 500
+        if (typeof console !== 'undefined') {
+          console.warn(
+            `[stock-panel] stock slot 尚未声明（attempt ${attempt + 1}，${delay}ms 后重试，剩 ${remaining} 次）。` +
+              '原因：ui-layout 的 root children 声明晚于本插件 apply。',
+            err,
+          )
+        }
+        setTimeout(() => tryRegister(attempt + 1), delay)
+      } else {
+        // pristine ui-layout 且 host 补丁尚未随本 boot 落盘时的最终降级（不崩 GUI）。
+        if (typeof console !== 'undefined') {
+          console.warn(
+            '[stock-panel] stock slot 未声明且重试耗尽，本 boot 跳过注册（不影响 GUI 启动）。' +
+              'host 已把布局补丁落盘，下一次重启 dsh web 后 stock 列即出现。',
+            err,
+          )
+        }
+        if (typeof window !== 'undefined') {
+          ;(window as any).__STOCK_PANEL__ = {
+            ...(window as any).__STOCK_PANEL__,
+            slotRegistered: false,
+            slotError: String((err as Error)?.message ?? err),
+          }
+        }
+      }
+    }
+  }
+  tryRegister(0)
 }
+
+/** 注册重试退避（ms）。首个 0 立即再试一次以覆盖“仅差一个微任务”的窗口。 */
+const RETRY_DELAYS = [0, 150, 500, 1500, 4000]

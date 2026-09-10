@@ -1,315 +1,90 @@
 /**
- * MCP over HTTP 客户端（JSON-RPC 2.0 + SSE / JSON）。
+ * 统一工具分发（数据层单一入口）。
  *
- * ⚠️ 数据路径（2026-09 起）：默认行情传输 = 本机 opentdx JSON 网关
- * （src/lib/gateway.ts → http://127.0.0.1:8017/call，见 gateway/README.md）。
- * 本模块保持「远端 MCP」客户端实现，并导出 invokeTool() 统一分发：
- *   - window.__DSH_TDX_TRANSPORT__ !== 'mcp'（默认 'tdx'）→ 先走本地网关；
- *   - 网关不可达（10s 冷却）或显式 'mcp' → 走本模块远端 MCP：
- *     browser 半 POST 到同源路由 /api/stock-panel/mcp，由 host 半
- *     （src/index.ts 的 registerMcpBridge）转发到远端 MCP 服务器
- *     （默认 http://192.168.31.196:8007/mcp）。
- *   - 可通过全局变量 __DSH_MCP_ENDPOINT__ 覆盖远端 MCP 服务器地址。
+ * ⚠️ 传输层（2026-09 重构，见 lib/endpoints.ts 单一配置源）：
+ *   - 'embedded'（默认）—— 浏览器 POST 同源路由 /api/stock-panel/call，host 半在
+ *     dsh web 进程内用 node-tdx 直连 TDX（src/host/tdx-data.ts），无外部进程；
+ *     业务错误 / 连接不可用 / 非 JSON 均如实上抛，**不再回退远端源**。
+ *   - 'http'（遗留）—— 外部 opentdx JSON 网关（gateway/），不可达如实上抛。
  *
- * ⚠️ 响应解析：远端 opentdx MCP 服务器对 tools/* 请求始终以
- * `text/event-stream`（event: message / data: {...}）返回，个别实现也可能
- * 返回纯 JSON。旧版客户端用 `resp.json()` 直接解析，SSE 首帧必然抛错被
- * catch 吞掉，导致所有工具调用静默返回空。本版统一走 parseMcpBody：
- * 先按 SSE 逐行解析，解析不出再退回纯 JSON，二者都兼容。
+ * 远端 MCP（192.168.31.196:8007/mcp）已移除：内置 node-tdx 覆盖全部 15 个行情
+ * 工具（含 goods_varieties），无需远端兜底。
  *
- * JSON-RPC 2.0 MCP over HTTP 流程：
- *   1. POST /api/stock-panel/mcp  body: initialize  → sessionId
- *   2. POST ...  body: notifications/initialized
- *   3. POST ...  body: tools/list   → 工具列表
- *   4. POST ...  body: tools/call    → 调用工具（带 sessionId）
+ * 模式由 __DSH_TDX_TRANSPORT__ / DSH_TDX_TRANSPORT 覆盖。
  */
 
-import { gatewayCall, TdxGatewayUnavailableError } from './gateway'
-
-export interface McpTool {
-  name: string
-  description?: string
-  inputSchema?: unknown
-}
+import {
+  EMBEDDED_CALL_ROUTE,
+  getHttpGatewayEndpoint,
+  getTransportMode,
+  type TdxTransportMode,
+} from './endpoints'
+import { gatewayCall } from './gateway'
 
 export interface McpCallResult {
   content?: Array<{ type: string; text?: string }>
   isError?: boolean
+  structuredContent?: unknown
   [key: string]: unknown
 }
 
-/** 桥接路由（同源，由 host 半转发到远端 MCP 服务器）。 */
-const BRIDGE_ROUTE = '/api/stock-panel/mcp'
+export { getTransportMode, type TdxTransportMode }
 
-/** 可通过全局变量 __DSH_MCP_ENDPOINT__ 覆盖远端 MCP 服务器地址（仅用于日志）。 */
-export function getMcpEndpoint(): string {
-  if (typeof window !== 'undefined' && (window as any).__DSH_MCP_ENDPOINT__) {
-    return (window as any).__DSH_MCP_ENDPOINT__
-  }
-  return 'http://192.168.31.196:8007/mcp'
-}
-
-/**
- * 解析 MCP HTTP 响应体为 JSON-RPC 结果对象。
- *
- * 兼容两种 body：
- *  - SSE：`event: message\ndata: {...}\n\n`（远端主格式，可能分多条 data）
- *  - 纯 JSON：`{"jsonrpc":"2.0","result":{...}}`
- * 返回首个解析出的完整消息对象（含 id / result / error）。
- */
-export async function parseMcpBody(resp: Response): Promise<any> {
-  const text = await resp.text()
-  if (!text.trim()) return null
-  // 1) SSE：逐行收集 data: 载荷
-  const dataLines: string[] = []
-  for (const raw of text.split('\n')) {
-    const line = raw.replace(/\r$/, '').trim()
-    if (line.startsWith('data:')) {
-      const payload = line.slice(5).trim()
-      if (payload) dataLines.push(payload)
-    }
-  }
-  if (dataLines.length > 0) {
-    let last: any = null
-    for (const payload of dataLines) {
-      try {
-        last = JSON.parse(payload)
-      } catch {
-        /* 跳过非 JSON data 行 */
-      }
-    }
-    if (last) return last
-  }
-  // 2) 纯 JSON 兜底
-  try {
-    return JSON.parse(text)
-  } catch {
-    return null
-  }
-}
-
-/** 从 JSON-RPC 消息中取 result；错误时抛 Error。 */
-export function unwrapResult(msg: any): any {
-  if (!msg) throw new Error('MCP 无响应')
-  if (msg.error) {
-    const detail = msg.error.message ?? JSON.stringify(msg.error)
-    throw new Error(`MCP error: ${detail}`)
-  }
-  return msg.result
-}
-
-/** MCP 客户端：维护会话，调用工具。 */
-export class McpClient {
-  private endpoint: string
-  private sessionId: string | null = null
-  private initialized = false
-  private initPromise: Promise<void> | null = null
-
-  constructor(endpoint?: string) {
-    this.endpoint = endpoint ?? getMcpEndpoint()
-  }
-
-  /** 初始化会话（幂等、并发安全）。 */
-  initialize(): Promise<void> {
-    if (this.initialized) return Promise.resolve()
-    if (!this.initPromise) {
-      this.initPromise = this.doInitialize().catch((err) => {
-        this.initPromise = null
-        throw err
-      })
-    }
-    return this.initPromise
-  }
-
-  private async doInitialize(): Promise<void> {
-    const resp = await this.rawCall({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'dsh-stock-panel', version: '1.0' },
-      },
-    })
-    // 从响应头取会话 ID（大小写不敏感）
-    this.sessionId = resp.headers.get('mcp-session-id') ?? resp.headers.get('Mcp-Session-Id') ?? null
-    const msg = await parseMcpBody(resp)
-    unwrapResult(msg)
-    // 通知初始化完成
-    await this.rawCall({
-      jsonrpc: '2.0',
-      method: 'notifications/initialized',
-    })
-    this.initialized = true
-  }
-
-  /** 列出工具。 */
-  async listTools(): Promise<McpTool[]> {
-    if (!this.initialized) await this.initialize()
-    const resp = await this.rawCall({
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'tools/list',
-      params: {},
-    })
-    const msg = await parseMcpBody(resp)
-    const result = unwrapResult(msg)
-    return (result?.tools as McpTool[]) ?? []
-  }
-
-  /** 判断错误是否属于「会话失效」（远端会话被回收/过期）。 */
-  private isSessionError(err: unknown): boolean {
-    const msg = (err as Error)?.message ?? ''
-    return /session not found/i.test(msg) || /-32600/.test(msg)
-  }
-
-  /** 丢弃失效会话并重建（初始化幂等并发安全）。 */
-  private async rebuildSession(): Promise<void> {
-    this.sessionId = null
-    this.initialized = false
-    this.initPromise = null
-    await this.initialize()
-  }
-
-  /** 调用工具，返回 result（含 content / isError）。会话失效时自动重建并重试一次。 */
-  async callTool(name: string, args: Record<string, unknown> = {}): Promise<McpCallResult> {
-    let retried = false
-    for (;;) {
-      if (!this.initialized) await this.initialize()
-      try {
-        const resp = await this.rawCall({
-          jsonrpc: '2.0',
-          id: 3,
-          method: 'tools/call',
-          params: { name, arguments: args },
-        })
-        const msg = await parseMcpBody(resp)
-        const result = unwrapResult(msg)
-        return (result ?? {}) as McpCallResult
-      } catch (err) {
-        // 远端会话被回收（实测 opentdx 服务器会话会偶发过期/被挤掉）：
-        // 重建会话重试一次，避免整页轮询从此全部失败直到刷新。
-        if (!retried && this.isSessionError(err)) {
-          retried = true
-          await this.rebuildSession().catch(() => undefined)
-          continue
-        }
-        throw err
-      }
-    }
-  }
-
-  /** 原始 JSON-RPC 请求，走 host 半桥接路由。默认 15s 超时，防单请求卡死轮询。 */
-  private async rawCall(payload: unknown, timeoutMs = 15_000): Promise<Response> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json, text/event-stream',
-    }
-    if (this.sessionId) {
-      headers['Mcp-Session-Id'] = this.sessionId
-    }
-    const ac = new AbortController()
-    const timer = setTimeout(() => ac.abort(), timeoutMs)
-    try {
-      const resp = await fetch(BRIDGE_ROUTE, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ ...(payload as object), sessionId: this.sessionId }),
-        signal: ac.signal,
-      })
-      if (!resp.ok) {
-        throw new Error(`MCP request failed: ${resp.status} ${resp.statusText}`)
-      }
-      return resp
-    } catch (err) {
-      if (ac.signal.aborted) {
-        throw new Error(`MCP 请求超时(${timeoutMs}ms): ${(payload as any)?.method ?? ''}`)
-      }
-      throw err
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-}
-
-/** 全局单例。 */
-let client: McpClient | null = null
-
-export function getMcp(): McpClient {
-  if (!client) client = new McpClient()
-  return client
-}
-
-// ================================================================
-// 传输层分发：本机 opentdx 网关（默认 'tdx'） vs 远端 MCP（'mcp'）
-// ================================================================
-
-/**
- * 行情传输模式：
- *   - 'tdx'（默认）：本机 JSON 网关（gateway/，直连 TRADE\opentdx），
- *     不可达时自动回退远端 MCP（见 invokeTool）；
- *   - 'mcp'：强制远端 MCP（192.168.31.196:8007，经 host 桥接）。
- * 可用 window.__DSH_TDX_TRANSPORT__ 覆盖。__DSH_DATA_SOURCE__('mcp'|'http')
- * 仍专管 api.ts 的「后端特性开关」（关键价位/AI/后端自选），两者互不干扰。
- */
-export type TdxTransportMode = 'tdx' | 'mcp'
-
-export function getTdxTransportMode(): TdxTransportMode {
-  if (typeof window === 'undefined') return 'tdx'
-  return (window as any).__DSH_TDX_TRANSPORT__ === 'mcp' ? 'mcp' : 'tdx'
-}
-
-/** 网关不可达冷却截止时间（回退远端 MCP，避免每请求白等超时）。 */
-let gatewayDownUntil = 0
-/** 告警节流：同一冷却窗口内只 console.warn 一次，避免并发请求洪泛日志。 */
-let gatewayWarnedAt = 0
-
-export function gatewayLatchActive(): boolean {
-  return Date.now() < gatewayDownUntil
-}
-
-export function resetGatewayLatch(): void {
-  gatewayDownUntil = 0
-  gatewayWarnedAt = 0
-}
-
-/** 网关 payload → McpCallResult（content/structuredContent 双形态，兼容现有适配层）。 */
-function toMcpResult(data: any): McpCallResult {
-  const payload = data ?? null
+/** payload → McpCallResult（content/structuredContent 双形态，兼容现有适配层）。 */
+function toMcpResult(data: unknown): McpCallResult {
   return {
-    content: [{ type: 'text', text: JSON.stringify(payload) }],
-    structuredContent: { result: payload },
+    content: [{ type: 'text', text: JSON.stringify(data) }],
+    structuredContent: { result: data },
   }
+}
+
+/**
+ * 调用内置（进程内 TDX）桥接：POST /api/stock-panel/call {tool, args} → {ok, data}。
+ * 失败（业务错误 / 连接不可用 / 非 JSON）直接抛 Error，不触发任何回退。
+ */
+async function embeddedCall(name: string, args: Record<string, unknown>, timeoutMs = 25_000): Promise<unknown> {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), timeoutMs)
+  let resp: Response
+  try {
+    resp = await fetch(EMBEDDED_CALL_ROUTE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool: name, args }),
+      signal: ac.signal,
+    })
+  } catch (err) {
+    if (ac.signal.aborted) throw new Error(`内置 TDX 请求超时(${timeoutMs}ms): ${name}`)
+    throw new Error(`内置 TDX 桥接不可达: ${(err as Error).message}`)
+  } finally {
+    clearTimeout(timer)
+  }
+  let body: any
+  try {
+    body = await resp.json()
+  } catch {
+    throw new Error(`内置 TDX 响应非 JSON: ${name}`)
+  }
+  if (!body || body.ok !== true) {
+    throw new Error(`${name}: ${body?.error ?? '未知错误'}`)
+  }
+  return body.data ?? null
 }
 
 /**
  * 统一工具调用入口（stock-data.ts / 页面轮询 / 诊断句柄都走这里）。
- * 返回与 McpClient.callTool 同型的 McpCallResult；失败抛 Error。
+ * 返回 McpCallResult（content/structuredContent 双形态）；失败抛 Error。
  */
 export async function invokeTool(
   name: string,
   args: Record<string, unknown> = {},
 ): Promise<McpCallResult> {
-  if (getTdxTransportMode() === 'tdx' && !gatewayLatchActive()) {
-    try {
-      const data = await gatewayCall(name, args)
-      return toMcpResult(data)
-    } catch (err) {
-      if (err instanceof TdxGatewayUnavailableError) {
-        // 网关未启动/超时：冷却 10s 期间直接走远端 MCP，页面不中断。
-        // 告警节流：同冷却窗口只 warn 一次（并发请求不重复刷日志）。
-        gatewayDownUntil = Date.now() + 10_000
-        const now = Date.now()
-        if (now - gatewayWarnedAt >= 10_000) {
-          gatewayWarnedAt = now
-          console.warn('[stock-panel] tdx 网关不可达，10s 冷却期内回退远端 MCP:', (err as Error).message)
-        }
-      } else {
-        // 网关在线但工具业务失败：如实抛错（与 MCP 行为一致，不触发回退）。
-        throw err
-      }
-    }
+  const mode = getTransportMode()
+  if (mode === 'http') {
+    const data = await gatewayCall(name, args, undefined, getHttpGatewayEndpoint())
+    return toMcpResult(data)
   }
-  return getMcp().callTool(name, args)
+  // 'embedded'（默认）：同源内置桥接，进程内 node-tdx 直连，无远端兜底。
+  const data = await embeddedCall(name, args)
+  return toMcpResult(data)
 }

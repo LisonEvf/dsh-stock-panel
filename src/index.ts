@@ -8,7 +8,7 @@
  *   2. **同步**检测 ui-layout 布局补丁是否缺失，缺失就内嵌重打
  *      （src/layout-patch.ts 引擎随 lib/ 发布，无外置脚本依赖）——
  *      保证 `dsh plugin --profile web add` 后下次启动零操作自动出现 stock 列；
- *   3. 注册 MCP 桥接路由（POST /api/stock-panel/mcp）。
+ *   3. 注册内置 TDX 桥接路由（POST /api/stock-panel/call，进程内 node-tdx 直连）。
  *
  * 真正的 React UI 由 browser 半（src/client.ts）通过补丁新增的
  * `stock` / `stock.preview` 槽在浏览器端渲染。
@@ -21,8 +21,9 @@
  * bundle）；插件卸载时若 pristine 备份存在则还原 bundle。
  */
 import { applyLayoutPatch, ensureLayoutPatchAtBoot, layoutPatchState, revertLayoutPatch, revertLayoutPatchIfNeeded } from './layout-patch'
-import { getOwnPropertySafe, registerMcpBridge, type HostCtx } from './host-util'
+import { getOwnPropertySafe, registerEmbeddedTdxBridge, type HostCtx } from './host-util'
 import { registerStockTools } from './host-tools'
+import { disposeTdxClient } from './host/tdx-data'
 
 /** 插件契约（host 半暴露给 browser 半和宿主）。 */
 export interface StockPanelContract {
@@ -38,8 +39,8 @@ export interface StockPanelContract {
  * Cordis entry 元数据（与 kb 插件同款契约，loader 按此装配 fiber）：
  *   - name：entry 名（patch insert 引用的包名）
  *   - inject：声明需要的运行时服务 → ctx.webServer 才会被注入
- *     （注册 /api/stock-panel/mcp 桥接路由的前提；缺了它 getOwnPropertySafe
- *     永远拿到 undefined，桥接静默不注册）。
+ *     （注册 /api/stock-panel/call 内置 TDX 桥接路由的前提；缺了它
+ *     getOwnPropertySafe 永远拿到 undefined，桥接静默不注册）。
  */
 export const name = '@lisonevf/dsh-stock-panel'
 export const inject = ['webServer', 'tools']
@@ -59,14 +60,13 @@ export function apply(ctx: HostCtx): (() => void) | void {
     order: 100,
   })
 
-  // MCP 桥接：host 半在服务端直连远端 MCP 服务器（192.168.31.196:8007/mcp），
-  // 避免浏览器跨域（CORS）问题。browser 半通过同源 route 调用。
-  // 路由：POST /api/stock-panel/mcp  body: JSON-RPC 2.0 MCP 请求
-  // 响应：SSE 流（event: message / data: {...}）
+  // 内置 TDX 桥接：host 半在服务端进程内用 node-tdx 直连 TDX（无远端 MCP、
+  // 无外部进程）。browser 半通过同源 route 调用：
+  // 路由：POST /api/stock-panel/call  body: {"tool": name, "args": {...}}
   // 注意：ctx.webServer 是 Cordis 服务，未注入时访问会抛异常，用 getOwnPropertySafe 安全访问。
   const ws = getOwnPropertySafe(ctx, 'webServer')
   if (ws) {
-    registerMcpBridge(ws as NonNullable<HostCtx['webServer']>)
+    registerEmbeddedTdxBridge(ws as NonNullable<HostCtx['webServer']>)
   }
 
   // 对话行情工具（chat 联动，零 FastAPI）：当前对话助手可直接调用取数分析。
@@ -78,6 +78,8 @@ export function apply(ctx: HostCtx): (() => void) | void {
   // bundle 处于已打补丁状态才会写回；下次启动（插件仍在）会自动重打。
   return () => {
     revertLayoutPatchIfNeeded()
+    // 释放内置 TDX 长连接（进程退出/插件移除时干净断开）。
+    disposeTdxClient().catch(() => undefined)
   }
 }
 
@@ -92,3 +94,6 @@ export const hostService = {
   previewSlot: 'stock.preview',
   order: 100,
 }
+
+// 内置 TDX 服务导出（脚本/冒烟/诊断复用同一实现）。
+export { callEmbeddedTool, tdxEmbeddedDiagnostics, disposeTdxClient } from './host/tdx-data'

@@ -5,8 +5,9 @@
  * 只可作「相对排名 / 5 日方向」的方向确认，**不可单独作为买卖信号**——页面附提示。
  */
 
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { fetchCapitalFlow, type CapitalFlowRow } from '@/lib/stock-data'
+import { useSwr, swrKey } from '@/lib/cache'
 import { fmtBigNum } from '@/lib/format'
 import type { MarketTag } from '@/lib/symbol'
 
@@ -19,36 +20,28 @@ const UP = '#c74040'
 const DOWN = '#2d9b65'
 
 export function StockCapitalFlow({ market, code }: Props) {
-  const [row, setRow] = useState<CapitalFlowRow | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let alive = true
-    setLoading(true)
-    setRow(null)
-    fetchCapitalFlow(market, code).then((r) => {
-      if (!alive) return
-      setRow(r)
-      setLoading(false)
-    })
-    return () => {
-      alive = false
-    }
-  }, [market, code])
+  // 懒加载缓存：命中缓存秒开，后台验证失败自动下线重试（避免以假乱真）。
+  const { data: row, status } = useSwr<CapitalFlowRow | null>(
+    swrKey.capitalFlow(market, code),
+    () => fetchCapitalFlow(market, code),
+    { ttl: 60_000 },
+  )
+  const loading = status === 'loading'
 
   const num = (v: unknown): number => {
     const n = Number(v)
     return Number.isFinite(n) ? n : 0
   }
 
-  const items = row
-    ? [
-        { l: '今日主力净流入', v: num(row['今日主力净流入']) },
-        { l: '今日散户净流入', v: num(row['今日散户净流入']) },
-        { l: '5日主力净流入', v: num(row['5日主力净流入']) },
-        { l: '5日超大单净额', v: num(row['5日超大单净额']) },
-      ]
-    : []
+  const items = useMemo<{ l: string; v: number }[]>(() => {
+    if (!row) return []
+    return [
+      { l: '今日主力净流入', v: num(row['今日主力净流入']) },
+      { l: '今日散户净流入', v: num(row['今日散户净流入']) },
+      { l: '5日主力净流入', v: num(row['5日主力净流入']) },
+      { l: '5日超大单净额', v: num(row['5日超大单净额']) },
+    ]
+  }, [row])
 
   return (
     <div className="mt-2.5">

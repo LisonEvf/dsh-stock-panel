@@ -18,6 +18,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { fetchKlineRows, fetchTickRows, type McpKlineRow, type TickRow } from '@/lib/stock-data'
+import { fmtBigNum } from '@/lib/format'
 import type { MarketTag } from '@/lib/symbol'
 
 const UP = '#c74040'
@@ -25,6 +26,9 @@ const DOWN = '#2d9b65'
 const MA_COLORS: Record<string, string> = { 5: '#f59e0b', 10: '#3b82f6', 20: '#a855f7' }
 
 export type IndexChartMode = 'day' | 'min'
+
+/** 副图量/额切换（成交额补充）。 */
+type SubMetric = 'vol' | 'amount'
 
 interface Props {
   market: MarketTag
@@ -50,7 +54,9 @@ function maValues(rows: McpKlineRow[], n: number): ({ time: string; value: numbe
 export function IndexChart({ market, code, name, height = 320 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  const klineCacheRef = useRef<{ key: string; rows: McpKlineRow[] } | null>(null)
   const [mode, setMode] = useState<IndexChartMode>('day')
+  const [metric, setMetric] = useState<SubMetric>('vol')
   const [status, setStatus] = useState<'loading' | 'ok' | 'error' | 'empty'>('loading')
   const [error, setError] = useState('')
 
@@ -88,8 +94,13 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
 
     void (async () => {
       try {
-        const klines = await fetchKlineRows(market, code, 'DAILY', 160)
-        if (cancelled) return
+        const cacheKey = `${market}:${code}`
+        let klines = klineCacheRef.current?.key === cacheKey ? klineCacheRef.current.rows : null
+        if (!klines) {
+          klines = await fetchKlineRows(market, code, 'DAILY', 160)
+          if (cancelled) return
+          klineCacheRef.current = { key: cacheKey, rows: klines }
+        }
         if (mode === 'day') {
           if (!klines.length) {
             setStatus('empty')
@@ -126,7 +137,7 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
           }
           const vols: { time: string; value: number; color: string }[] = []
           for (const r of klines) {
-            const v = Number(r.vol ?? r.volume ?? 0)
+            const v = metric === 'amount' ? Number(r.amount ?? 0) : Number(r.vol ?? r.volume ?? 0)
             if (!Number.isFinite(v)) continue
             vols.push({
               time: fmtDay(r.datetime),
@@ -135,7 +146,11 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
             })
           }
           if (vols.length) {
-            const vol = chart.addHistogramSeries({ priceScaleId: 'vol', lastValueVisible: false })
+            const vol = chart.addHistogramSeries({
+              priceScaleId: 'vol',
+              lastValueVisible: false,
+              priceFormat: { type: 'custom', formatter: fmtBigNum, minMove: 0.01 },
+            })
             vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } })
             vol.setData(vols)
           }
@@ -204,7 +219,7 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
       chart.remove()
       chartRef.current = null
     }
-  }, [market, code, mode, height, name])
+  }, [market, code, mode, metric, height, name])
 
   const btn = (m: IndexChartMode, label: string) => (
     <button
@@ -217,11 +232,29 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
     </button>
   )
 
+  const metricBtn = (m: SubMetric, label: string) => (
+    <button
+      onClick={() => setMetric(m)}
+      className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${
+        metric === m ? 'bg-blue-50 text-blue-500' : 'text-slate-300 hover:bg-white hover:text-slate-500'
+      }`}
+    >
+      {label}
+    </button>
+  )
+
   return (
     <div className="w-full">
       <div className="mb-1 flex items-center justify-end gap-1">
         {btn('day', '日K')}
         {btn('min', '分时')}
+        {mode === 'day' && (
+          <>
+            <span className="mx-0.5 h-3 w-px bg-slate-200" />
+            {metricBtn('vol', '量')}
+            {metricBtn('amount', '额')}
+          </>
+        )}
       </div>
       <div ref={containerRef} style={{ height, position: 'relative' }}>
         {status === 'loading' && (

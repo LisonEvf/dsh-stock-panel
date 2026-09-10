@@ -14,7 +14,9 @@ import type { ColumnConfig, LevelType, StockLevels } from '@/lib/stock-info-fiel
 import { BUILTIN_INFO_FIELDS, loadInfoFields, saveInfoFields } from '@/lib/stock-info-fields'
 import { fmtPrice } from '@/lib/format'
 import { parseSymbol } from '@/lib/symbol'
-import { fetchQuote } from '@/lib/stock-data'
+import { fetchQuote, fetchTransactions } from '@/lib/stock-data'
+import { useSwr, swrKey } from '@/lib/cache'
+import { computeChipsFromRows, computeChipsWithTicks, type ChipsResult } from '@/lib/chips'
 import { useWatchlist } from '@/lib/watchlist-store'
 import type { OpenStock } from '@/panel/PanelApp'
 
@@ -191,6 +193,42 @@ export function StockDetailPage({ open, onBack }: Props) {
   // N7：个股级竞价回顾 / 资金面板的标的
   const symParts = useMemo(() => (state.symbol ? parseSymbol(state.symbol) : null), [state.symbol])
 
+  // ===== 筹码分布（L0 日K 秒算 → L1 当日逐笔异步升级）=====
+  const chipEndDate = useMemo(
+    () => (state.rows.length ? String(state.rows[state.rows.length - 1].date).slice(0, 10) : ''),
+    [state.rows],
+  )
+  const chipTicksKey =
+    chartMode === 'day' && symParts && state.rows.length && chipEndDate && latestClose > 0
+      ? swrKey.chipsTicks(symParts.market, symParts.code, chipEndDate)
+      : ''
+  const chipTicksSwr = useSwr(
+    chipTicksKey || 'swr:chips:off',
+    () =>
+      symParts ? fetchTransactions(symParts.market, symParts.code, 4000) : Promise.resolve([]),
+    { ttl: 60_000, enabled: chipTicksKey !== '' },
+  )
+  /** L0：纯日K 三角衰减（秒出，覆盖度不足/逐笔未回时即为最终值）。 */
+  const chipsBase = useMemo<ChipsResult | null>(() => {
+    if (chartMode !== 'day' || !state.rows.length || latestClose <= 0) return null
+    try {
+      return computeChipsFromRows(state.rows, state.rows.length - 1, latestClose)
+    } catch {
+      return null
+    }
+  }, [chartMode, state.rows, latestClose])
+  /** L1：当日逐笔修正；逐笔未回/过少则回落 L0。 */
+  const chips = useMemo<ChipsResult | null>(() => {
+    if (!chipsBase || chipTicksKey === '') return chipsBase
+    const ticks = chipTicksSwr.data
+    if (!ticks || ticks.length < 50) return chipsBase
+    try {
+      return computeChipsWithTicks(state.rows, state.rows.length - 1, ticks, latestClose)
+    } catch {
+      return chipsBase
+    }
+  }, [chipsBase, chipTicksSwr.data, state.rows, latestClose, chipTicksKey])
+
   const activeLevelTypes = useMemo(() => {
     if (!state.levels) return new Set<LevelType>()
     return new Set<LevelType>(Object.keys(state.levels.levels) as LevelType[])
@@ -333,7 +371,14 @@ export function StockDetailPage({ open, onBack }: Props) {
               <div className="flex h-64 items-center justify-center text-sm text-slate-400">K 加载中…</div>
             ) : chartMode === 'day' ? (
               state.rows.length ? (
-                <KlineChart symbol={state.symbol} height={280} rows={state.rows} showMA={showMA} />
+                <KlineChart
+                  symbol={state.symbol}
+                  height={280}
+                  rows={state.rows}
+                  showMA={showMA}
+                  chips={chips}
+                  chipsLoading={chipTicksSwr.status === 'loading'}
+                />
               ) : (
                 <div className="flex h-64 items-center justify-center text-[11px] text-slate-300">暂无历史 K 线数据</div>
               )

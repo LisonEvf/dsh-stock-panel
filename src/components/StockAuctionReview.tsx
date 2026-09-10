@@ -7,9 +7,10 @@
  * ⚠️ unmatched 正负号语义待协议冒烟定论（见 PRODUCT-DESIGN §2.3）。
  */
 
-import { useEffect, useState } from 'react'
+import { useMemo } from 'react'
 import { fetchAuctionSeries, fetchQuote } from '@/lib/stock-data'
 import { analyzeAuction, type AuctionFeatures } from '@/lib/auction-analysis'
+import { useSwr, swrKey } from '@/lib/cache'
 import type { MarketTag } from '@/lib/symbol'
 
 interface Props {
@@ -21,29 +22,17 @@ const UP = '#c74040'
 const DOWN = '#2d9b65'
 
 export function StockAuctionReview({ market, code }: Props) {
-  const [feat, setFeat] = useState<AuctionFeatures | null>(null)
-  const [loading, setLoading] = useState(true)
+  // 懒加载缓存：报价 + 竞价序列分离缓存，命中立即回看，失败下线重试。
+  const quotesSwr = useSwr(swrKey.quote(market, code), () => fetchQuote(market, code), { ttl: 60_000 })
+  const auctionSwr = useSwr(swrKey.auction(market, code), () => fetchAuctionSeries(market, code), { ttl: 60_000 })
+  const loading = quotesSwr.status === 'loading' || auctionSwr.status === 'loading'
 
-  useEffect(() => {
-    let alive = true
-    setLoading(true)
-    setFeat(null)
-    ;(async () => {
-      const [q, pts] = await Promise.all([
-        fetchQuote(market, code),
-        fetchAuctionSeries(market, code),
-      ])
-      if (!alive) return
-      const a = analyzeAuction(pts, Number(q && q.pre_close), Number(q && q.buy_price_limit))
-      if (alive) {
-        setFeat(a)
-        setLoading(false)
-      }
-    })()
-    return () => {
-      alive = false
-    }
-  }, [market, code])
+  const feat = useMemo<AuctionFeatures | null>(() => {
+    const q = quotesSwr.data
+    const pts = auctionSwr.data ?? []
+    const a = analyzeAuction(pts, Number(q && q.pre_close), Number(q && q.buy_price_limit))
+    return a
+  }, [quotesSwr.data, auctionSwr.data])
 
   return (
     <div className="mt-2.5">

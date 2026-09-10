@@ -1,6 +1,29 @@
 # MCP 数据源配置说明（方案 A）
 
-## 架构
+> ## ⚠️ 2026-09 传输层重构（v1.1）——远端 MCP 已移除，下文旧章节仅作历史存档
+>
+> 默认数据链路为 **embedded（内置 TDX）**，见 README「传输层重构」小节与
+> `src/lib/endpoints.ts`（端点/模式单一配置源）：
+>
+> ```
+> Browser ── POST /api/stock-panel/call {tool,args}（同源）
+>    → host 半 registerEmbeddedTdxBridge
+>    → node-tdx（src/host/vendor/opentdx.js，进程内长连接）── TCP 7709/7727 ── TDX
+>        ├─ 业务错误            → {ok:false, kind:'business'}（如实上抛）
+>        ├─ 未知工具            → {ok:false, kind:'unsupported'}
+>        └─ 连接不可达/禁用     → {ok:false, kind:'unavailable'}
+> ```
+>
+> 传输模式（`window.__DSH_TDX_TRANSPORT__` / 环境变量 `DSH_TDX_TRANSPORT`）：
+> - `embedded`（**默认**）—— 进程内 node-tdx，覆盖全部 15 个行情工具（含
+>   goods_varieties），无需任何外部进程、无远端兜底；
+> - `http`（遗留）—— 自建 opentdx JSON 网关（`gateway/`，python），端点
+>   `window.__DSH_TDX_GATEWAY__` / `DSH_TDX_GATEWAY`（默认 127.0.0.1:8017）。
+>
+> 诊断：浏览器控制台 `window.__STOCK_PANEL__.endpoints()` / `.transport()`；
+> host 日志 `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`。
+
+## 架构（旧：远端 MCP 桥接）
 
 ```
 Browser (client.ts)

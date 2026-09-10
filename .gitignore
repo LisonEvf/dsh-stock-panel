@@ -7,3 +7,6 @@ dist/
 gateway/*.pid
 gateway/*.log.*
 gateway/state/
+
+# tsc composite build info
+*.tsbuildinfo

@@ -1,27 +1,26 @@
 /**
- * src/lib/gateway.ts — 本机 opentdx JSON 网关客户端。
+ * src/lib/gateway.ts — 遗留外部 opentdx JSON 网关客户端（'http' 传输模式专用）。
  *
- * 与 mcp.ts（远端 MCP/JSON-RPC+SSE）同签名地提供 `gatewayCall(name, args)`：
- *   POST http://127.0.0.1:8017/call  {"tool": name, "args": args}
- *   → {"ok": true, "data": <与远端 MCP 工具一致的 JSON>}
+ * 与 mcp.ts（embedded）同签名地提供 `gatewayCall(name, args)`：
+ *   POST {gateway}/call  {"tool": name, "args": args}
+ *   → {"ok": true, "data": <与内置工具一致的 JSON>}
  *
- * 用途：frontend-dsh 默认行情传输从「远端 MCP(192.168.31.196:8007)」切到
- * 本机直连 opentdx 的网关（见 gateway/README.md），去掉 LAN 一跳与 MCP
- * 会话/SSE 开销；网关不可达时由 mcp.ts 的 invokeTool 自动回退远端 MCP。
+ * 默认传输已改为 **embedded**（host 半进程内 node-tdx，见 lib/endpoints.ts）；
+ * 本模块仅服务显式 `__DSH_TDX_TRANSPORT__ = 'http'` 的遗留部署（外部 python
+ * 网关或兼容 HTTP 服务），网关地址统一读 endpoints.getHttpGatewayEndpoint()。
+ * 网关不可达时由 mcp.ts 的 invokeTool 如实上抛（不再回退任何远端源）。
  */
+import { getHttpGatewayEndpoint } from './endpoints'
 
-/** 网关默认端点；可用 window.__DSH_TDX_GATEWAY__ 覆盖。 */
+/** 网关端点（覆盖变量 __DSH_TDX_GATEWAY__ / DSH_TDX_GATEWAY → 默认 127.0.0.1:8017）。 */
 export function getGatewayEndpoint(): string {
-  if (typeof window !== 'undefined' && (window as any).__DSH_TDX_GATEWAY__) {
-    return String((window as any).__DSH_TDX_GATEWAY__)
-  }
-  return 'http://127.0.0.1:8017'
+  return getHttpGatewayEndpoint()
 }
 
-/** 网关不可达/超时（可触发 MCP 回退）；业务错误抛普通 Error。 */
+/** 网关不可达/超时；业务错误抛普通 Error。 */
 export class TdxGatewayUnavailableError extends Error {}
 
-/** 探测网关健康（短超时，供 invokeTool 回退判定与诊断）。 */
+/** 探测网关健康（短超时，供诊断）。 */
 export async function gatewayHealth(endpoint?: string, timeoutMs = 1500): Promise<boolean> {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), timeoutMs)
@@ -38,19 +37,20 @@ export async function gatewayHealth(endpoint?: string, timeoutMs = 1500): Promis
 }
 
 /**
- * 调用网关工具，返回与远端 MCP 工具一致的 payload（list/dict/null）。
+ * 调用网关工具，返回与内置工具一致的 payload（list/dict/null）。
  * 传输层失败（网络/超时/非 200）抛 TdxGatewayUnavailableError；工具业务错误抛 Error。
  */
 export async function gatewayCall(
   name: string,
   args: Record<string, unknown> = {},
   timeoutMs = 15_000,
+  endpoint?: string,
 ): Promise<any> {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), timeoutMs)
   let resp: Response
   try {
-    resp = await fetch(`${getGatewayEndpoint()}/call`, {
+    resp = await fetch(`${endpoint ?? getGatewayEndpoint()}/call`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tool: name, args }),

@@ -5,10 +5,11 @@
  * 每 15s 刷新指数报价。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import { fetchIndexQuotes, INDEX_LIST, pctText, type IndexQuote } from '@/lib/market'
+import { fetchIndexQuotes, pctText } from '@/lib/market'
 import { IndexChart } from '@/components/IndexChart'
+import { useSwr, swrKey } from '@/lib/cache'
 import { fmtBigNum } from '@/lib/format'
 import type { MarketTag } from '@/lib/symbol'
 
@@ -26,37 +27,24 @@ interface Props {
 }
 
 export function IndicesPage({ initial }: Props) {
-  const [quotes, setQuotes] = useState<IndexQuote[]>([])
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [settled, setSettled] = useState(false)
   const [selected, setSelected] = useState<{ market: MarketTag; code: string; name: string } | null>(
     initial ?? null,
   )
 
-  const loadQuotes = useCallback(async () => {
-    try {
-      const qs = await fetchIndexQuotes()
-      setQuotes(qs)
-      setError('')
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setSettled(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadQuotes()
-    const timer = window.setInterval(() => void loadQuotes(), 15_000)
-    return () => window.clearInterval(timer)
-  }, [loadQuotes])
+  // SWR 缓存：命中旧数据立即渲染（秒开），每 15s 后台验证；失败下线重试，避免以假乱真。
+  const quotesSwr = useSwr(swrKey.indices(), () => fetchIndexQuotes(), {
+    ttl: 6_000,
+    refreshInterval: 15_000,
+  })
+  const quotes = quotesSwr.data ?? []
+  const error = quotesSwr.error
+  const refreshing = quotesSwr.isLoading
+  const settled = quotesSwr.status !== 'loading' && quotesSwr.status !== 'idle'
 
   // 默认选中第一个可用指数
   useEffect(() => {
     if (!selected && quotes.length > 0) {
-      const q = quotes[0]
-      setSelected({ market: q.market, code: q.code, name: q.name })
+      setSelected({ market: quotes[0].market, code: quotes[0].code, name: quotes[0].name })
     }
   }, [quotes, selected])
 
@@ -85,10 +73,10 @@ export function IndicesPage({ initial }: Props) {
         <div className="ds-sticky-head -mx-2.5 mb-1.5 flex shrink-0 items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
           <span className="text-[13px] font-semibold text-slate-800">指数</span>
           <button
-            onClick={() => { setLoading(true); void loadQuotes().finally(() => setLoading(false)) }}
+            onClick={() => quotesSwr.refresh()}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >
-            <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
 

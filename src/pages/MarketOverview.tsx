@@ -6,10 +6,16 @@
  *   - fetchAllA：全 A 5566 只一次拉取（20s 缓存），广度/分布/榜单客户端计算
  *   - fetchUnusualAll：SH/SZ/BJ 三市场异动合并
  *
+ * 懒加载缓存（useSwr）：
+ *   - 首次进入先读缓存里的旧数据立即渲染（秒开），后台静默重新验证；
+ *   - 每 20s 后台轮询刷新；**验证失败会下线过期数据并自动重试一次**，
+ *     绝不用过期数据冒充实时行情（避免以假乱真）；
+ *   - 切走再切回 Tab 直接命中缓存，不重复全量拉取。
+ *
  * 点击股票行 → 切「个股」Tab；点击指数芯片 → 切「指数」Tab。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo } from 'react'
 import { RefreshCw } from 'lucide-react'
 import {
   computeBreadth,
@@ -24,12 +30,16 @@ import {
   type IndexQuote,
   type UnusualItem,
 } from '@/lib/market'
+import { useSwr, swrKey } from '@/lib/cache'
 import { fmtBigNum } from '@/lib/format'
 import type { MarketTag } from '@/lib/symbol'
 import type { OpenStock } from '@/panel/PanelApp'
 
 const UP = '#c74040'
 const DOWN = '#2d9b65'
+
+// 行情自动刷新间隔：轮询后台重新验证（与缓存新鲜窗口配合）。
+const REFRESH_MS = 20_000
 
 function pctColor(v: number): string {
   if (v > 0) return UP
@@ -43,42 +53,28 @@ interface Props {
 }
 
 export function MarketOverview({ onOpenStock, onOpenIndex }: Props) {
-  const [indices, setIndices] = useState<IndexQuote[]>([])
-  const [rows, setRows] = useState<AShareRow[]>([])
-  const [unusual, setUnusual] = useState<UnusualItem[]>([])
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
-  const timerRef = useRef<number | null>(null)
+  // 三个独立数据源，各自缓存 + 后台轮询（互不阻塞，部分失败各自呈现）。
+  const indicesSwr = useSwr(swrKey.indices(), () => fetchIndexQuotes(), {
+    ttl: 6_000,
+    refreshInterval: REFRESH_MS,
+  })
+  const allASwr = useSwr(swrKey.allA(), () => fetchAllA(), {
+    ttl: 6_000,
+    refreshInterval: REFRESH_MS,
+  })
+  const unusualSwr = useSwr(swrKey.unusualAll(), () => fetchUnusualAll(40), {
+    ttl: 6_000,
+    refreshInterval: REFRESH_MS,
+  })
 
-  const load = useCallback(async () => {
-    try {
-      const [idx, allRows, uni] = await Promise.allSettled([
-        fetchIndexQuotes(),
-        fetchAllA(),
-        fetchUnusualAll(40),
-      ])
-      if (idx.status === 'fulfilled') setIndices(idx.value)
-      if (allRows.status === 'fulfilled') setRows(allRows.value)
-      if (uni.status === 'fulfilled') setUnusual(uni.value)
-      setError('')
-      setUpdatedAt(Date.now())
-    } catch (e) {
-      setError((e as Error).message || '加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const indices = indicesSwr.data ?? []
+  const rows = allASwr.data ?? []
+  const unusual = unusualSwr.data ?? []
 
+  // 预热本地搜索索引（行情页已拉全 A，搜索零成本；懒加载不阻塞首屏）。
   useEffect(() => {
-    void load()
-    // 预热本地搜索索引（市场页首屏已拉全 A，搜索零成本）
     void ensureSearchIndex().catch(() => undefined)
-    timerRef.current = window.setInterval(() => void load(), 20_000)
-    return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current)
-    }
-  }, [load])
+  }, [])
 
   const breadth = useMemo(() => computeBreadth(rows), [rows])
   const dist = useMemo(() => computeDistribution(rows), [rows])
@@ -93,6 +89,25 @@ export function MarketOverview({ onOpenStock, onOpenIndex }: Props) {
     }
   }, [rows])
 
+  // 刷新时间：取最近一次成功取数的时间戳（任一数据源更新即刷新）。
+  const updatedAt = Math.max(
+    indicesSwr.updatedAt ?? 0,
+    allASwr.updatedAt ?? 0,
+    unusualSwr.updatedAt ?? 0,
+  ) || null
+
+  const refreshing = indicesSwr.isLoading || allASwr.isLoading || unusualSwr.isLoading
+
+  // 汇总错误（三个数据源都失败/部分失败时呈现，并保留重试）。
+  const errors = [indicesSwr.error, allASwr.error, unusualSwr.error].filter(
+    (e): e is string => Boolean(e),
+  )
+  const errorText = errors.length
+    ? errors.length >= 3
+      ? '行情源不可达：指数 / 全 A / 异动 请求全部失败（MCP 超时或数据源离线）'
+      : errors[0]
+    : ''
+
   const openStock = (r: AShareRow) => onOpenStock({ market: r.market, code: r.code, name: r.name })
   const openStockUnusual = (u: UnusualItem) => onOpenStock({ market: u.market, code: u.code, name: u.name })
 
@@ -100,7 +115,7 @@ export function MarketOverview({ onOpenStock, onOpenIndex }: Props) {
 
   return (
     <div className="h-full overflow-y-auto px-2.5 pb-3">
-      {/* 头部：标题 + 刷新（吸顶） */}
+      {/* 头部：标题 + 刷新（吸顶）；刷新走后台强制重新验证 */}
       <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
         <span className="text-[13px] font-semibold text-slate-800">市场总览</span>
         <div className="flex items-center gap-2">
@@ -110,21 +125,37 @@ export function MarketOverview({ onOpenStock, onOpenIndex }: Props) {
             </span>
           )}
           <button
-            onClick={() => { setLoading(true); void load() }}
+            onClick={() => {
+              indicesSwr.refresh()
+              allASwr.refresh()
+              unusualSwr.refresh()
+            }}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             title="刷新"
           >
-            <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {error && (
-        <div className="mb-1.5 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-500">{error}</div>
+      {errorText && (
+        <div className="mb-1.5 flex items-start gap-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-500">
+          <span className="min-w-0 flex-1">{errorText}</span>
+          <button
+            onClick={() => {
+              indicesSwr.refresh()
+              allASwr.refresh()
+              unusualSwr.refresh()
+            }}
+            className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] text-red-500 hover:bg-red-100"
+          >
+            重试
+          </button>
+        </div>
       )}
 
       {/* 行情源空态（休市/未连接）：已请求完成但无任何 A 股行情 */}
-      {!loading && rows.length === 0 && !error && (
+      {!refreshing && rows.length === 0 && !errorText && (
         <div className="mb-1.5 rounded-md border border-amber-100 bg-amber-50/60 px-2.5 py-2.5">
           <div className="text-[11px] font-medium text-amber-600">行情源暂无 A 股数据</div>
           <div className="mt-0.5 text-[10px] leading-relaxed text-amber-500/80">
@@ -233,14 +264,14 @@ export function MarketOverview({ onOpenStock, onOpenIndex }: Props) {
         </div>
       )}
 
-      {loading && rows.length === 0 && indices.length === 0 && (
+      {refreshing && rows.length === 0 && indices.length === 0 && (
         <div className="py-10 text-center text-xs text-slate-300">加载市场数据…</div>
       )}
     </div>
   )
 }
 
-function MiniCell({ label, main, sub }: { label: string; main: ReactNode; sub?: string }) {
+function MiniCell({ label, main, sub }: { label: string; main: React.ReactNode; sub?: string }) {
   return (
     <div className="min-w-0 rounded-md border border-slate-100 bg-slate-50/80 px-2 py-1.5">
       <div className="truncate text-[10px] text-slate-400">{label}</div>

@@ -1,16 +1,19 @@
 /**
- * src/host-util.ts — host 半运行时工具：Cordis ctx 类型 + MCP 桥接路由。
+ * src/host-util.ts — host 半运行时工具：Cordis ctx 类型 + 内置 TDX 桥接路由。
  *
- * MCP 桥接：host 半在服务端直连远端 MCP 服务器，避免浏览器跨域（CORS）。
- * browser 半 POST JSON-RPC 2.0 请求到同源路由 /api/stock-panel/mcp，
- * host 半转发并把 SSE 响应原样回传（host 侧发起请求无 CORS 限制）。
+ * 内置 TDX 桥接：browser 半 POST 同源路由 /api/stock-panel/call，host 半在
+ * dsh web 进程内用 node-tdx 直连 TDX（src/host/tdx-data.ts），返回 JSON。
+ * 远端 MCP 桥接（/api/stock-panel/mcp）已移除，无兜底。
  */
+
+import { callEmbeddedTool, TdxToolError, TdxUnavailableError, UnsupportedToolError } from './host/tdx-data'
+import { EMBEDDED_CALL_ROUTE } from './lib/endpoints'
 
 /** host 半可用的 Cordis ctx 形状（仅列出本插件用到的面）。 */
 export interface HostCtx {
   /** 注册一个 host 服务，暴露插件元数据。 */
   provide: (name: string, impl: unknown) => void
-  /** 浏览器 HTTP 载体（dsh-host-webserver）。用于注册 MCP 桥接路由。 */
+  /** 浏览器 HTTP 载体（dsh-host-webserver）。用于注册内置 TDX 桥接路由。 */
   webServer?: {
     register: (route: {
       kind: 'exact' | 'prefix'
@@ -34,12 +37,15 @@ export function getOwnPropertySafe(obj: unknown, key: string): unknown {
 }
 
 /**
- * 在 ctx.webServer 上注册 MCP 桥接路由。
+ * 在 ctx.webServer 上注册内置 TDX 桥接路由（进程内 node-tdx 直连）。
  *
- * browser 半 POST 一个 JSON-RPC 2.0 MCP 请求到此路由，host 半转发到远端
- * MCP 服务器，把 SSE 响应原样回传。
+ * 浏览器 POST /api/stock-panel/call {tool, args} → 本路由进程内调用内置
+ * TDX 服务并返回 {ok:true,data}；失败返回 {ok:false, kind, error}：
+ *   kind = 'business'    业务/参数错误（如实上抛）
+ *   kind = 'unsupported' 未知工具名
+ *   kind = 'unavailable' 连接不可用/禁用
  */
-export function registerMcpBridge(webServer: {
+export function registerEmbeddedTdxBridge(webServer: {
   register: (route: {
     kind: 'exact' | 'prefix'
     path: string
@@ -47,62 +53,47 @@ export function registerMcpBridge(webServer: {
   }) => () => void
 }): void {
   try {
-    const endpoint = 'http://192.168.31.196:8007/mcp'
-
     webServer.register({
       kind: 'exact',
-      path: '/api/stock-panel/mcp',
+      path: EMBEDDED_CALL_ROUTE,
       handler: async (req, res) => {
-        try {
-          const body = await readBody(req)
-          const resp = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json, text/event-stream',
-              ...(body.sessionId ? { 'Mcp-Session-Id': body.sessionId } : {}),
-            },
-            body: JSON.stringify(body.payload),
-          })
-          // 透传会话 ID（若有）
-          const sessionId = resp.headers.get('mcp-session-id')
-          const resW = res as {
-            setHeader?: (k: string, v: string) => void
-            end: (b: string) => void
-            statusCode?: number
-          }
-          if (sessionId && resW.setHeader) {
-            resW.setHeader('Mcp-Session-Id', sessionId)
-          }
+        const resW = res as {
+          setHeader?: (k: string, v: string) => void
+          end: (b: string) => void
+          statusCode?: number
+        }
+        const send = (status: number, payload: unknown) => {
           if (resW.setHeader) {
-            resW.setHeader('Content-Type', 'text/event-stream')
-            resW.setHeader('Cache-Control', 'no-cache')
-            resW.setHeader('Connection', 'keep-alive')
-          }
-          resW.end(await resp.text())
-        } catch (err) {
-          const resW = res as {
-            setHeader?: (k: string, v: string) => void
-            end: (b: string) => void
-            statusCode?: number
-          }
-          if (resW.setHeader) {
-            resW.statusCode = 500
+            resW.statusCode = status
             resW.setHeader('Content-Type', 'application/json')
           }
-          resW.end(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              id: 'bridge-error',
-              error: { code: -32603, message: (err as Error).message },
-            }),
-          )
+          resW.end(JSON.stringify(payload))
+        }
+        try {
+          const body = await readBody(req)
+          const payload = body.payload as { tool?: string; args?: Record<string, unknown> }
+          if (!payload || typeof payload.tool !== 'string') {
+            send(400, { ok: false, kind: 'business', error: 'body must be {"tool": "...", "args": {...}}' })
+            return
+          }
+          const data = await callEmbeddedTool(payload.tool, payload.args ?? {})
+          send(200, { ok: true, data: data ?? null })
+        } catch (err) {
+          if (err instanceof TdxToolError) {
+            send(200, { ok: false, kind: 'business', error: err.message })
+          } else if (err instanceof UnsupportedToolError) {
+            send(200, { ok: false, kind: 'unsupported', error: err.message })
+          } else if (err instanceof TdxUnavailableError) {
+            send(200, { ok: false, kind: 'unavailable', error: err.message })
+          } else {
+            send(500, { ok: false, kind: 'unavailable', error: (err as Error)?.message ?? String(err) })
+          }
         }
       },
     })
-    console.log('[stock-panel] MCP bridge registered at /api/stock-panel/mcp ->', endpoint)
+    console.log(`[stock-panel] embedded TDX bridge registered at ${EMBEDDED_CALL_ROUTE}`)
   } catch (err) {
-    console.warn('[stock-panel] MCP bridge registration failed:', err)
+    console.warn('[stock-panel] embedded TDX bridge registration failed:', err)
   }
 }
 
@@ -129,7 +120,7 @@ async function readBody(req: unknown): Promise<{ payload: unknown; sessionId?: s
   } catch {
     payload = {}
   }
-  // 会话 ID 从请求头或请求体获取
+  // 会话 ID 从请求头或请求体获取（保留字段以备未来桥接协议，当前无远端会话）
   const headers = (req as { headers?: Record<string, string> }).headers ?? {}
   const sessionId = headers['mcp-session-id'] ?? (payload as { sessionId?: string })?.sessionId
   return { payload, sessionId }

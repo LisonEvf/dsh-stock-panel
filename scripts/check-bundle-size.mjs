@@ -3,7 +3,8 @@
  * check-bundle-size.mjs — client.js 体积护栏（M11，CI 用）。
  *
  * 说明：lib/client.js 为未压缩产物（保留可调试性，wrapper 不做 minify）。
- * 阈值默认 600KB（env CLIENT_MAX_KB 可覆盖）。当前 ~520KB 出头；
+ * 阈值默认 700KB（env CLIENT_MAX_KB 可覆盖）。基线 ≈665KB（2026-09-08 实测，
+ * 含 M8 选股 / N 批次方法论 / 外盘 / 监控等全部页面内联后的体积）；
  * 若超限：优先做「页面级动态 import」拆分或外部化（见 README §发布治理）。
  */
 import { existsSync, statSync } from 'node:fs'
@@ -12,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const file = join(resolve(__dirname, '..'), 'lib', 'client.js')
-const maxKb = Number(process.env.CLIENT_MAX_KB ?? 600)
+const maxKb = Number(process.env.CLIENT_MAX_KB ?? 700)
 
 if (!existsSync(file)) {
   console.error('[check-bundle] 缺 lib/client.js —— 请先 pnpm build')

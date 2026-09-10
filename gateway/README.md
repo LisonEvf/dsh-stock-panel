@@ -1,5 +1,12 @@
 # stock-tdx-gateway — 本机 opentdx 直连行情网关（替代远端 MCP 数据链路）
 
+> ## ⚠️ 遗留组件（2026-09-08 起默认停用）
+>
+> v1.1 起插件**内置** JS 版 TDX 直连（node-tdx，host 半进程内，见
+> `src/host/tdx-data.ts` + `src/lib/endpoints.ts`），默认不再依赖本 python
+> 网关进程。本目录仅服务显式 `__DSH_TDX_TRANSPORT__ = 'http'` 的遗留部署
+> （`run-gateway.ps1` 自启仍可用）。新部署请勿再配置它。
+
 把行情数据从「远端 MCP（192.168.31.196:8007，SSE + JSON-RPC）」改为**本机直连 opentdx 源码**，
 去掉 LAN 一跳（实测 TCP ~30ms）与 MCP 会话/SSE 开销，聚焦**首连/预热**优化。
 

@@ -9,7 +9,7 @@
  * name/description/parameters(JSON Schema)/output{schema,render}/execute(args)).
  */
 
-import { hostKline, hostQuote, hostTick, hostUnusual } from './host-data'
+import { hostKline, hostQuote, hostTick, hostUnusual, hostToolCall } from './host-data'
 
 interface ToolParamsSpec {
   type: 'object'
@@ -109,6 +109,44 @@ function textTool(
   }
 }
 
+// ── HIST 自挖概念工具（进程内 HistEngine） ──
+
+function histQueryText(d: Record<string, any>): string {
+  if (!d || !d.ok) return `HIST 查询失败：${d?.error ?? '未知'}`
+  const st = d.stock ?? {}
+  const cls = d.class
+  const peers = (d.peers ?? []) as any[]
+  const clsLine = cls
+    ? `属于自挖类 #${cls.class_id}（规模 ${cls.size}，类内相关 ${cls.mean_intra_corr}）`
+    : '不属于任何自挖类（当日孤立）'
+  const peersLine = peers.length
+    ? `共动邻居：${peers.map((p: any) => `${p.name}(${p.corr})${p.same_class ? '·同类' : ''}`).join('、')}`
+    : '无共动邻居'
+  return `${st.market ?? ''}${st.code ?? ''}（${st.name ?? ''}）as_of ${d.as_of}；${clsLine}；${peersLine}`
+}
+
+function histClassesText(d: Record<string, any>): string {
+  if (!d || !d.ok) return `HIST 类概要失败：${d?.error ?? '未知'}`
+  const classes = (d.classes ?? []) as any[]
+  if (!classes.length) return `as_of ${d.as_of}：无自挖类（${d.isolated_n} 只孤立票）`
+  const lines = classes.map((c: any) =>
+    `类 #${c.class_id}（规模 ${c.size}，类内相关 ${c.mean_intra_corr}${c.weak_chain ? '，弱链' : ''}）：${(c.top ?? []).join('、')}`)
+  return `as_of ${d.as_of} 共 ${d.n} 个自挖类，孤立 ${d.isolated_n} 只：\n${lines.join('\n')}`
+}
+
+function histClassMembersText(d: Record<string, any>): string {
+  if (!d || !d.ok) return `HIST 类成员失败：${d?.error ?? '未知'}`
+  const cls = d.class ?? {}
+  const members = (d.members ?? []) as any[]
+  const rows = members.map((m: any) => `${m.market}${m.code} ${m.name}（涨幅 ${m.chg_pct ?? '—'}%，类内相关 ${m.mean_corr_to_class ?? '—'}）`)
+  return `类 #${cls.class_id}（规模 ${cls.size}，类内相关 ${cls.mean_intra_corr}）成员：\n${rows.join('\n')}`
+}
+
+function histStatusText(d: Record<string, any>): string {
+  const snap = d?.snapshot ?? {}
+  return `HIST 引擎：${d?.engine ?? ''}；快照${d?.snapshot_ready ? '就绪' : '未就绪'}${snap?.as_of ? ` as_of=${snap.as_of}` : ''}；K线缓存 ${d?.kline_cached ?? 0} 条`
+}
+
 function defs(): RawToolDef[] {
   return [
     textTool(
@@ -175,6 +213,70 @@ function defs(): RawToolDef[] {
         try {
           const rows = await hostUnusual(market, 20)
           return unusualText(rows)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+    textTool(
+      'hist_concept_query',
+      '查询一只票的 HIST 自挖概念：所在共动类 + 最近共动邻居（corr/是否同类）。无监督算法把「市场自己认定的板块」挖出来。market 仅 SZ/SH。',
+      {
+        market: { type: 'string', description: '市场 SZ/SH', enum: ['SZ', 'SH'] },
+        code: { type: 'string', description: '股票代码，如 603259' },
+        topk: { type: 'number', description: '返回最近共动邻居数（默认 8）' },
+      },
+      ['market', 'code'],
+      async (args) => {
+        const market = String(args.market ?? '').toUpperCase()
+        if (market !== 'SZ' && market !== 'SH') return `无效市场：${args.market}（仅 SZ/SH）`
+        try {
+          const d = await hostToolCall('hist_concept_query', { market, code: String(args.code ?? ''), topk: Number(args.topk) || 8 }) as Record<string, any>
+          return histQueryText(d)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+    textTool(
+      'hist_concept_classes',
+      '查询当天全部 HIST 自挖类概要（类id/大小/类内相关/强边密度/前几名成员），等价于「市场今天把哪些股票当成同一个板块」。',
+      {
+        top_members: { type: 'number', description: '每类展示前几名成员（默认 5）' },
+      },
+      [],
+      async (args) => {
+        try {
+          const d = await hostToolCall('hist_concept_classes', { top_members: Number(args.top_members) || 5 }) as Record<string, any>
+          return histClassesText(d)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+    textTool(
+      'hist_concept_class',
+      '查看某个 HIST 自挖类的完整成员表（代码/名称/类内相关/当日涨幅）。class_id 来自 hist_concept_classes。',
+      { class_id: { type: 'number', description: '类 id（来自 hist_concept_classes）' } },
+      ['class_id'],
+      async (args) => {
+        try {
+          const d = await hostToolCall('hist_concept_class', { class_id: Number(args.class_id) || 0 }) as Record<string, any>
+          return histClassMembersText(d)
+        } catch (e) {
+          return `查询失败：${(e as Error).message}`
+        }
+      },
+    ),
+    textTool(
+      'hist_concept_status',
+      '查看 HIST 自挖概念引擎状态（配置/快照元信息/缓存）。用于探活与查看当前 as_of/类数。',
+      {},
+      [],
+      async () => {
+        try {
+          const d = await hostToolCall('hist_concept_status', {}) as Record<string, any>
+          return histStatusText(d)
         } catch (e) {
           return `查询失败：${(e as Error).message}`
         }

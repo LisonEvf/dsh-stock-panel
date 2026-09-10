@@ -64,20 +64,28 @@ frontend-dsh/
 ├── tsdown.config.ts      # host 半构建（rolldown）
 ├── cordis.patch.yml      # 把本包注册成 host Cordis entry 的 bundle 层
 ├── src/
-│   ├── index.ts          # host 半入口：同步自愈 + MCP 桥接 + 卸载还原
-│   ├── layout-patch.ts   # ★ 布局补丁引擎（锚点表 + apply/revert/版本门控）
-│   ├── host-util.ts      # host 半工具（ctx 类型 + MCP 桥接路由）
+│   ├── index.ts          # host 半入口：同步自愈 + embedded/MCP 桥接 + 卸载还原
+│   ├── layout-patch.ts   # ★ 布局补丁引擎 v2（自适应规则 + 前缀发现 + 诊断落盘）
+│   ├── host-util.ts      # host 半工具（ctx 类型 + embedded/MCP 桥接路由）
+│   ├── host-data.ts      # host 半取数（对话工具，embedded → 远端 MCP）
+│   ├── host/tdx-data.ts  # ★ 内置 TDX 服务（node-tdx 适配 + 归一化，15 工具分发）
+│   ├── host/vendor/      # opentdx.js（node-tdx 构建产物 vendor + LICENSE + 类型垫片）
+│   ├── lib/endpoints.ts  # ★ 端点/传输模式单一配置源（host env + client window）
 │   ├── client.ts         # browser 半入口：注册 stock slot + 注入样式
 │   ├── host-node-env.d.ts# host 侧最小 Node 类型声明（无 @types/node）
-│   ├── pages/  panel/  lib/  components/   # 面板 UI 与数据层（M5/M6）
+│   ├── pages/  panel/  lib/  components/   # 面板 UI 与数据层（M5/M6…）
 │   └── index.css.txt     # Tailwind 样式（.txt 后缀绕过 rolldown CSS 管线）
 ├── scripts/
-│   ├── patch-layout.mjs  # 引擎的薄 CLI：--check / --target / --force / --unpatch
-│   └── smoke-mcp.mjs     # MCP 协议冒烟（握手/工具表/字段语义核验）
+│   ├── patch-layout.mjs  # 引擎的薄 CLI：--check(含报告/版本区间) / --target / --unpatch
+│   ├── validate-layout-versions.mjs # ★ 补丁规则多版本回归验证器（npm 或本地目录）
+│   ├── smoke-embedded.mjs           # ★ 内置 TDX 服务冒烟（12 工具 + 回退语义）
+│   ├── update-opentdx.mjs           # vendor 刷新（github:LisonEvf/node-tdx → src/host/vendor）
+│   ├── check-bundle-size.mjs / sync-profile.mjs / smoke-mcp.mjs / smoke-gateway.mjs / postbuild-dts.mjs / build-client.mjs
 ├── STRATEGY-RESEARCH.md  # 策略收集与辨证（WATCH-METHODOLOGY 的证据库）
 ├── WATCH-METHODOLOGY.md  # 盯盘方法论（量价博弈 · 时空 · T+1 短线 · 凯利仓位）
 ├── PRODUCT-DESIGN.md     # 以方法论为蓝图的功能/流程设计（N1-N7 批次）
 ├── USER-GUIDE.md         # ★ 用户使用流程（对照蓝图 + 2026-09-06 真机验收校正版）
+├── MCP-SETUP.md          # ★ 数据源配置（2026-09-08 起含 embedded 传输架构说明）
 └── lib/                  # 构建输出（gitignore）
 ```
 
@@ -91,15 +99,45 @@ frontend-dsh/
   不支持 Vite 的 `?inline` 后缀。解决方案：`index.css` 重命名 `index.css.txt`，在
   `tsdown.config.ts` 的 `cssAsString` 插件里重定向并读成字符串导出（client 半用
   `scripts/build-client.mjs` 的 tailwind 管线单独编译）。
-- **client 半 inject**：`dsh.client.inject` 只列 `["@deepseek-ai/dsh-client-runtime"]`
-  （模块到达序）；运行时 service 依赖（`slots`）由 `scripts/build-client.mjs` 在产物里
-  声明。**不要**把 `dsh-client-ui-slots` / `dsh-client-ui-details` 列进 inject：这些是内部
-  实现包，不在 npm，也不作为独立 fiber 注入。
+- **client 半 inject**：`dsh.client.inject` 必须同时列出
+  `"@deepseek-ai/dsh-client-runtime"` 与 `"@deepseek-ai/dsh-client-ui-layout"`。第二条不是
+  运行依赖，而是**保序声明**：往 layout 拥有的槽（`root` 的 children：sidebar / details /
+  stock …）注册内容的 client 插件，其 browser boot 顺序必须晚于 ui-layout 的
+  `apply()`（它把 children 槽声明进 slot 注册表）。官方做法一致——ui-sidebar /
+  ui-conversation / ui-chat 均 inject `dsh-client-ui-layout`。若缺失，本插件可能在
+  ui-layout 之前 apply，`slots.register('stock')` 会抛
+  `slot "stock" is not declared`（client 有守护逻辑吞掉不崩 GUI，但 stock 列空）。
+  不要把 `dsh-client-ui-slots` / `dsh-client-ui-details` 列进 inject：这些是内部实现包，
+  不在 npm，也不作为独立 fiber 注入。
 - **单模块约束**：client bundle 必须是单模块（flat module graph），第三方依赖内联或走
   `dsh.client.external`。
 - **布局依赖前提**：锚点对 rc.2 编译产物验证过；DSH 升级重编译后若锚点失配，自愈会中止
   不写并告警——此时更新 `src/layout-patch.ts` 的锚点表与
   `SUPPORTED_UI_LAYOUT_VERSION`（见下）。
+
+## 传输层重构（v1.1：embedded 内置 TDX）
+
+数据链路从「浏览器 → 外部 python 网关进程(8017)」升级为**host 半进程内 node-tdx
+直连**（`src/host/vendor/opentdx.js` + 适配层 `src/host/tdx-data.ts`），无任何
+外部进程依赖；远端 MCP（192.168.31.196:8007/mcp）已移除，无兜底。端点/模式单一
+配置源：`src/lib/endpoints.ts`。
+
+```
+Browser(invokeTool)
+  ├─ embedded(默认) POST /api/stock-panel/call ──► host 半 node-tdx ──► TDX(7709/7727)
+  │     业务错/未知工具/不可达 → 如实上抛（不再回退远端）
+  └─ http(遗留)  POST {__DSH_TDX_GATEWAY__}/call ──► 外部 opentdx JSON 网关(gateway/)
+```
+
+- 模式覆盖：`window.__DSH_TDX_TRANSPORT__` / `DSH_TDX_TRANSPORT`（embedded/http）；
+- 端点覆盖：`__DSH_TDX_GATEWAY__`/`DSH_TDX_GATEWAY`（默认值全部收口在 endpoints.ts）；
+  host 侧可 `DSH_TDX_EMBEDDED=0` 禁用内置；
+- 内置覆盖：node-tdx 内置全部 15 个行情工具（含 goods_varieties，解析器按 python
+  opentdx 同款启发式解码 price/volume/change_pct/h1/h2），前端 stock-data.ts 零改动；
+- 输出契约：适配层按 2026-09-08 JS↔python 实拆对比归一化（股本单位、UTC→本地
+  ISO、time 补秒、belong_board/capital_flow 去包层、symbol_info/server_info 补
+  字段），前端 stock-data.ts 适配层**零改动**；
+- 冒烟：`node scripts/smoke-embedded.mjs`（见下）；vendor 刷新：`node scripts/update-opentdx.mjs`。
 
 ## 布局补丁引擎运维
 
@@ -110,6 +148,15 @@ node scripts/patch-layout.mjs --target <bundle>            # 手动打补丁（�
 node scripts/patch-layout.mjs --target <bundle> --force    # 从 pristine 备份重建
 node scripts/patch-layout.mjs --unpatch                    # 还原 ui-layout（卸载后清理）
 ```
+
+> 引擎 v2（2026-09-08）改为**通用自适应**：① 规则容空白匹配（缩进/Tab/CRLF 漂移
+> 免疫，npm/desktop 构建共用一套规则）；② CSS Modules hash 前缀动态发现
+> （`$PREFIX$` 占位）；③ stockCol CSS 内容自持（不克隆 details 边框）；④ JSX 片段
+> 结构化注入（括号配平，对新包裹层免疫）；⑤ 失配时逐规则诊断落盘
+> `$DSH_HOME/patches/layout-report.json`（绝不写坏 bundle）。已验证版本区间：
+> `0.1.1-rc.2 .. 0.1.2-rc.1`。升级后回归验证：
+> `node scripts/validate-layout-versions.mjs`（npm 拉取各版本 pristine 逐一打补丁 +
+> 10 项结构断言，需联网；也可传本地解包目录路径直接复用）。
 
 DSH 升级后若 `--check` 显示 `patched: false` 且日志提示锚点失配：把
 `SUPPORTED_UI_LAYOUT_VERSION` 更新为新版本，并从新 bundle 里提取
@@ -127,7 +174,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 ## 打包发布与治理（M11，1.0.0）
 
 - **质量门禁（本地/CI 一致）**：`pnpm build`（tsdown host + client + dts）→ 全量 `tsc --noEmit` 0 错误
-  → `node scripts/check-bundle-size.mjs`（client.js 护栏，默认 600KB；当前 ≈575KB **未压缩**，
+  → `node scripts/check-bundle-size.mjs`（client.js 护栏，默认 700KB；基线 ≈665KB **未压缩**，
   保留可调试性未开 minify——瘦身手段留档：页面级动态 import / 外部化，见 MIGRATION-PLAN §7.4）。
 - **同步到 profile 安装副本**：`node scripts/sync-profile.mjs [--profile web]`（读 `DSH_HOME`；
   安装即本仓库 `file:/link:` 时自动跳过并提示只需 build+重启）。之后重启 `dsh web` + 浏览器硬刷新。
@@ -162,7 +209,7 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 ## M5：市场总览 / 指数 / 自选实时行情
 
 面板壳改为 **Tab 导航**（`src/panel/PanelApp.tsx`）：**市场 · 梯队 · 选股 · 指数 · 外盘 · 自选 · 个股 · 作战 · 复盘 · 监控**（梯队见「M6」，选股见「M8」，外盘见「M10」，作战/复盘见文末「方法论批次」，监控见「M7」）。
-全部数据**直连 MCP 数据源**（`192.168.31.196:8007/mcp`，opentdx 3.4.0），**无需 FastAPI 后端**：
+全部数据**直连内置 node-tdx**（embedded，host 半进程内直连 TDX），**无需 FastAPI 后端、无需远端 MCP**：
 
 | Tab | 页面 | 数据工具 | 说明 |
 | --- | --- | --- | --- |
@@ -171,8 +218,8 @@ pnpm build        # 输出到 lib/（index.js / client.js / *.d.ts / *.map）
 | 自选 | `src/pages/WatchlistPage.tsx` | `quote`（逐只并行）+ 本地搜索 | **自选改存 localStorage**（`src/lib/watchlist-store.ts`）；12s 轮询实时价；点行打开个股 |
 | 个股 | `src/pages/StockDetailPage.tsx` | `kline` + `tick_chart` + `auction` + `capital_flow` + `transaction` | 由市场/自选点选打开（`open` 入参）；搜索走本地全 A 索引（`searchInstruments`）。M9/W3：**日K（近3月/6月/1年/全部 区间 + MA5/10/20 开关）｜ 分时（当日/最近交易日，昨收虚线）** + 逐笔成交（折叠，最新 60 条，方向/单位语义待盘中复验）；AI 分析＝**对话联动**（见 §对话行情工具） |
 
-> 数据源端点按环境而定：本机为 `192.168.31.196:8007`。若不可达，面板会优雅降级/提示
-> （UI 仍照常出现）。
+> 数据源：本机内置 TDX（embedded，进程内 node-tdx 直连）。TDX 不可达时面板会
+> 优雅降级/提示（UI 仍照常出现），不再回退任何远端 MCP。
 
 ## M6：涨停梯队 + 板块热度
 
@@ -224,8 +271,8 @@ AI 个股分析不再需要 FastAPI 后端（B 轨退役）：host 半（`src/in
 - `stock_tick`：当日/最近交易日分时（≤150 点抽样）；
 - `stock_unusual`：市场异动事件（涨停/炸板/跌停/拉升…，SH/SZ/BJ）。
 
-实现：`src/host-data.ts`（Node 直连：本机 8017 网关优先 → 远端 MCP `192.168.31.196:8007` 兜底，
-含 SSE 解析与会话重建）+ `src/host-tools.ts`（raw ToolDefinition，不引入构建期依赖）。
+实现：`src/host-data.ts`（内置 node-tdx 直连优先 → 远端 MCP `DSH_MCP_ENDPOINT`
+兜底，含 SSE 解析与会话重建）+ `src/host-tools.ts`（raw ToolDefinition，不引入构建期依赖）。
 个股页 AI 区块改为**一键复制分析指令**（粘贴到对话发送，助手会调工具取数后给四维结论）。
 验证：host 取数在网关与远端 MCP 双路径实测返回正常（quote/kline/tick/unusual）。
 > 提示：对话里也可直接说「用行情工具分析 600519」；工具可用性以对话工具清单为准。
