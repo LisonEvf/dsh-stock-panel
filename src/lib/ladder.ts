@@ -69,16 +69,6 @@ const LADDER_TTL_MS = 30_000
 let ladderCache: LadderSnapshot | null = null
 let ladderInflight: Promise<LadderSnapshot> | null = null
 
-/** 已缓存的快照（不触发计算；UI 显示 "as of" 用）。 */
-export function getCachedLadder(): LadderSnapshot | null {
-  return ladderCache
-}
-
-/** 让缓存立即失效（手动刷新 / 换交易日时用）。 */
-export function invalidateLadder(): void {
-  ladderCache = null
-}
-
 /** 计算一轮快照（不含缓存逻辑）。 */
 async function computeLadder(signal?: AbortSignal): Promise<LadderSnapshot> {
   // 用 market 的 20s TTL 缓存（force=false）：作战页同轮已 force 过一次全 A，

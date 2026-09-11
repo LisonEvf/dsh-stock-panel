@@ -20,7 +20,8 @@ const ROOT = resolve(import.meta.dirname, '..')
 const HASH_DIRS = ['src']
 /** 额外的单文件（版本号在这里，改版本号也算新构建）。 */
 const HASH_FILES = ['package.json']
-/** 跳过的目录名（构建产物/依赖/文档不参与）。 */
+/** 跳过的目录名 —— **仅在仓库根目录这一层生效**。（若按目录名全局匹配，
+ *  `src/lib/` 会被 'lib' 误伤，导致 `src/lib/**` 的改动不影响构建 id —— 实测踩过。） */
 const SKIP_DIRS = new Set(['node_modules', 'lib', 'dist', '.git'])
 
 /** 递归收集文件绝对路径。 */
@@ -33,7 +34,7 @@ function walk(dir, out) {
   }
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue
+      if (dir === ROOT && SKIP_DIRS.has(entry.name)) continue
       walk(join(dir, entry.name), out)
     } else if (entry.isFile()) {
       out.push(join(dir, entry.name))
