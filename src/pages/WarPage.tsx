@@ -111,7 +111,7 @@ export function WarPage({ onOpenStock }: Props) {
       setEvents(getEvents())
       const allRows = await fetchAllA(true)
       const breadth = computeBreadth(allRows)
-      const ladder = await loadLadder(ac.signal)
+      const ladder = await loadLadder(ac.signal, { force })
       const maxStreak = ladder.limitUp.reduce((m, s) => Math.max(m, s.streak), 0)
       // 无真实行情（数据源不可用）→ 温度计/局势置空，避免占位公式给出误导数值
       const noMarket = breadth.up + breadth.down + ladder.limitUp.length + ladder.limitDownCount === 0
@@ -161,7 +161,11 @@ export function WarPage({ onOpenStock }: Props) {
 
   useEffect(() => {
     void load()
-    const timer = window.setInterval(() => void load(), CAPTURE_MS)
+    const timer = window.setInterval(() => {
+      // 后台标签页不跑重轮（一轮 ≤177 次工具调用，B3）
+      if (document.hidden) return
+      void load()
+    }, CAPTURE_MS)
     return () => { window.clearInterval(timer); abortRef.current && abortRef.current.abort() }
   }, [load])
 
@@ -212,6 +216,8 @@ export function WarPage({ onOpenStock }: Props) {
       {/* N8 盘中三问必答卡：盘中只答 Q1-Q3（系统局势候选仅在温度计有数据时提供） */}
       {phase === 'trading' && <QAnswers autoSituation={regime ? situation : null} />}
 
+      {/* 宽屏列流：把"该看的"并排展开；上方"该答的"（时段任务/竞价判定/三问卡）保持整行 */}
+      <div className="dc-flow">
       <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
         <div className="mb-1 text-[10px] font-medium text-slate-400">局势</div>
         <div className="text-[11px] leading-relaxed text-slate-600">{situationLabel(situation)}</div>
@@ -256,6 +262,7 @@ export function WarPage({ onOpenStock }: Props) {
 
       {/* N6 持仓决策台：加仓/平仓(记日志)/自统计/凯利建议 */}
       <PositionDesk band={regime ? regime.band : null} />
+      </div>
     </div>
   )
 }

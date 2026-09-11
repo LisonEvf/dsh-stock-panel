@@ -5,6 +5,13 @@ export function fmtPrice(v: number | null | undefined, digits = 2): string {
   return v.toFixed(digits)
 }
 
+/**
+ * 涨跌幅（**小数**，如 0.035 = +3.5%）→ "+3.50%"。
+ *
+ * ⚠️ 口径陷阱：行情链路里的 `quotePct()` / `AShareRow.pct` / `IndexQuote.pct`
+ * 给的都是**百分数**（3.5 表示 +3.5%），喂给本函数会被再 ×100（-1.18% → -118%）。
+ * 百分数入参请用 `@/lib/market` 的 `pctText()`。
+ */
 export function fmtPct(v: number | null | undefined, digits = 2): string {
   if (v == null || Number.isNaN(v)) return '—'
   const sign = v > 0 ? '+' : ''

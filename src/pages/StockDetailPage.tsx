@@ -49,10 +49,12 @@ interface State {
   rows: KlineRow[]
   stockInfo?: { name?: string; total_shares?: number; float_shares?: number; ext?: Record<string, unknown> }
   levels: StockLevels | null
+  /** 关键价位不可用时的原因（**显式说明**，不允许静默 null）。 */
+  levelsNote: string | null
   fields: ColumnConfig[]
 }
 
-const EMPTY: State = { symbol: '', name: '', rows: [], levels: null, fields: BUILTIN_INFO_FIELDS }
+const EMPTY: State = { symbol: '', name: '', rows: [], levels: null, levelsNote: null, fields: BUILTIN_INFO_FIELDS }
 
 interface Props {
   /** 由面板壳传入的要打开的标的（市场页/自选页点击）。 */
@@ -101,9 +103,14 @@ export function StockDetailPage({ open, onBack }: Props) {
     rowsDaysRef.current = 120
     const p = parseSymbol(symbol)
     const full = p ? `${p.market}${p.code}` : symbol
+    // 关键价位只有 HTTP 后端有实现：先问可用性，不可用时**不发注定 404 的请求**，
+    // 并把原因带到界面上（B6：消灭「静默 null」——以前失败被 allSettled 吞掉）。
+    const levelsAvailable = api.stockAnalysisLevelsAvailable()
     Promise.allSettled([
       api.klineDaily(full, 120),
-      api.stockAnalysisLevels(full, 120),
+      levelsAvailable
+        ? api.stockAnalysisLevels(full, 120)
+        : Promise.reject(new Error('需要 HTTP 后端（当前为内置 embedded 模式，未提供该端点）')),
       p ? fetchQuote(p.market, p.code) : Promise.resolve(null),
     ]).then(([kRes, lRes, qRes]) => {
       if (cancelledRef.current) return
@@ -111,6 +118,12 @@ export function StockDetailPage({ open, onBack }: Props) {
         kRes.status === 'fulfilled' ? (kRes.value as { rows: KlineRow[] }).rows : []
       const levels =
         lRes.status === 'fulfilled' ? (lRes.value as StockLevels) : null
+      const levelsNote =
+        levels !== null
+          ? null
+          : lRes.status === 'rejected'
+            ? String((lRes.reason as Error)?.message ?? lRes.reason)
+            : '后端未返回价位数据'
       if (!rows.length) {
         setError('暂无该标的 K 线数据')
       }
@@ -126,6 +139,7 @@ export function StockDetailPage({ open, onBack }: Props) {
             ? (kRes.value as { stock_info?: State['stockInfo'] }).stock_info
             : undefined,
         levels,
+        levelsNote,
       }))
       setLoading(false)
     })
@@ -397,11 +411,20 @@ export function StockDetailPage({ open, onBack }: Props) {
           </div>
         )}
 
-        {/* 关键价位 */}
+        {/* 关键价位：可用才渲染；不可用**显式说明原因**（历史上这里是静默 null） */}
         {state.levels && (
           <div className="mt-2.5">
             <h3 className="mb-1.5 text-xs font-medium text-slate-500">关键价位</h3>
             <PriceLevels levels={state.levels.levels} close={latestClose} activeTypes={activeLevelTypes} />
+          </div>
+        )}
+        {!state.levels && state.levelsNote !== null && (
+          <div className="mt-2.5 rounded border border-amber-100 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-700">
+            <span className="font-medium">关键价位不可用</span>：{state.levelsNote}
+            <br />
+            <span className="text-amber-600">
+              替代：右栏「一键研判」给出的支撑/压力/止损/目标会**直接画在 K 线图上**（模型价位线）。
+            </span>
           </div>
         )}
 

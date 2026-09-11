@@ -3,79 +3,1325 @@
 @tailwind utilities;
 
 /*
- * DSH 插件样式隔离：所有插件根类放在 .dsh-stock 下，
- * 避免与 shell 全局样式冲突。
+ * ============================================================================
+ * A股量化工作台 · 宽视图沉浸式盯盘台样式（v1.3）
+ * ============================================================================
  *
- * 本插件现在是主布局第四列（sidebar | stock | center | details），
- * 列内用 .dsh-stock 包裹根节点，复用 DSH 的亮/暗主题变量。
+ * 本文件是插件唯一的样式源（Tailwind 指令 + 自绘组件类），由
+ * scripts/build-client.mjs 的 css-as-string 插件在构建期编译成 CSS 字符串，
+ * client 半把它注入 <head>（id=dsh-stock-panel-css）。
+ *
+ * ## 主题：跟随 DSH（不写死浅色）
+ *
+ * 宿主 ui-layout 的主题呈现器会把解析后的 design token 写到 body 上
+ * （`--dsw-alias-*` / `--dsw-static-*`），并维护 `body[data-ds-dark-theme]`。
+ * 本文件只做一层**语义映射** `--dc-*` → `--dsw-*`，所有组件类只消费 `--dc-*`，
+ * 于是明暗主题自动跟随，无需页面感知。
+ *
+ * 唯一的自持配色是 A 股语义色（红涨绿跌），与 K 线组件（components/KlineChart.tsx
+ * 的 UP/DOWN 常量）保持一致：暗色下换成更亮的同色系，避免暗底发闷。
+ *
+ * ## 布局：三段式
+ *
+ *   .dc-shell ← 纵向：状态带 / 主体 / 底栏
+ *   .dc-strip     常驻状态带（时段·情绪·指数·广度·AI 入口·搜索）
+ *   .dc-body  ← 横向：左栏列表 | 主区 | 右栏 AI
+ *   .dc-rail--left / .dc-main / .dc-rail--right
+ *
+ * 左右栏的显隐由 shell 的 data 属性控制（窄屏默认收起），不靠媒体查询硬切，
+ * 以便用户手动展开成浮层。
  */
+
+/* ─────────────────────────── 1. 语义 token 层 ─────────────────────────── */
+
 .dsh-stock {
-  /*
-   * 注意：不要写成 `--ds-bg: var(--ds-bg, ...)` 的自引用形式——
-   * 那会让自定义属性形成依赖环，值为 guaranteed-invalid，
-   * 所有 var(--ds-*) 消费点（background / border / color）都会失效。
-   * 内部组件是浅色 Tailwind 配色，这里固定浅色默认值；
-   * 若要跟随 dsh 明暗主题，把值换成宿主 token（如 var(--dsw-specific-sidebar-fill)）即可。
-   */
-  --ds-bg: #ffffff;
-  --ds-fg: #0f172a;
-  --ds-border: #e2e8f0;
-  --ds-muted: #64748b;
+  --dc-bg: var(--dsw-alias-bg-base, #ffffff);
+  --dc-layer-1: var(--dsw-alias-bg-layer-1, #ffffff);
+  --dc-layer-2: var(--dsw-alias-bg-layer-2, #f8fafc);
+  --dc-layer-3: var(--dsw-alias-bg-layer-3, #f1f5f9);
+  --dc-border: var(--dsw-alias-border-l1, #e2e8f0);
+  --dc-border-strong: var(--dsw-alias-border-l2, #cbd5e1);
+  --dc-text: var(--dsw-alias-label-primary, #0f172a);
+  --dc-text-2: var(--dsw-alias-label-secondary, #475569);
+  --dc-text-3: var(--dsw-alias-label-tertiary, #64748b);
+  --dc-dim: var(--dsw-alias-label-caption, #94a3b8);
+  --dc-hover: var(--dsw-alias-interactive-bg-hover, rgba(15, 23, 42, 0.045));
+  --dc-active: var(--dsw-alias-interactive-bg-active, rgba(15, 23, 42, 0.08));
+  --dc-accent: var(--dsw-alias-brand-primary, #10b981);
+  --dc-accent-fill: var(--dsw-alias-button-primary-fill, #10b981);
+  --dc-accent-hover: var(--dsw-alias-button-primary-hover, #059669);
+  --dc-accent-text: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --dc-warn: var(--dsw-alias-state-warn-primary, #d97706);
+  --dc-danger: var(--dsw-alias-state-error-primary, #dc2626);
+  --dc-success: var(--dsw-alias-state-success-primary, #16a34a);
+  /* A 股语义色：红涨绿跌 */
+  --dc-up: #c74040;
+  --dc-down: #2d9b65;
+  --dc-flat: var(--dsw-alias-label-tertiary, #64748b);
+  --dc-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--ds-bg);
-  color: var(--ds-fg);
+  background: var(--dc-bg);
+  color: var(--dc-text);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
-.dsh-stock .ds-toolbar {
+/* 暗色下 A 股语义色提亮一档（暗底 #c74040 会发闷） */
+body[data-ds-dark-theme] .dsh-stock {
+  --dc-up: #e26060;
+  --dc-down: #45b57c;
+}
+
+/* ─────────────────────────── 2. 骨架 ─────────────────────────── */
+
+.dc-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  /* 定位上下文：搜索面板/Toast/未读徽标都相对本骨架绝对定位，不越界到宿主页面 */
+  position: relative;
+}
+
+/* 状态带：常驻，任何视图都不变 */
+.dc-strip {
+  flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--ds-border);
-  font-size: 12px;
+  gap: 12px;
+  height: 38px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--dc-border);
+  background: var(--dc-layer-1);
+  overflow: hidden;
+}
+
+.dc-strip-seg {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-size: 11px;
+  color: var(--dc-text-3);
+  white-space: nowrap;
+}
+
+.dc-strip-seg strong {
+  color: var(--dc-text);
   font-weight: 600;
 }
 
-.dsh-stock .ds-toolbar .ds-title {
+.dc-strip-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 指数条：横向滚动、不显示滚动条 */
+.dc-index-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.dc-index-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.dc-index-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex: none;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.dc-index-cell:hover {
+  background: var(--dc-hover);
+}
+.dc-index-name {
+  color: var(--dc-text-3);
+}
+
+/* 一级视图导航（4 个） */
+.dc-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.dc-nav-item {
+  border: 0;
+  background: transparent;
+  color: var(--dc-text-3);
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.dc-nav-item:hover {
+  color: var(--dc-text);
+  background: var(--dc-hover);
+}
+.dc-nav-item.is-on {
+  color: var(--dc-text);
+  background: var(--dc-active);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--dc-accent);
+}
+.dc-nav-badge {
+  margin-left: 4px;
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--dc-danger);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 主体三栏 */
+.dc-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dc-rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--dc-layer-1);
+}
+.dc-rail--left {
+  width: 268px;
+  border-right: 1px solid var(--dc-border);
+}
+.dc-rail--right {
+  width: 344px;
+  border-left: 1px solid var(--dc-border);
+}
+.dc-rail[hidden] {
+  display: none;
+}
+
+.dc-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 栏头（左栏分组切换 / 右栏 AI 标题） */
+.dc-rail-head {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--dc-border);
+  font-size: 11px;
+  color: var(--dc-text-3);
   overflow: hidden;
 }
 
-.dsh-stock .ds-toolbar .ds-title span {
+.dc-rail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.dc-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+  padding: 0 10px;
+  border-top: 1px solid var(--dc-border);
+  background: var(--dc-layer-1);
+  font-size: 10px;
+  color: var(--dc-dim);
+  overflow: hidden;
+}
+
+/* 主区二级切换条 */
+.dc-subnav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--dc-border);
+  background: var(--dc-layer-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dc-subnav::-webkit-scrollbar {
+  display: none;
+}
+.dc-subnav-item {
+  border: 0;
+  background: transparent;
+  color: var(--dc-text-3);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
   white-space: nowrap;
+}
+.dc-subnav-item:hover {
+  color: var(--dc-text);
+  background: var(--dc-hover);
+}
+.dc-subnav-item.is-on {
+  color: var(--dc-accent);
+  background: var(--dc-active);
+  font-weight: 600;
+}
+
+/* 主区内容（滚动容器） */
+.dc-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─────────────────────────── 3. 基础控件 ─────────────────────────── */
+
+.dc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid var(--dc-border-strong);
+  background: transparent;
+  color: var(--dc-text);
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.dc-btn:hover:not(:disabled) {
+  background: var(--dc-hover);
+}
+.dc-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.dc-btn--accent {
+  border-color: transparent;
+  background: var(--dc-accent-fill);
+  color: var(--dc-accent-text);
+  font-weight: 600;
+}
+.dc-btn--accent:hover:not(:disabled) {
+  background: var(--dc-accent-hover);
+}
+.dc-btn--ghost {
+  border-color: transparent;
+  color: var(--dc-text-3);
+}
+.dc-btn--ghost:hover:not(:disabled) {
+  color: var(--dc-text);
+}
+.dc-btn--icon {
+  padding: 3px 6px;
+}
+
+.dc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--dc-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+  color: var(--dc-text-3);
+  cursor: pointer;
+  background: transparent;
+  white-space: nowrap;
+}
+.dc-chip:hover {
+  background: var(--dc-hover);
+  color: var(--dc-text);
+}
+.dc-chip.is-on {
+  border-color: var(--dc-accent);
+  color: var(--dc-accent);
+  background: var(--dc-active);
+}
+
+.dc-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 16px;
+  background: var(--dc-layer-3);
+  color: var(--dc-text-3);
+}
+
+/* 数字：等宽 + 表格数字，跳动时不抖 */
+.dc-num {
+  font-family: var(--dc-mono);
+  font-variant-numeric: tabular-nums;
+}
+.dc-up {
+  color: var(--dc-up);
+}
+.dc-down {
+  color: var(--dc-down);
+}
+.dc-flat {
+  color: var(--dc-flat);
+}
+
+/* 滚动条：细、随主题 */
+.dc-scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-scrollbar-bg-l1, rgba(120, 130, 150, 0.35)) transparent;
+}
+.dc-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.dc-scroll::-webkit-scrollbar-thumb {
+  background: var(--dsw-alias-scrollbar-bg-l1, rgba(120, 130, 150, 0.35));
+  border-radius: 3px;
+}
+.dc-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--dsw-alias-scrollbar-hover-l1, rgba(120, 130, 150, 0.6));
+}
+
+/* ─────────────────────────── 4. 卡片与列表 ─────────────────────────── */
+
+.dc-card {
+  border: 1px solid var(--dc-border);
+  border-radius: 8px;
+  background: var(--dc-layer-2);
+  padding: 8px 10px;
+}
+
+.dc-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dc-text-2);
+}
+
+.dc-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+  font-size: 11px;
+}
+.dc-kv > span:first-child {
+  color: var(--dc-text-3);
+}
+
+/* 左栏列表行：紧凑、可键盘移动 */
+.dc-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.dc-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.dc-row:hover {
+  background: var(--dc-hover);
+}
+.dc-row.is-active {
+  background: var(--dc-active);
+  border-left-color: var(--dc-accent);
+}
+
+.dc-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dc-row-name {
+  font-size: 12px;
+  color: var(--dc-text);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dsh-stock .ds-toolbar .ds-close {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--ds-muted);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.dsh-stock .ds-toolbar .ds-close:hover {
-  color: var(--ds-fg);
-  background: var(--ds-border);
-}
-
-.dsh-stock .ds-body {
-  flex: 1;
+.dc-row-sub {
+  font-size: 10px;
+  color: var(--dc-dim);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dc-row-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.dc-row-hint {
+  padding: 10px 12px;
+  font-size: 11px;
+  color: var(--dc-dim);
+  line-height: 1.6;
+}
+
+/* 空态/错误态 */
+.dc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--dc-dim);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.dc-empty-mark {
+  font-size: 22px;
+  opacity: 0.7;
+}
+
+/* ─────────────────────────── 5. AI 面板 ─────────────────────────── */
+
+.dc-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  /* 右栏内容（结论卡 + 思考 + 原文）可能很长：在本栏内滚动，不撑破骨架 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dc-ai-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dc-text);
+}
+
+.dc-ai-actions {
+  display: flex;
+  gap: 6px;
+}
+.dc-ai-actions .dc-btn {
+  flex: 1 1 0;
+}
+
+.dc-ai-note {
+  font-size: 10px;
+  color: var(--dc-dim);
+  line-height: 1.6;
+}
+
+.dc-ai-error {
+  border: 1px solid color-mix(in srgb, var(--dc-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--dc-danger) 10%, transparent);
+  color: var(--dc-danger);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* 结论卡 */
+.dc-verdict {
+  border: 1px solid var(--dc-border);
+  border-radius: 8px;
+  background: var(--dc-layer-2);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dc-verdict-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dc-stance {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+}
+.dc-stance.is-bullish {
+  color: var(--dc-up);
+}
+.dc-stance.is-bearish {
+  color: var(--dc-down);
+}
+.dc-stance.is-neutral {
+  color: var(--dc-text-3);
+}
+
+.dc-score {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dc-layer-3);
+  overflow: hidden;
+  position: relative;
+}
+.dc-score > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--dc-flat), var(--dc-up));
+}
+.dc-score-val {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dc-verdict-line {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dc-text);
+}
+
+.dc-bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dc-bullets li {
+  position: relative;
+  padding-left: 11px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--dc-text-2);
+}
+.dc-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--dc-accent);
+}
+.dc-bullets.is-risk li::before {
+  background: var(--dc-warn);
+}
+
+.dc-section-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--dc-dim);
+  margin-top: 2px;
+}
+
+/* 型号/耗时脚注 */
+.dc-ai-meta {
+  font-size: 10px;
+  color: var(--dc-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dc-ai-raw {
+  border: 1px dashed var(--dc-border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--dc-text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* 模型思考（默认折叠） */
+.dc-think {
+  font-size: 10px;
+  color: var(--dc-dim);
+}
+.dc-think > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.dc-think > summary::-webkit-details-marker {
+  display: none;
+}
+.dc-think pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* 加载态：脉冲 */
+.dc-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dc-accent);
+  animation: dc-pulse 1.1s ease-in-out infinite;
+}
+@keyframes dc-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* AI 排序列表（复盘预期清单 / 选股候选共用） */
+.dc-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dc-rank-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 6px;
+  border: 1px solid var(--dc-border);
+  border-radius: 6px;
+  background: var(--dc-layer-1);
+}
+
+.dc-rank-no {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--dc-layer-3);
+  color: var(--dc-text-3);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 16px;
+}
+
+.dc-rank-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dc-rank-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dc-rank-title {
+  font-size: 12px;
+  color: var(--dc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dc-rank-sub {
+  flex: none;
+  font-size: 10px;
+  color: var(--dc-dim);
+}
+
+.dc-rank-score {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--dc-layer-3);
+  overflow: hidden;
+}
+.dc-rank-score > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--dc-flat), var(--dc-accent));
+}
+
+.dc-rank-reason {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--dc-text-2);
+  word-break: break-word;
+}
+
+.dc-rank-score-val {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dc-text);
+}
+
+.dc-rank-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* ─────────────────────────── 5b. 盯盘工作区（宽屏主图） ─────────────────────────── */
+
+/* 报价头：一行放完关键事实，不占垂直空间 */
+.dc-quote-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--dc-border);
+  background: var(--dc-layer-1);
+  overflow: hidden;
+}
+
+.dc-quote-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.dc-quote-id strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.dc-quote-id .dc-flat {
+  font-size: 11px;
+}
+
+.dc-quote-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: none;
+}
+
+.dc-quote-facts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dc-quote-facts::-webkit-scrollbar {
+  display: none;
+}
+
+.dc-fact {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex: none;
+  font-size: 11px;
+}
+.dc-fact-label {
+  color: var(--dc-dim);
+}
+
+/* 图区工具条 */
+.dc-chart-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--dc-border);
+  background: var(--dc-layer-1);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+/* 分段控件（日K/分时、区间） */
+.dc-seg {
+  display: inline-flex;
+  border: 1px solid var(--dc-border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex: none;
+}
+.dc-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--dc-text-3);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.dc-seg-btn + .dc-seg-btn {
+  border-left: 1px solid var(--dc-border);
+}
+.dc-seg-btn:hover {
+  background: var(--dc-hover);
+  color: var(--dc-text);
+}
+.dc-seg-btn.is-on {
+  background: var(--dc-active);
+  color: var(--dc-text);
+  font-weight: 600;
+}
+
+/* 图区：撑满剩余高度（K 线 height='auto' 量容器） */
+.dc-chart-area {
+  flex: 1 1 auto;
+  min-height: 240px;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+.dc-chart-fill {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 下部二级面板（资金流/逐笔/竞价） */
+.dc-panel-body {
+  flex: none;
+  height: 208px;
+  overflow-y: auto;
+  border-top: 1px solid var(--dc-border);
+  background: var(--dc-layer-1);
+}
+
+/* Toast（监控命中） */
+.dc-toasts {
+  position: absolute;
+  left: 12px;
+  bottom: 32px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+  pointer-events: none;
+}
+.dc-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--dc-warn) 45%, transparent);
+  border-radius: 8px;
+  background: var(--dc-layer-1);
+  box-shadow: var(--dsw-shadow-lv2, 0 8px 24px rgba(0, 0, 0, 0.18));
+}
+.dc-toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dc-text-2);
+}
+
+/* 监控未读徽标（右下角常驻） */
+.dc-alert-badge {
+  position: absolute;
+  right: 14px;
+  bottom: 34px;
+  z-index: 65;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dc-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  box-shadow: var(--dsw-shadow-lv2, 0 6px 18px rgba(0, 0, 0, 0.2));
+}
+
+/* ─────────────────────────── 5c. 阶段头 / 工具抽屉 / 列流排版 ─────────────────────────── */
+
+/* 阶段：状态带上的可点标识（点击去对应入口） */
+.dc-stagechip {
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-family: inherit;
+}
+.dc-stagechip:hover {
+  background: var(--dc-hover);
+  border-color: var(--dc-border);
+}
+
+/* 阶段头：先摆出「本阶段必须回答的问题」，再看数据（方法论 §0「少而准」） */
+.dc-stagehead {
+  flex: none;
+  border-bottom: 1px solid var(--dc-border);
+  background: var(--dc-layer-1);
+  padding: 5px 10px 6px;
+}
+
+.dc-stagehead-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.dc-stagehead-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dc-accent);
+}
+
+.dc-stagehead-picks {
+  display: inline-flex;
+  gap: 4px;
+  flex: none;
+}
+
+.dc-stagehead-note {
+  flex: none;
+  font-size: 10px;
+  color: var(--dc-dim);
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dc-stagehead-out {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 10px;
+  color: var(--dc-accent);
+  border: 1px solid color-mix(in srgb, var(--dc-accent) 40%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.dc-stagehead-qs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dc-stagehead-qs li {
+  position: relative;
+  padding-left: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dc-text-2);
+}
+.dc-stagehead-qs li::before {
+  content: "?";
+  position: absolute;
+  left: 0;
+  color: var(--dc-dim);
+}
+
+/* 工具抽屉：分组标签 */
+.dc-toolgroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.dc-toolgroup + .dc-toolgroup {
+  border-left: 1px solid var(--dc-border);
+  margin-left: 6px;
+  padding-left: 8px;
+}
+.dc-toolgroup-label {
+  font-size: 9px;
+  color: var(--dc-dim);
+  margin-right: 2px;
+  white-space: nowrap;
 }
 
 /*
- * preflight 关闭（避免污染 dsh shell 全局样式），这里只对本插件作用域
- * 做最小 reset。用 :where() 把特异性压到 0，Tailwind 工具类可正常覆盖。
+ * 列流排版：把「顺序流程」的各步骤在宽屏并排展开，窄屏自动回落单列。
+ *
+ * 用 CSS multi-column 而不是 grid：流程块高度差异大，grid 按行对齐会留下大片空白，
+ * 多列则是紧密接排（接近瀑布流），更像"看板"。
+ * 每块 break-inside: avoid，防止卡片被从中间劈开。
  */
+.dc-flow {
+  columns: 1;
+  column-gap: 10px;
+}
+@media (min-width: 900px) {
+  .dc-flow {
+    columns: 2;
+  }
+}
+@media (min-width: 1340px) {
+  .dc-flow {
+    columns: 3;
+  }
+}
+.dc-flow > * {
+  break-inside: avoid;
+}
+
+/* ─────────────────────────── 6. 搜索面板（⌘K） ─────────────────────────── */
+
+.dc-palette-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  background: var(--dsw-alias-bg-mask-1, rgba(15, 23, 42, 0.28));
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 64px;
+}
+
+.dc-palette {
+  width: min(520px, 92%);
+  max-height: 60%;
+  display: flex;
+  flex-direction: column;
+  background: var(--dc-layer-1);
+  border: 1px solid var(--dc-border-strong);
+  border-radius: 10px;
+  box-shadow: var(--dsw-shadow-lv3, 0 18px 48px rgba(0, 0, 0, 0.28));
+  overflow: hidden;
+}
+
+.dc-palette-input {
+  border: 0;
+  border-bottom: 1px solid var(--dc-border);
+  background: transparent;
+  color: var(--dc-text);
+  font-size: 13px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.dc-palette-list {
+  overflow-y: auto;
+  max-height: 320px;
+}
+
+/* ─────────────────────────── 7. 过渡层（旧页面暗色适配） ───────────────────────────
+ *
+ * 为什么需要：v1.3 之前的 10 个页面是按「窄列 + 固定浅色」写的，Tailwind 类里
+ * 硬编码了 slate/white/emerald 配色。全面改造这些页面的类名是大工程，因此这里
+ * 用**最小重映射**让它们在暗色下也可读：只覆盖使用频率最高的那批工具类
+ * （占全部硬编码配色用法的绝大多数），并且只用变量、不改布局。
+ *
+ * 这是**过渡层**：每迁移一个页面到 --dc-* token，就删掉它对应的行。
+ * 作用域限定在 body[data-ds-dark-theme] .dsh-stock 内，亮色主题完全不受影响。
+ */
+
+body[data-ds-dark-theme] .dsh-stock .bg-white {
+  background-color: var(--dc-layer-1);
+}
+body[data-ds-dark-theme] .dsh-stock .bg-white\/70,
+body[data-ds-dark-theme] .dsh-stock .bg-white\/60,
+body[data-ds-dark-theme] .dsh-stock .hover\:bg-white:hover {
+  background-color: color-mix(in srgb, var(--dc-layer-3) 70%, transparent);
+}
+body[data-ds-dark-theme] .dsh-stock .bg-slate-50,
+body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/60,
+body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/70,
+body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/80,
+body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/40 {
+  background-color: var(--dc-layer-2);
+}
+body[data-ds-dark-theme] .dsh-stock .bg-slate-100,
+body[data-ds-dark-theme] .dsh-stock .bg-slate-200,
+body[data-ds-dark-theme] .dsh-stock .bg-slate-200\/70,
+body[data-ds-dark-theme] .dsh-stock .hover\:bg-slate-100:hover {
+  background-color: var(--dc-layer-3);
+}
+
+body[data-ds-dark-theme] .dsh-stock .text-slate-800,
+body[data-ds-dark-theme] .dsh-stock .text-slate-700 {
+  color: var(--dc-text);
+}
+body[data-ds-dark-theme] .dsh-stock .text-slate-600,
+body[data-ds-dark-theme] .dsh-stock .hover\:text-slate-600:hover {
+  color: var(--dc-text-2);
+}
+body[data-ds-dark-theme] .dsh-stock .text-slate-500,
+body[data-ds-dark-theme] .dsh-stock .hover\:text-slate-500:hover,
+body[data-ds-dark-theme] .dsh-stock .text-slate-400 {
+  color: var(--dc-text-3);
+}
+body[data-ds-dark-theme] .dsh-stock .text-slate-300,
+body[data-ds-dark-theme] .dsh-stock .text-slate-200 {
+  color: var(--dc-dim);
+}
+
+body[data-ds-dark-theme] .dsh-stock .border-slate-100,
+body[data-ds-dark-theme] .dsh-stock .border-slate-200,
+body[data-ds-dark-theme] .dsh-stock .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--dc-border);
+}
+
+/* 状态色：琥珀/红/绿的浅底与文字在暗色下换成低透明度 token 混色 */
+body[data-ds-dark-theme] .dsh-stock .bg-amber-50,
+body[data-ds-dark-theme] .dsh-stock .bg-amber-50\/50,
+body[data-ds-dark-theme] .dsh-stock .bg-amber-50\/60,
+body[data-ds-dark-theme] .dsh-stock .bg-amber-100 {
+  background-color: color-mix(in srgb, var(--dc-warn) 16%, transparent);
+}
+body[data-ds-dark-theme] .dsh-stock .bg-red-50,
+body[data-ds-dark-theme] .dsh-stock .bg-red-100 {
+  background-color: color-mix(in srgb, var(--dc-danger) 16%, transparent);
+}
+body[data-ds-dark-theme] .dsh-stock .bg-emerald-50,
+body[data-ds-dark-theme] .dsh-stock .bg-emerald-50\/40,
+body[data-ds-dark-theme] .dsh-stock .bg-emerald-100,
+body[data-ds-dark-theme] .dsh-stock .hover\:bg-emerald-50:hover,
+body[data-ds-dark-theme] .dsh-stock .hover\:bg-emerald-50\/50:hover {
+  background-color: color-mix(in srgb, var(--dc-accent) 16%, transparent);
+}
+body[data-ds-dark-theme] .dsh-stock .bg-blue-50,
+body[data-ds-dark-theme] .dsh-stock .bg-blue-100 {
+  background-color: color-mix(in srgb, var(--dsw-static-blue-500, #3b82f6) 16%, transparent);
+}
+
+body[data-ds-dark-theme] .dsh-stock .border-amber-100,
+body[data-ds-dark-theme] .dsh-stock .border-amber-200 {
+  border-color: color-mix(in srgb, var(--dc-warn) 45%, transparent);
+}
+body[data-ds-dark-theme] .dsh-stock .border-emerald-400,
+body[data-ds-dark-theme] .dsh-stock .focus\:border-emerald-400:focus {
+  border-color: var(--dc-accent);
+}
+
+body[data-ds-dark-theme] .dsh-stock .text-amber-600,
+body[data-ds-dark-theme] .dsh-stock .text-amber-500,
+body[data-ds-dark-theme] .dsh-stock .text-amber-500\/80 {
+  color: var(--dc-warn);
+}
+body[data-ds-dark-theme] .dsh-stock .text-red-500,
+body[data-ds-dark-theme] .dsh-stock .text-red-600,
+body[data-ds-dark-theme] .dsh-stock .hover\:text-red-500:hover {
+  color: var(--dc-danger);
+}
+body[data-ds-dark-theme] .dsh-stock .text-emerald-500,
+body[data-ds-dark-theme] .dsh-stock .text-emerald-600,
+body[data-ds-dark-theme] .dsh-stock .text-emerald-700,
+body[data-ds-dark-theme] .dsh-stock .hover\:text-emerald-600:hover {
+  color: var(--dc-accent);
+}
+body[data-ds-dark-theme] .dsh-stock .text-blue-500,
+body[data-ds-dark-theme] .dsh-stock .text-blue-600 {
+  color: var(--dsw-static-blue-400, #60a5fa);
+}
+
+/* 主按钮：暗色下保持对比 */
+body[data-ds-dark-theme] .dsh-stock .bg-emerald-500,
+body[data-ds-dark-theme] .dsh-stock .hover\:bg-emerald-600:hover {
+  background-color: var(--dc-accent-fill);
+}
+
+/* 输入框 / 文本域在暗色下的底色与占位符 */
+body[data-ds-dark-theme] .dsh-stock input,
+body[data-ds-dark-theme] .dsh-stock textarea,
+body[data-ds-dark-theme] .dsh-stock select {
+  color: var(--dc-text);
+}
+body[data-ds-dark-theme] .dsh-stock input::placeholder,
+body[data-ds-dark-theme] .dsh-stock textarea::placeholder {
+  color: var(--dc-dim);
+}
+
+/* ─────────────────────────── 8. 作用域 reset ───────────────────────────
+ * preflight 关闭（避免污染 dsh shell 全局样式），只对本插件作用域做最小 reset。
+ * 用 :where() 把特异性压到 0，组件类与 Tailwind 工具类可正常覆盖。
+ */
+
 .dsh-stock,
 .dsh-stock *,
 .dsh-stock *::before,
@@ -88,6 +1334,7 @@
   cursor: pointer;
   background: transparent;
   border: none;
+  color: inherit;
 }
 
 :where(.dsh-stock) input,
@@ -116,10 +1363,9 @@
 }
 
 /*
- * 竖向窄列排版工具类（M6.5 layout pass）：
- *   .ds-no-scrollbar  — 横向 Tab/条带滚动时不显示滚动条
- *   .ds-sticky-head   — 页面头部随列表滚动吸顶（窄列高屏，长列表很需要）
- *   .ds-card          — 卡片统一样式（更紧凑的间距/圆角）
+ * 视图内排版工具类：
+ *   .ds-no-scrollbar — 横向 Tab/条带滚动时不显示滚动条
+ *   .ds-sticky-head  — 页面头部随列表滚动吸顶（长列表很需要）
  */
 .dsh-stock .ds-no-scrollbar {
   scrollbar-width: none;
@@ -132,26 +1378,6 @@
   position: sticky;
   top: 0;
   z-index: 30;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--dc-layer-1);
   backdrop-filter: blur(6px);
 }
-
-.dsh-stock .ds-card {
-  border: 1px solid #eef2f7;
-  border-radius: 8px;
-  background: #fafbfc;
-}
-
-.dsh-stock .ds-row-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 6px;
-  padding: 3px 6px;
-  text-align: left;
-}
-.dsh-stock .ds-row-btn:hover {
-  background: #ffffff;
-}
-

@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { RefreshCw, Zap } from 'lucide-react'
+import { RefreshCw, Sparkles, Star, ExternalLink, X, Zap } from 'lucide-react'
 import type { AShareRow } from '@/lib/stock-data'
 import { fetchAllA } from '@/lib/market'
 import {
@@ -22,6 +22,13 @@ import {
   type SignalKind,
 } from '@/lib/screener'
 import type { OpenStock } from '@/panel/PanelApp'
+// v1.3：一键让模型从筛选结果里挑票排序（AI 直调通道，结果回填本页参考区）
+import { useAiTask } from '@/lib/ai-task'
+import { compactRows, scoutRankOf } from '@/lib/ai'
+import type { ScoutRank } from '@/lib/ai-contract'
+import { AiRankList, type AiRankRow } from '@/components/AiRankList'
+import { watchAddSymbol } from '@/lib/watchlist-store'
+import type { MarketTag } from '@/lib/symbol'
 
 const UP = '#c74040'
 const DOWN = '#2d9b65'
@@ -125,6 +132,74 @@ export function ScoutPage({ onOpenStock }: { onOpenStock: (s: OpenStock) => void
   const display = useMemo(() => results.slice(0, 60), [results])
   const isHit = (r: AShareRow) => sigHits.has(`${r.market}${r.code}`)
 
+  // ── v1.3：AI 候选排序（一键让模型从筛选结果里挑「最有持续性」的 3-5 只） ──
+  const aiRank = useAiTask('scout-rank')
+  const [rank, setRank] = useState<ScoutRank | null>(null)
+  const [rankRaw, setRankRaw] = useState('')
+
+  const runAiRank = useCallback(async () => {
+    if (results.length === 0) return
+    const res = await aiRank.run({
+      conditions: cond,
+      preset: presetKey || null,
+      screenedCount: results.length,
+      total: total,
+      signalHits: [...sigHits].slice(0, 30),
+      candidates: compactRows(
+        results.slice(0, 40) as unknown as Array<Record<string, unknown>>,
+        ['market', 'code', 'name', 'pct', 'vol_ratio', 'turnover', 'amount', 'close', 'buy_price_limit'],
+        40,
+      ),
+    })
+    if (res === null) return
+    if (!res.ok) {
+      setRank(null)
+      setRankRaw(res.text ?? '')
+      return
+    }
+    setRank(scoutRankOf(res))
+    setRankRaw(res.text ?? '')
+  }, [aiRank, results, cond, presetKey, total, sigHits])
+
+  /** 模型点名 → 名次映射（用于在筛选结果表里给命中的行打 AI 徽标）。 */
+  const rankOf = useMemo(() => {
+    const map = new Map<string, number>()
+    rank?.picks.forEach((p, i) => map.set(p.symbol, i + 1))
+    return map
+  }, [rank])
+
+  const rankRows: AiRankRow[] = useMemo(() => {
+    if (rank === null) return []
+    return rank.picks.map((p, i) => ({
+      key: `${i}-${p.symbol}`,
+      rank: i + 1,
+      title: p.name ?? p.symbol,
+      subtitle: p.symbol,
+      score: p.score,
+      reason: p.reason,
+      actions: (
+        <>
+          <button
+            type="button"
+            className="dc-btn dc-btn--accent dc-btn--icon"
+            title="打开（切到盯盘工作台）"
+            onClick={() => onOpenStock({ market: p.symbol.slice(0, 2) as MarketTag, code: p.symbol.slice(2), name: p.name ?? p.symbol })}
+          >
+            <ExternalLink size={11} />
+          </button>
+          <button
+            type="button"
+            className="dc-btn dc-btn--icon"
+            title="加入自选"
+            onClick={() => watchAddSymbol(p.symbol, p.name)}
+          >
+            <Star size={11} />
+          </button>
+        </>
+      ),
+    }))
+  }, [rank, onOpenStock])
+
   return (
     <div className="h-full overflow-y-auto px-2.5 pb-3">
       <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
@@ -134,6 +209,22 @@ export function ScoutPage({ onOpenStock }: { onOpenStock: (s: OpenStock) => void
         </span>
         <div className="flex items-center gap-2">
           {ranAt && <span className="text-[9px] text-slate-300">{new Date(ranAt).toLocaleTimeString('zh-CN', { hour12: false })}</span>}
+          {/* v1.3：一键让模型从筛选结果里挑「最有持续性」的 3-5 只并给理由 */}
+          <button
+            onClick={() => void runAiRank()}
+            disabled={aiRank.busy || results.length === 0 || aiRank.availability?.available === false}
+            title={
+              aiRank.availability?.available === false
+                ? `不可用：${aiRank.availability.reason ?? ''}`
+                : results.length === 0
+                  ? '先跑一次筛选'
+                  : `让模型从当前 ${Math.min(40, results.length)} 只候选里挑 3-5 只（放量/非高位/主线内）并给理由`
+            }
+            className="flex items-center gap-0.5 rounded border border-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
+          >
+            {aiRank.busy ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+            AI 排序
+          </button>
           <button
             onClick={() => void run()}
             className="flex items-center gap-0.5 rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-600 disabled:opacity-40"
@@ -146,6 +237,34 @@ export function ScoutPage({ onOpenStock }: { onOpenStock: (s: OpenStock) => void
       </div>
 
       {err && <div className="mb-1.5 rounded bg-red-50 px-2 py-1 text-[10px] text-red-500">{err}</div>}
+
+      {/* AI 排序结果（参考区：点「打开」跳工作台，点「★」加自选） */}
+      {rank !== null || aiRank.status === 'error' || aiRank.busy ? (
+        <div className="mb-1.5 rounded-md border border-emerald-100 bg-white px-2 py-1.5">
+          <div className="mb-1 flex items-center gap-1">
+            <Sparkles className="h-2.5 w-2.5 text-emerald-500" />
+            <span className="text-[10px] font-medium text-slate-500">AI 候选排序（参考）</span>
+            {rank?.summary ? <span className="min-w-0 flex-1 truncate text-[10px] text-slate-400">· {rank.summary}</span> : <span className="flex-1" />}
+            {aiRank.meta ? <span className="shrink-0 font-mono text-[8px] text-slate-300">{(aiRank.meta.ms / 1000).toFixed(1)}s</span> : null}
+            <button
+              type="button"
+              onClick={() => { setRank(null); setRankRaw(''); aiRank.reset() }}
+              className="shrink-0 text-slate-300 hover:text-slate-500"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </div>
+          {aiRank.busy ? <div className="py-1 text-[10px] text-slate-400">模型正在挑票…</div> : null}
+          {aiRank.status === 'error' ? <div className="py-1 text-[10px] text-red-500">{aiRank.error}</div> : null}
+          {aiRank.meta?.shrunk !== undefined && aiRank.meta.shrunk.length > 0 ? (
+            <div className="dc-ai-note" title={aiRank.meta.shrunk.join('；')}>
+              ⚠ 上下文过大，已自动裁剪后重试：{aiRank.meta.shrunk[aiRank.meta.shrunk.length - 1]}
+            </div>
+          ) : null}
+          {rank !== null ? <AiRankList rows={rankRows} /> : null}
+          {rank === null && !aiRank.busy && rankRaw !== '' ? <div className="dc-ai-raw mt-1">{rankRaw}</div> : null}
+        </div>
+      ) : null}
 
       {/* ① 预设策略卡片 */}
       <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
@@ -276,6 +395,14 @@ export function ScoutPage({ onOpenStock }: { onOpenStock: (s: OpenStock) => void
                   <span className="min-w-0 truncate text-slate-700 hover:text-emerald-600">{r.name}</span>
                   {isHit(r) && (
                     <span className="shrink-0 rounded bg-amber-400 px-0.5 text-[7px] font-bold text-white">{SIGNAL_META.ma_golden.label}</span>
+                  )}
+                  {rankOf.get(`${r.market}${r.code}`) !== undefined && (
+                    <span
+                      className="shrink-0 rounded bg-emerald-500 px-0.5 text-[7px] font-bold text-white"
+                      title={`模型把这只排在第 ${rankOf.get(`${r.market}${r.code}`)} 位`}
+                    >
+                      AI#{rankOf.get(`${r.market}${r.code}`)}
+                    </span>
                   )}
                 </button>
                 <span className="text-right" style={{ color: r.pct > 0 ? UP : r.pct < 0 ? DOWN : '#94a3b8' }}>

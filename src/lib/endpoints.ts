@@ -33,6 +33,10 @@ export const ENV_PREFIX = 'DSH_'
 export const DEFAULT_HTTP_GATEWAY_ENDPOINT = 'http://127.0.0.1:8017'
 /** 内置（embedded）桥接路由（同源，host 半注册）。 */
 export const EMBEDDED_CALL_ROUTE = '/api/stock-panel/call'
+/** AI 任务桥接路由（同源，host 半注册；走官方 ctx.llm 直调）。 */
+export const AI_CALL_ROUTE = '/api/stock-panel/ai'
+/** 构建信息路由（同源，host 半注册）：{ version, buildId } —— 用于检出「浏览器跑着旧构建」。 */
+export const BUILD_INFO_ROUTE = '/api/stock-panel/build'
 
 export type TdxTransportMode = 'embedded' | 'http'
 
@@ -88,5 +92,7 @@ export function endpointDiagnostics(): Record<string, string> {
     transport: getTransportMode(),
     httpGateway: getHttpGatewayEndpoint(),
     embeddedRoute: EMBEDDED_CALL_ROUTE,
+    aiRoute: AI_CALL_ROUTE,
+    buildRoute: BUILD_INFO_ROUTE,
   }
 }

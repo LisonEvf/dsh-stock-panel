@@ -230,15 +230,22 @@ export function useSwr<T>(
   }, [key, nonce, enabled])
 
   // 定时轮询（refreshInterval）：每次强制验证，确保拿到最新行情。
+  //
+  // B3 修复两件事：
+  //   1. **标签页隐藏时跳过本轮**（此前全仓只有 AlertWatcher 检查过 document.hidden，
+  //      其余 13 个轮询者在后台标签页里照跑）；
+  //   2. 依赖数组补上 refreshInterval —— 此前它被读在 effect 内部却不参与依赖，
+  //      运行期改频率**永远不生效**（静默 bug）。
+  const interval = options.refreshInterval ?? 0
   useEffect(() => {
     if (!enabled) return
-    const interval = optsRef.current.refreshInterval ?? 0
     if (interval <= 0) return
     const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
       ensure<T>(key, fetcherRef.current, { ...optsRef.current, ttl: 0 })
     }, interval)
     return () => window.clearInterval(timer)
-  }, [key, enabled])
+  }, [key, enabled, interval])
 
   const refresh = useCallback(() => {
     forceRef.current = true

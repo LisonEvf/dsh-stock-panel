@@ -1,4 +1,4 @@
-# CI：build + 全量 tsc + client.js 体积护栏（M11）
+# CI：build + 全量 tsc + client.js 体积护栏 + 视图注册冒烟（M11）
 name: ci
 on:
   push:
@@ -23,3 +23,7 @@ jobs:
         run: npx tsc --noEmit
       - name: Bundle size guard
         run: node scripts/check-bundle-size.mjs
+      - name: Client view registration smoke（官方 conversation.view 契约）
+        run: node scripts/smoke-client-view.mjs
+      - name: AI contract smoke（prompt/解析/降级，假模型）
+        run: node scripts/smoke-ai-contract.mjs

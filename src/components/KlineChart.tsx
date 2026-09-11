@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import {
   createChart,
   ColorType,
+  LineStyle,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type LineData,
 } from 'lightweight-charts'
@@ -19,6 +21,23 @@ const MA_COLORS: { n: number; color: string }[] = [
   { n: 10, color: '#3b82f6' },
   { n: 20, color: '#a855f7' },
 ]
+
+/**
+ * 图上价位线（v1.3：模型研判结果回填视图的落点）。
+ * tone 只决定颜色语义，取值与 AI 结论里的角色对应。
+ */
+export interface PriceLineSpec {
+  price: number
+  label: string
+  tone?: 'up' | 'down' | 'warn' | 'danger'
+}
+
+const PRICE_LINE_COLOR: Record<NonNullable<PriceLineSpec['tone']>, string> = {
+  up: UP,
+  down: DOWN,
+  warn: '#d97706',
+  danger: '#dc2626',
+}
 
 /** 副图量/额切换（M9 补充：成交额）。 */
 export type SubMetric = 'vol' | 'amount'
@@ -58,7 +77,8 @@ function maValues(rows: KlineRow[], n: number): (LineData | null)[] {
 
 interface Props {
   symbol: string
-  height?: number
+  /** 固定像素高度；传 'auto' 则撑满容器（宽视图主图用）。 */
+  height?: number | 'auto'
   className?: string
   /**
    * 受控数据：由父级一次性拉取后传入（避免组件内部重复请求）。
@@ -72,19 +92,64 @@ interface Props {
   chips?: ChipsResult | null
   /** 筹码逐笔升级仍在取数中。 */
   chipsLoading?: boolean
+  /**
+   * 图上价位线（模型研判的支撑/压力/止损/目标）。
+   * 传空数组即清除；价格非法/≤0 的条目自动忽略。
+   */
+  priceLines?: PriceLineSpec[]
 }
 
-export function KlineChart({ symbol, height = 480, className, rows, showMA = false, onCross, chips = null, chipsLoading = false }: Props) {
+export function KlineChart({ symbol, height = 480, className, rows, showMA = false, onCross, chips = null, chipsLoading = false, priceLines }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const maRef = useRef<Map<number, ISeriesApi<'Line'>> | null>(null)
   const chipPrimRef = useRef<ChipProfilePrimitive | null>(null)
+  /** 当前挂在 K 线上的价位线（每次同步先全撤再重建，避免残留）。 */
+  const priceLinesRef = useRef<IPriceLine[]>([])
   const [status, setStatus] = useState<'loading' | 'empty' | 'error' | 'ok'>('loading')
   const [error, setError] = useState<string>('')
   const [metric, setMetric] = useState<SubMetric>('vol')
   const [chipsOn, setChipsOn] = useState(true)
+
+  /** 最新价位线规格（用 ref 供同步函数读取，避免每次渲染重建回调）。 */
+  const priceLinesDataRef = useRef<PriceLineSpec[]>([])
+  priceLinesDataRef.current = priceLines ?? []
+  /** 内容指纹：内容不变就不重跑同步。 */
+  const priceLineKey = JSON.stringify(
+    (priceLines ?? []).filter((l) => Number.isFinite(l.price) && l.price > 0),
+  )
+
+  /**
+   * 把价位线同步到 K 线系列（先全撤再重建，避免残留）。
+   * 图表重建（height 变化）后由下方 effect 再同步一次。
+   */
+  const syncPriceLines = () => {
+    const candle = candleRef.current
+    if (!candle) return
+    for (const line of priceLinesRef.current) {
+      try {
+        candle.removePriceLine(line)
+      } catch {
+        /* 图表已销毁等情况忽略 */
+      }
+    }
+    priceLinesRef.current = []
+    for (const spec of priceLinesDataRef.current) {
+      if (!Number.isFinite(spec.price) || spec.price <= 0) continue
+      priceLinesRef.current.push(
+        candle.createPriceLine({
+          price: spec.price,
+          color: PRICE_LINE_COLOR[spec.tone ?? 'warn'],
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: spec.label,
+        }),
+      )
+    }
+  }
 
   /** 按需创建/移除 MA 线（showMA 关时移除，避免残留叠加）。 */
   const syncMaSeries = (show: boolean) => {
@@ -117,6 +182,8 @@ export function KlineChart({ symbol, height = 480, className, rows, showMA = fal
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
+    /** 实际高度：'auto' 时量容器（宽视图主图撑满剩余空间）。 */
+    const measure = () => (height === 'auto' ? Math.max(240, el.clientHeight || 0) : height)
     const chart = createChart(el, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
@@ -128,7 +195,7 @@ export function KlineChart({ symbol, height = 480, className, rows, showMA = fal
         horzLines: { color: 'rgba(148,163,184,0.10)' },
       },
       width: el.clientWidth,
-      height,
+      height: measure(),
       rightPriceScale: { visible: true, borderColor: 'rgba(148,163,184,0.2)' },
       timeScale: { borderColor: 'rgba(148,163,184,0.2)' },
       crosshair: {
@@ -175,7 +242,7 @@ export function KlineChart({ symbol, height = 480, className, rows, showMA = fal
     }
 
     const ro = new ResizeObserver(() => {
-      chart.resize(el.clientWidth, height)
+      chart.resize(el.clientWidth, measure())
     })
     ro.observe(el)
     return () => {
@@ -186,9 +253,17 @@ export function KlineChart({ symbol, height = 480, className, rows, showMA = fal
       volRef.current = null
       maRef.current = null
       chipPrimRef.current = null
+      priceLinesRef.current = []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height])
+
+  // 价位线同步：内容指纹变化或图表重建（height）后各跑一次。
+  // 声明在图表创建 effect **之后**，保证首帧 candleRef 已就绪。
+  useEffect(() => {
+    syncPriceLines()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceLineKey, height])
 
   // 数据渲染：受控 rows（优先）；未提供 rows 时退回组件内自取（兼容复用方）。
   useEffect(() => {

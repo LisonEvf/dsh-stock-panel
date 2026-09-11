@@ -1,145 +1,249 @@
-// build-client.mjs
+// 生成器：src/client.ts → lib/client.js（bundle 产物，随插件分发）。
+// 契约：--check 模式在内存生成后与已提交 lib/client.js 逐字节比对，不一致非零退出——
+// 手改生成物禁止（改 src/ 源码，勿改 lib/client.js）。
+// 官方 __ModuleLoader__.load 契约：factory 返回 { name, inject, apply }，client 内核
+// 挂载时调用 apply(ctx)。'react' 保持 external —— 运行时经 loader 模块表（平台种子）
+// 解析，与宿主渲染器共享同一 React 实例（hooks 才能正常工作）。
+// JSX 用经典转换（React.createElement），只依赖 'react' 一个外部模块。
 //
-// 单独构建 client 半（dsh.client 浏览器端 bundle），输出单文件 CJS 并自注册。
+// CSS 处理：src/client.ts 的 `import panelCss from './index.css'` 由 esbuild 插件
+// 解析为虚拟模块，load 阶段用 postcss+tailwind+autoprefixer 编译 src/index.css.txt
+// （@tailwind 指令源文件）为纯 CSS 字符串，包装为 `export default "<css>"`。
 //
-// 注意：rolldown beta 的顶层 format 选项不生效，必须放在 output.format。
+// 依赖：esbuild（devDependency，提供 JS API + 平台二进制）。
 
-import { build } from 'rolldown'
-import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import postcss from 'postcss'
-import tailwindcss from 'tailwindcss'
-import autoprefixer from 'autoprefixer'
+import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { computeBuildId, pluginVersion } from './build-id.mjs'
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url))
-const root = resolve(__dirname, '..')
-const clientEntry = resolve(root, 'src/client.ts')
-const outClient = resolve(root, 'lib/client.js')
+const ROOT = resolve(import.meta.dirname, '..')
+const ENTRY = join(ROOT, 'src', 'client.ts')
+const OUTPUT = join(ROOT, 'lib', 'client.js')
+const PLUGIN_ID = '@lisonevf/dsh-stock-panel'
 
-/** 解析 tsconfig 的 @/* -> src/*，自动补扩展名。 */
-function alias() {
-  const exts = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.json']
-  return {
-    name: 'tsconfig-alias',
-    async resolveId(source, importer) {
-      if (source.startsWith('@/')) {
-        const base = resolve(root, 'src', source.slice(2))
-        for (const ext of exts) {
-          const c = base + ext
-          if (existsSync(c)) return c
-        }
-        for (const ext of exts) {
-          const c = resolve(base, 'index' + ext)
-          if (existsSync(c)) return c
-        }
-      }
-      return null
-    },
+/** esbuild 是否可用（devDependency 已安装即可）。 */
+export async function esbuildAvailable() {
+  try {
+    await import('esbuild')
+    return true
+  } catch {
+    return false
   }
 }
 
 /**
- * 编译插件样式：把 src/index.css.txt（@tailwind 指令 + .dsh-stock 组件样式）
- * 用 Tailwind + Autoprefixer 编译成纯 CSS，先落盘为真实的 .mjs 模块
- * （lib/.generated/panel-css.mjs，内容为 `export default "<css>"`），再让
- * `import './index.css'` 解析到它。
+ * CSS 插件：把 .css 导入解析为虚拟模块，load 阶段用 postcss+tailwind
+ * 编译 src/index.css.txt（@tailwind 指令源文件）为纯 CSS 字符串。
+ * 无需外部预步骤——esbuild 构建时一次性完成 Tailwind 展开。
  *
- * 为什么不直接在 resolveId/load 里虚拟化：rolldown 对 .css.txt 等未知扩展名
- * 或 \0 虚拟 id 的 load 结果处理不可靠（asset 管线会把返回的代码再包一层
- * 字符串，或直接给空对象）。真实文件是最稳的路径。
- *
- * ⚠️ corePlugins.preflight 关闭：插件样式必须作用域隔离，不能把 Tailwind
- * preflight 的全局 reset 灌进 dsh shell（会打乱宿主 UI）。
+ * 编译产物会**压缩**后再内联：整份 CSS 是以字符串形式躺进 client.js 的，
+ * 不压缩等于把注释/缩进/换行一并塞进 bundle（v1.3 重排样式后这一项接近 40KB）。
+ * 压缩器刻意保守：跳过引号内内容，只做注释剥离/空白折叠/分隔符周围去空白。
  */
-const RAW_CSS = resolve(root, 'src/index.css.txt')
-const GEN_DIR = resolve(root, 'lib/.generated')
-const GEN_CSS = resolve(GEN_DIR, 'panel-css.mjs')
-
-/** 编译一次并写入生成的 CSS 模块文件。 */
-async function compileStockCss() {
-  const raw = readFileSync(RAW_CSS, 'utf8')
+async function compileTailwindCss() {
+  const { default: postcss } = await import('postcss')
+  const { default: tailwindcss } = await import('tailwindcss')
+  const { default: autoprefixer } = await import('autoprefixer')
+  const source = readFileSync(join(ROOT, 'src', 'index.css.txt'), 'utf8')
   const result = await postcss([
-    tailwindcss({
-      // 内容扫描相对 repo 根（脚本在 repo 根执行）
-      content: [resolve(root, 'src/**/*.{ts,tsx}')],
-      corePlugins: { preflight: false },
-      theme: { extend: {} },
-    }),
-    autoprefixer(),
-  ]).process(raw, { from: undefined })
-  const css = result.css
-  console.log(`[build-client] compiled stock css: ${css.length} chars`)
-  mkdirSync(GEN_DIR, { recursive: true })
-  writeFileSync(GEN_CSS, `export default ${JSON.stringify(css)}\n`, 'utf8')
-  return css
+    tailwindcss(join(ROOT, 'tailwind.config.js')),
+    autoprefixer,
+  ]).process(source, { from: join(ROOT, 'src', 'index.css.txt'), to: undefined, map: false })
+  return minifyCss(result.css)
 }
 
-/** 把 .css 导入解析到生成的 .mjs 文件。 */
-function cssToGenerated() {
+/**
+ * 保守 CSS 压缩（不引入 cssnano 依赖）：
+ *   1. 剥离 /* … *​/ 注释（引号内的 /* 不动）；
+ *   2. 折叠空白（换行/多空格 → 单空格），引号字符串原样保留；
+ *   3. 去掉 `{ } ; : , > + ~` 周围的空白（`:` 仅在非选择器伪类处安全，
+ *      这里只处理 `{`/`}`/`;`/`,` 与前导缩进，避免误伤 `:hover`）。
+ * 目标是把「人类可读」换成「省字节」，语义等价。
+ */
+export function minifyCss(css) {
+  let out = ''
+  let i = 0
+  const n = css.length
+  while (i < n) {
+    const ch = css[i]
+    // 注释
+    if (ch === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2)
+      i = end === -1 ? n : end + 2
+      continue
+    }
+    // 字符串（单/双引号）
+    if (ch === '"' || ch === "'") {
+      const quote = ch
+      out += ch
+      i += 1
+      while (i < n) {
+        const c = css[i]
+        out += c
+        i += 1
+        if (c === '\\') {
+          if (i < n) {
+            out += css[i]
+            i += 1
+          }
+          continue
+        }
+        if (c === quote) break
+      }
+      continue
+    }
+    // 空白：折叠成单个空格，但紧跟分隔符时直接丢弃
+    if (ch === ' ' || ch === '\n' || ch === '\t' || ch === '\r' || ch === '\f') {
+      let j = i
+      while (j < n && ' \n\t\r\f'.includes(css[j])) j += 1
+      const prev = out[out.length - 1]
+      const next = css[j]
+      const dropBefore = prev === undefined || '{;,}'.includes(prev)
+      const dropAfter = next === undefined || '{;,}'.includes(next)
+      if (!dropBefore && !dropAfter) out += ' '
+      i = j
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  // 结尾多余分号
+  return out.replace(/;}/g, '}').trim()
+}
+
+function cssAsString() {
+  let cached = null
   return {
-    name: 'stock-css-to-generated',
-    enforce: 'pre',
-    async resolveId(source) {
-      if (!source.endsWith('.css')) return null
-      return GEN_CSS
+    name: 'css-as-string',
+    setup(b) {
+      b.onResolve({ filter: /\.css$/ }, () => ({ path: 'panel-css', namespace: 'css' }))
+      b.onLoad({ filter: /^panel-css$/, namespace: 'css' }, async () => {
+        if (cached === null) {
+          cached = await compileTailwindCss()
+        }
+        return { contents: 'export default ' + JSON.stringify(cached), loader: 'js' }
+      })
     },
   }
 }
 
-/** dsh.client 自注册包装器 + ESM export 修正。 */
-function dshClientSelfRegister() {
+/** esbuild 构建配置（单次 build 与 watch context 共用）。 */
+function buildConfig(outfile) {
   return {
-    name: 'dsh-client-self-register',
-    enforce: 'post',
-    renderChunk(code) {
-      let transformed = code
-        .replace(/export\s*\{\s*apply\s*\}\s*;?/g, 'exports.apply = apply;')
-        .replace(/export\s*\{\s*apply as (\w+)\s*\}\s*;?/g, 'exports. = apply;')
-      // 注意：不声明 react / runtime external —— 它们由 bundler 内联为 const，
-      // 在 factory 内再声明同名变量会 "Identifier already been declared"。
-      const wrapper = "window.__ModuleLoader__.load({\n" +
-        "  id: \"@lisonevf/dsh-stock-panel\",\n" +
-        "  // patch-layout 版：client 半注册 `stock` / `stock.preview` 槽，\n" +
-        "  // 由宿主启动时的布局补丁引擎（src/layout-patch.ts）新增主布局第四列。\n" +
-        "  factory: (require) => {\n" +
-        "    var module = { exports: {} };\n" +
-        "    var exports = module.exports;\n" +
-        "    Object.defineProperty(exports, Symbol.toStringTag, { value: \"Module\" });\n" +
-        "    //#region build output\n" +
-        transformed + "\n" +
-        "    //#endregion\n" +
-        "    exports.inject = [\"slots\"];\n" +
-        "    return module.exports;\n" +
-        "  }\n" +
-        "});\n"
-      return { code: wrapper, map: null }
-    },
-  }
-}
-
-try {
-  // 1) 先编译样式并写盘（真实文件，避开 rolldown 的 asset/虚拟模块坑）
-  await compileStockCss()
-
-  // 2) 再跑 rolldown：client.ts 里的 `import './index.css'` 会被
-  //    cssToGenerated 指向真实存在的 GEN_CSS。
-  await build({
-    input: [clientEntry],
+    entryPoints: [ENTRY],
+    bundle: true,
+    format: 'cjs',
     platform: 'browser',
     target: 'es2020',
-    external: ['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-runtime'],
-    plugins: [alias(), cssToGenerated(), dshClientSelfRegister()],
-    output: {
-      file: outClient,
-      sourcemap: true,
-      inlineDynamicImports: true,
-      format: 'cjs',
-      exports: 'named',
+    external: ['react'],
+    jsx: 'transform',
+    jsxFactory: 'React.createElement',
+    jsxFragment: 'React.Fragment',
+    // 构建期常量：与 host 半（tsdown.config.ts）注入同一组值，
+    // 浏览器据此与 GET /api/stock-panel/build 对比，检出「跑着旧构建」。
+    define: {
+      __PANEL_VERSION__: JSON.stringify(pluginVersion()),
+      __PANEL_BUILD_ID__: JSON.stringify(computeBuildId()),
+    },
+    outfile,
+    plugins: [cssAsString()],
+  }
+}
+
+/** 组装 __ModuleLoader__.load 包装后的最终字节。 */
+function wrap(body) {
+  return Buffer.from(
+    'window.__ModuleLoader__.load({\n'
+    + '\tid: ' + JSON.stringify(PLUGIN_ID) + ',\n'
+    + '\tfactory: (require) => {\n'
+    + '\t\tvar module = { exports: {} };\n'
+    + '\t\tvar exports = module.exports;\n'
+    + body.replace(/\n$/, '')
+    + '\n\t\treturn module.exports;\n'
+    + '\t}\n'
+    + '});\n',
+  )
+}
+
+/**
+ * 生成 client.js（官方 __ModuleLoader__.load 契约）。
+ * @param {{ check?: boolean }} opts
+ * @returns {{ ok: boolean, errors?: string[], skipped?: string }}
+ */
+export async function generate({ check = false } = {}) {
+  if (!(await esbuildAvailable())) {
+    return { ok: true, skipped: 'esbuild 不可用：项目内 pnpm install 安装 devDependencies' }
+  }
+  const { build } = await import('esbuild')
+
+  const tmpOut = OUTPUT + '.tmp'
+  await build(buildConfig(tmpOut))
+  const body = readFileSync(tmpOut, 'utf8')
+  try { unlinkSync(tmpOut) } catch {}
+
+  const code = wrap(body)
+
+  if (!check) {
+    mkdirSync(join(ROOT, 'lib'), { recursive: true })
+    writeFileSync(OUTPUT, code)
+    return { ok: true }
+  }
+  let committed = null
+  try {
+    committed = readFileSync(OUTPUT)
+  } catch {
+    return { ok: false, errors: [OUTPUT + ' 不存在：运行 node scripts/build-client.mjs 生成'] }
+  }
+  if (Buffer.compare(committed, code) !== 0) {
+    return { ok: false, errors: ['client.js 与生成器输出不一致：运行 node scripts/build-client.mjs 重新生成（手改生成物禁止）'] }
+  }
+  return { ok: true }
+}
+
+/**
+ * 监听模式：esbuild watch context，src/ 下 TS/TSX/CSS 变更时自动重打包。
+ * @returns {Promise<void>}
+ */
+export async function watch() {
+  if (!(await esbuildAvailable())) {
+    console.log('[build-client] SKIP：esbuild 不可用')
+    return
+  }
+  const { context } = await import('esbuild')
+  const finalCtx = await context({
+    ...buildConfig(OUTPUT + '.tmp'),
+    onEnd(result) {
+      if (result.errors.length === 0) {
+        const body = readFileSync(OUTPUT + '.tmp', 'utf8')
+        mkdirSync(join(ROOT, 'lib'), { recursive: true })
+        writeFileSync(OUTPUT, wrap(body))
+        console.log('[build-client] rebuilt → lib/client.js')
+      } else {
+        for (const e of result.errors) console.error('[build-client]', e.text)
+      }
     },
   })
-  console.log('[build-client] done -> lib/client.js')
-} finally {
-  // 3) 清理生成的样式模块文件（lib/ 由 tsdown clean 管，这里顺手删掉）。
-  try { rmSync(GEN_DIR, { recursive: true, force: true }) } catch { /* ignore */ }
+  await finalCtx.watch()
+  console.log('[build-client] watching src/ …（Ctrl+C 停止）')
+}
+
+// CLI 入口（被 import 时不执行）。
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const check = process.argv.includes('--check')
+  const watchMode = process.argv.includes('--watch')
+  if (watchMode) {
+    await watch()
+  } else {
+    const result = await generate({ check })
+    if (result.skipped !== undefined) {
+      console.log('[build-client] SKIP：' + result.skipped)
+      process.exit(0)
+    }
+    if (!result.ok) {
+      for (const e of result.errors ?? []) console.error('[build-client] ' + e)
+      process.exit(1)
+    }
+    console.log(check ? '[build-client] client.js 新鲜（--check OK）' : '[build-client] client.js 已生成')
+  }
 }

@@ -1,39 +1,46 @@
 /**
- * dsh.client bundle entry（A股量化工作台 — patch-layout 版）。
+ * dsh.client bundle entry（A股量化工作台 — 官方 slot 版）。
  *
- * 导出两个符号：
- *   - 默认导出（index）：供 host 扫描 `exports["./client"]` 时拿到的插件体
- *     （Cordis `apply` + 契约类型）；
- *   - `./client` 行：同上，是"插件包即其包的 client 半"。
+ * 导出契约（`window.__ModuleLoader__.load`：id / inject / apply）：
+ *   - `name` / `inject`：插件标识与所需运行时服务（loader 据此注入 ctx.slots）；
+ *   - `apply`：Cordis 插件体 `(ctx) => void`，在 fiber materialize 时注册视图。
  *
- * Cordis 约定：插件体是一个函数 `(ctx) => void`，在 fiber materialize 时执行，
- * 向运行时注册 slot / 服务 / 契约。
+ * ## 注入方式：只用官方槽位，不改宿主任何文件
  *
- * 与旧版（shell.overlay 浮层）的关键区别：
- *   旧版用固定 520px 浮层贴在页面右侧（z-index 顶格、不占主布局、无法与
- *   对话区并排）。本版改用 workbench 同款思路——宿主启动时把 patch-layout.mjs
- *   打进 ui-layout bundle，新增最右列（sidebar | center | details | stock），
- *   对话区用 conversationSeat 包裹后仍在 center 列。本 client 半只做一件事：
- *   把 StockPanel 挂进 `stock` 这一个新 slot。
+ *   - `conversation.view`（ui-conversation 声明，kind: list / scope: session）：
+ *     会话页「对话 / 轨迹」旁的视图标签页，选中时占满会话列的内容区
+ *     （ui-conversation 的 `viewArea`，`renderSlot("conversation.view", …, {only: active.id})`）。
+ *   - `ctx.slots.inject(slot, cb)`：**声明感知**注册——等待声明出现后再注册，
+ *     并随该声明的生命周期（HMR 替换 / 重新声明 / teardown）自动装卸。
+ *     这是官方推荐的跨包填充方式（ui-sidebar / ui-attachment / ui-settings-* 同款）。
  *
- * 注册用 `ctx.slots.register`（additive，不替换任何已有 UI）。
+ * ## 与 v1.1 及以前的关键区别（已移除）
+ *
+ *   旧版对编译后的 `dsh-client-ui-layout` bundle 做字节级字符串替换，自造 `stock`
+ *   第四列（sidebar | center | details | stock）以换取「与对话并排」的布局。代价：
+ *   修改的是宿主发行物——DSH 每次重编译 ui-layout 都可能锚点失配，且必须用 pristine
+ *   备份回滚。v1.2 起全部界面注入改走官方 slot，布局补丁引擎、锚点表、CLI 与
+ *   `$DSH_HOME/patches` 备份一并删除。
+ *
+ * ## 官方契约下的形态约束
+ *
+ *   并排布局在官方契约内不可得：ui-layout 只声明
+ *   `sidebar / conversation / details / shell.overlay`，前三者均被 single 占位。
+ *   因此本版是**视图标签页**形态：切到「A股工作台」即占满会话区，切回「对话」
+ *   继续聊天；标签切换会卸载/重挂本面板，故面板自身的 Tab/标的选择经
+ *   localStorage 持久化（见 panel/PanelApp.tsx），避免回来时丢失标的。
  */
-// 这些类型由 DSH 宿主在运行时注入，构建时通过 @ts-ignore 绕过本地缺类型。
-// @ts-ignore - 运行时由 dsh.client 提供
-import type { SlotRegistryLike } from '@deepseek-ai/dsh-client-ui-slots'
-// @ts-ignore - 运行时由 dsh.client 提供
-import type { DshClientCtx } from '@deepseek-ai/dsh-client-runtime'
-import { createElement, useState } from 'react'
-// @ts-ignore - 构建期由 scripts/build-client.mjs 的 stock-css-compile 插件
+// @ts-ignore - 构建期由 scripts/build-client.mjs 的 css-as-string 插件
 // 把 src/index.css.txt（Tailwind + .dsh-stock 组件样式）编译为 CSS 字符串。
 import panelCss from './index.css'
-// 工作台面板壳（M5：市场/指数/自选/个股 四 Tab）。
+// 工作台面板壳（市场/梯队/选股/指数/外盘/自选/个股/作战/复盘/监控 十 Tab）。
 import { PanelApp } from './panel/PanelApp'
 // 运行时诊断句柄（浏览器控制台可直接调用）。
 import { getDataSource } from './lib/api'
 import { invokeTool } from './lib/mcp'
-import { getTransportMode, endpointDiagnostics } from './lib/endpoints'
+import { getTransportMode, endpointDiagnostics, AI_CALL_ROUTE } from './lib/endpoints'
 import { getWatchlist } from './lib/watchlist-store'
+import { createElement } from 'react'
 
 /** 内置 node-tdx 覆盖的全部行情工具（与 python opentdx-mcp 15 工具契约一致）。 */
 const EMBEDDED_TOOLS: Array<{ name: string; description: string }> = [
@@ -59,6 +66,58 @@ const EMBEDDED_TOOLS: Array<{ name: string; description: string }> = [
 ]
 
 /**
+ * 本插件注册的视图身份（写进文档与 host 半元数据，避免散落字面量）。
+ * 注意：`VIEW_ID` 会被 ui-conversation 持久化为「当前会话首选的视图」，
+ * 改名等同于让用户的选择回退到默认「对话」。
+ */
+export const VIEW_SLOT = 'conversation.view'
+export const VIEW_ID = 'stock-panel'
+export const VIEW_LABEL = 'A股工作台'
+/** 标签页顺序：升序；「对话」= 0、「轨迹」= 10，故 6 落在两者之间（GAL视窗 = 5 之后）。 */
+export const VIEW_ORDER = 6
+
+/**
+ * 运行时由 dsh.client 注入的 client 根 ctx 的**最小本地契约**。
+ *
+ * 只声明本插件实际用到的两个方法，不 import 任何 DSH 内部包类型
+ * （`@deepseek-ai/dsh-client-ui-slots` 不在 npm 上，无法作为类型依赖解析）。
+ */
+interface SlotEntryOptions {
+  /** 目标槽位名（必须与注册时传入的槽名一致）。 */
+  name: string
+  /** 槽内条目标识（list 槽内唯一；conversation.view 用它作为视图 id）。 */
+  id: string
+  /** list 槽内的升序排序键。 */
+  order?: number
+  /** 标签文本解析器（ui-conversation 用在视图 Tab 上）。 */
+  label?: () => string
+}
+
+interface SlotRegistryLike {
+  /** 向已声明的槽位注册一个条目，返回幂等卸载函数。 */
+  register(options: SlotEntryOptions, component: (props?: unknown) => unknown): () => void
+  /** 等待槽位声明后执行填充；返回随声明生命周期自动调用的清理函数。 */
+  inject(name: string, callback: () => (() => void) | void): () => void
+}
+
+interface DshClientCtx {
+  slots: SlotRegistryLike
+}
+
+/** dsh.client 包契约：声明本插件需要的运行时服务（loader 据此注入 ctx.slots 等）。 */
+export const inject = ['slots']
+
+/** 插件契约类型（供宿主在类型层面消费，运行时无副作用）。 */
+export interface StockPanelContract {
+  /** 视图宿主槽位（ui-conversation 声明）。 */
+  readonly viewSlot: 'conversation.view'
+  /** 视图 id（被 ui-conversation 持久化为会话首选视图）。 */
+  readonly viewId: 'stock-panel'
+  /** 视图标签页排序键。 */
+  readonly viewOrder: number
+}
+
+/**
  * 把编译好的插件样式注入 <head>（仅一次）。
  * 无样式时 Tailwind 工具类与 .dsh-stock 布局规则全部失效，面板会裸奔。
  */
@@ -80,95 +139,32 @@ function injectPanelStyles(): void {
   }
 }
 
-/** 插件契约类型（供宿主在类型层面消费，运行时无副作用）。 */
-export interface StockPanelContract {
-  /** stock 列（主布局最右列，details 右侧）注册的 slot 名。 */
-  readonly slot: 'stock'
-  /** stock.preview 子槽名（对话区右侧 split）。 */
-  readonly previewSlot: 'stock.preview'
-}
-
-/** stock 列的宽度（px）——由 ui-layout 的 computeColumns 决定，这里仅文档化。 */
-export const STOCK_COL_MIN = 200
-export const STOCK_COL_MAX = 420
-
 /**
- * StockPanel：主布局第四列的根组件。
+ * 工作台视图根组件（`conversation.view` 条目）。
  *
- * 不再用 fixed 定位浮层，而是填满 ui-layout 分配的 stock 列空间
- * （className 由 patch-layout 注入为 `pI_x6G_stockCol`）。顶部工具栏显示
- * 标题 + 收起按钮，主体异步加载 StockDetailPage（与旧版相同的懒加载策略）。
+ * 外层 `.dsh-stock` 是样式作用域与尺寸容器（撑满 ui-conversation 分配的
+ * `viewArea`），内部是 PanelApp → AppShell（三段式骨架）。
+ *
+ * 槽位 props 原样透传给 PanelApp：里面只用两个标准面——
+ *   - `inputActions`（setDraft/submit）→ 右栏「深入对话」一键注入当前对话；
+ *   - `useInput` → 检测输入框是否已有草稿（避免覆盖用户正在写的内容）。
+ * 其余 props（useSession / openView / …）当前不用，透传不消费。
  */
-export function StockPanel() {
-  const [collapsed, setCollapsed] = useState(false)
-
-  if (collapsed) {
-    // 收起态：只在列内显示一个展开按钮，不占多余横向空间。
-    return createElement(
-      'div',
-      {
-        className: 'dsh-stock',
-        style: { alignItems: 'center', justifyContent: 'center' },
-      },
-      createElement(
-        'button',
-        {
-          onClick: () => setCollapsed(false),
-          title: '展开 A股量化工作台',
-          style: {
-            writingMode: 'vertical-rl',
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            fontSize: 12,
-            color: 'var(--ds-muted)',
-            padding: '8px 4px',
-          },
-        },
-        '📈 工作台',
-      ),
-    )
-  }
-
+export function StockPanel(props: unknown) {
   return createElement(
     'div',
     { className: 'dsh-stock' },
-    // 工具栏
-    createElement(
-      'div',
-      { className: 'ds-toolbar' },
-      createElement(
-        'div',
-        { className: 'ds-title' },
-        createElement('span', null, '📈 A股量化工作台'),
-      ),
-      createElement(
-        'button',
-        {
-          className: 'ds-close',
-          onClick: () => setCollapsed(true),
-          title: '收起',
-        },
-        '⟩',
-      ),
-    ),
-    // 主体（M5 面板壳：市场/指数/自选/个股）
-    createElement('div', { className: 'ds-body' }, createElement(PanelApp)),
+    createElement(PanelApp, props as Record<string, unknown>),
   )
 }
 
 /**
  * 插件体。ctx 由 dsh.client 运行时注入。
  *
- * 只注册一个 additive slot：
- *   - `stock`：主布局最右列（由 patch-layout 新增，落在 details 列右侧）。
- *
- * 工作台不再放入对话区右侧的 split（stock.preview），避免与对话争宽度、
- * 压垮输入框所在区域。
+ * 只做两件事：注入样式 + 借 `slots.inject` 向 `conversation.view` 注册视图条目。
+ * 不注册任何其他槽、不触碰宿主文件、不假设 boot 顺序（声明感知注册天然免疫时序问题）。
  */
 export function apply(ctx: DshClientCtx): void {
-  const slots = ctx.slots as SlotRegistryLike
-
   // 注入插件样式（Tailwind 工具类 + .dsh-stock 组件规则）。
   injectPanelStyles()
 
@@ -181,15 +177,15 @@ export function apply(ctx: DshClientCtx): void {
     ;(window as any).__DSH_DATA_SOURCE__ = (window as any).__DSH_DATA_SOURCE__ || 'mcp'
   }
 
-  if (typeof console !== 'undefined') {
-    console.log('[stock-panel] apply called, slot: stock')
-  }
-
   // 诊断句柄：浏览器控制台输入 window.__STOCK_PANEL__ 可查看/触发数据链路。
   if (typeof window !== 'undefined') {
     const panel = (window as any).__STOCK_PANEL__
     ;(window as any).__STOCK_PANEL__ = {
-      version: '1.1.0-slot-guard',
+      version: __PANEL_VERSION__,
+      buildId: __PANEL_BUILD_ID__,
+      view: VIEW_SLOT,
+      viewId: VIEW_ID,
+      ai: AI_CALL_ROUTE,
       dataSource: () => getDataSource(),
       transport: () => getTransportMode(),
       endpoints: () => endpointDiagnostics(),
@@ -200,70 +196,60 @@ export function apply(ctx: DshClientCtx): void {
     }
   }
 
-  // 主布局最右列。width 由 ui-layout 的 computeColumns 决定，经 props 传入。
-  //
-  // 守护注册（0.1.2-rc.1 槽位校验 + 时序兜底）：
-  //   1) 若 ui-layout 模块为 pristine（client-modules 快照早于 host 布局补丁的
-  //      「干净首启」场景），root children 表未声明 'stock' —— 直接注册会抛
-  //      `slot "stock" is not declared ...` 并拖垮整个 GUI boot；
-  //   2) 即便磁盘已补丁，本 client 行在浏览器 boot 图里的 apply 顺序仍可能早于
-  //      ui-layout（其 apply 才把 root children 声明进注册表）。
-  // 处理：try 注册失败 → 不中断启动，按退避重试若干次（ui-layout apply 后 stock
-  // 槽即被声明，重试必然成功；slot 注册表是响应式的，迟到注册也会让空列即时填充）。
-  // 全部重试失败（仅 pristine 场景）才告警降级，留待下一次重启由 host 落盘补丁生效。
-  const registerStock = () => {
-    slots.register({
-      name: 'stock',
-      id: 'stock-panel',
-      priority: 100,
-    }, () => createElement(StockPanel))
-    if (typeof window !== 'undefined') {
-      ;(window as any).__STOCK_PANEL__ = {
-        ...(window as any).__STOCK_PANEL__,
-        slotRegistered: true,
-        slotError: undefined,
-      }
+  const slots = ctx?.slots
+  if (!slots || typeof slots.inject !== 'function') {
+    // 契约缺失（宿主过旧 / inject 声明未生效）：只告警，绝不让 GUI boot 崩掉。
+    if (typeof console !== 'undefined') {
+      console.warn('[stock-panel] ctx.slots.inject 不可用，跳过视图注册（GUI 不受影响）。')
     }
+    setViewDiag(false, 'ctx.slots.inject unavailable')
+    return
   }
-  const tryRegister = (attempt: number): void => {
+
+  if (typeof console !== 'undefined') {
+    console.log(`[stock-panel] apply called, injecting ${VIEW_SLOT} → ${VIEW_ID}`)
+  }
+
+  // 声明感知注册：ui-conversation 会自行声明 conversation.view（其 apply 可能晚于
+  // 本插件），slots.inject 在声明出现时回调；声明消失/重声明时自动重跑或卸载。
+  slots.inject(VIEW_SLOT, () => {
+    let dispose: (() => void) | null = null
     try {
-      registerStock()
+      dispose = slots.register(
+        {
+          name: VIEW_SLOT,
+          id: VIEW_ID,
+          order: VIEW_ORDER,
+          label: () => VIEW_LABEL,
+        },
+        StockPanel,
+      )
+      setViewDiag(true, undefined)
       if (typeof console !== 'undefined') {
-        console.log(`[stock-panel] stock slot registered (attempt ${attempt + 1})`)
+        console.log(`[stock-panel] 视图「${VIEW_LABEL}」已注册（${VIEW_SLOT}#${VIEW_ID}）。`)
       }
     } catch (err) {
-      const remaining = RETRY_DELAYS.length - attempt - 1
-      if (remaining > 0 && typeof setTimeout !== 'undefined') {
-        const delay = RETRY_DELAYS[attempt] ?? 500
-        if (typeof console !== 'undefined') {
-          console.warn(
-            `[stock-panel] stock slot 尚未声明（attempt ${attempt + 1}，${delay}ms 后重试，剩 ${remaining} 次）。` +
-              '原因：ui-layout 的 root children 声明晚于本插件 apply。',
-            err,
-          )
-        }
-        setTimeout(() => tryRegister(attempt + 1), delay)
-      } else {
-        // pristine ui-layout 且 host 补丁尚未随本 boot 落盘时的最终降级（不崩 GUI）。
-        if (typeof console !== 'undefined') {
-          console.warn(
-            '[stock-panel] stock slot 未声明且重试耗尽，本 boot 跳过注册（不影响 GUI 启动）。' +
-              'host 已把布局补丁落盘，下一次重启 dsh web 后 stock 列即出现。',
-            err,
-          )
-        }
-        if (typeof window !== 'undefined') {
-          ;(window as any).__STOCK_PANEL__ = {
-            ...(window as any).__STOCK_PANEL__,
-            slotRegistered: false,
-            slotError: String((err as Error)?.message ?? err),
-          }
-        }
+      // 注册失败不中断启动：留待声明恢复后 inject 再次回调。
+      setViewDiag(false, String((err as Error)?.message ?? err))
+      if (typeof console !== 'undefined') {
+        console.warn('[stock-panel] 视图注册失败（不影响 GUI 启动，将在声明恢复后重试）：', err)
       }
+      return
     }
-  }
-  tryRegister(0)
+    return () => {
+      if (dispose !== null) dispose()
+      setViewDiag(false, undefined)
+    }
+  })
 }
 
-/** 注册重试退避（ms）。首个 0 立即再试一次以覆盖“仅差一个微任务”的窗口。 */
-const RETRY_DELAYS = [0, 150, 500, 1500, 4000]
+/** 写运行时诊断字段（供 window.__STOCK_PANEL__ 排查）。 */
+function setViewDiag(registered: boolean, error: string | undefined): void {
+  if (typeof window === 'undefined') return
+  const panel = (window as any).__STOCK_PANEL__
+  ;(window as any).__STOCK_PANEL__ = {
+    ...(panel && typeof panel === 'object' ? panel : {}),
+    viewRegistered: registered,
+    viewError: error,
+  }
+}

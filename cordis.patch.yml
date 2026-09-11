@@ -10,22 +10,29 @@
 #   - 要"新增"一个 entry，必须用 `insert:` 列表，
 #     否则 DSH 会报 "patch: entry <id> not found"。
 #
-# 布局方案（layout-patch 引擎版）：
-#   host 半（lib/index.js）在 apply() 内**同步**运行内嵌补丁引擎
-#   （src/layout-patch.ts，随 lib/ 发布），把 ui-layout 主布局新增第四列
-#   （sidebar | stock | center | details），并把对话区改造成
-#   「左对话 + 右 stock.preview」split 布局。React UI 由 client 半通过
-#   `stock` / `stock.preview` 槽在主布局内渲染（不再是 shell.overlay 浮层）。
+# 注入方案（v1.2：官方槽位版）：
+#   host 半（lib/index.js）只做业务侧注册——内置 TDX 桥接路由
+#   （POST /api/stock-panel/call）与对话行情工具（ctx.tools），
+#   **不改动宿主任何文件**。
 #
-#   自愈：DSH 升级覆盖 bundle 后插件启动自动重打；锚点失配时中止不写并告警，
-#   插件照常启动——此时更新 src/layout-patch.ts 的锚点表与
-#   SUPPORTED_UI_LAYOUT_VERSION。
+#   界面注入全部走官方槽位：browser 半（lib/client.js）用
+#   `ctx.slots.inject('conversation.view', …)` 注册「A股工作台」视图标签页
+#   （ui-conversation 声明该槽；声明感知注册，无需保序声明，无需重试兜底）。
+#
+#   v1.1 及以前：host 半在 apply() 内同步运行 ui-layout 布局补丁引擎，对编译后的
+#   `dsh-client-ui-layout` bundle 做字符串替换自造 `stock` 第四列，并在卸载时用
+#   pristine 备份回滚。该引擎、锚点表、CLI 与 `$DSH_HOME/patches` 备份已全部删除。
+#
+#   代价须知：官方契约内没有「与对话并排的第四列」——
+#   ui-layout 只声明 sidebar / conversation / details / shell.overlay，
+#   前三者均被 single 占位。故本版是视图标签页形态：切到本标签占满会话区，
+#   切回「对话」继续聊天。
 
 - insert:
     - id: stock-panel-host
       name: '@lisonevf/dsh-stock-panel'
       config:
         # 插件元数据（供 browser 半和宿主消费）
-        slot: 'stock'
-        previewSlot: 'stock.preview'
-        order: 100
+        viewSlot: 'conversation.view'
+        viewId: 'stock-panel'
+        viewOrder: 6

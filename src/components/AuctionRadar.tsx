@@ -108,7 +108,11 @@ export function AuctionRadar({ onOpenStock, watchlist }: Props) {
 
   useEffect(() => {
     void load()
-    const timer = window.setInterval(() => void load(), REFRESH_MS)
+    const timer = window.setInterval(() => {
+      // 后台标签页不轮询（B3：竞价雷达是 ≤40 标的的批量请求，最不该在后台空跑）
+      if (document.hidden) return
+      void load()
+    }, REFRESH_MS)
     return () => {
       window.clearInterval(timer)
       if (abortRef.current) abortRef.current.abort()

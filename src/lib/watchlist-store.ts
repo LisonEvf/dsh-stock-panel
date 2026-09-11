@@ -5,6 +5,7 @@
  * 跨组件（市场页 / 自选页 / 个股页星标）即时同步。
  */
 
+import { useEffect, useReducer } from 'react'
 import { parseSymbol, toSymbol, type MarketTag } from './symbol'
 
 export interface WatchItem {
@@ -125,5 +126,3 @@ export function useWatchlist() {
     symbol: (item: WatchItem) => toSymbol(item.market, item.code),
   }
 }
-
-import { useEffect, useReducer } from 'react'

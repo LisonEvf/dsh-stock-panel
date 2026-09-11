@@ -57,7 +57,11 @@ export function WatchlistPage({ onOpenStock }: Props) {
 
   // 轮询（12s）
   useEffect(() => {
-    timerRef.current = window.setInterval(() => void loadQuotes(itemsRef.current), POLL_MS)
+    timerRef.current = window.setInterval(() => {
+      // 后台标签页不轮询（B3；自选盘是逐只并行请求，最不该在后台空跑）
+      if (document.hidden) return
+      void loadQuotes(itemsRef.current)
+    }, POLL_MS)
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current)
     }

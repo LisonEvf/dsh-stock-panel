@@ -1,11 +1,11 @@
 {
   "name": "@lisonevf/dsh-stock-panel",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "private": false,
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"
   },
-  "description": "A股量化工作台 — DSH Web 插件（主布局第四列，MCP 数据源）",
+  "description": "A股量化工作台 — DSH Web 插件（官方 conversation.view 视图标签页：宽视图沉浸式盯盘台 + AI 一键研判）",
   "type": "module",
   "main": "./lib/index.js",
   "dsh": {
@@ -15,8 +15,7 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-layout"
+        "slots"
       ],
       "immediately": false
     }
@@ -25,10 +24,6 @@
     ".": {
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
-    },
-    "./invariant": {
-      "types": "./lib/types/invariant.d.ts",
-      "default": "./lib/invariant.js"
     },
     "./client": {
       "types": "./lib/types/client/index.d.ts",
@@ -40,7 +35,6 @@
   "files": [
     "cordis.patch.yml",
     "lib/index.js",
-    "lib/invariant.js",
     "lib/client.js",
     "lib/types/**/*.d.ts"
   ],
@@ -55,8 +49,8 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.24.2",
     "postcss": "^8.4.45",
-    "rolldown": "1.0.0-beta.21",
     "tailwindcss": "^3.4.10",
     "tailwindcss-animate": "^1.0.7",
     "tsdown": "0.13.0",
@@ -66,6 +60,8 @@
     "build": "tsdown -c tsdown.config.ts && node scripts/build-client.mjs && node scripts/postbuild-dts.mjs",
     "prepare": "pnpm build",
     "watch": "tsdown --watch",
+    "smoke:view": "node scripts/smoke-client-view.mjs",
+    "smoke:ai": "node scripts/smoke-ai-contract.mjs",
     "publish": "npm publish --registry=https://npm.pkg.github.com"
   }
 }

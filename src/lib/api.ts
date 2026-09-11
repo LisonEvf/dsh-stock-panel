@@ -309,8 +309,23 @@ export const api = {
   },
 
   // ===== 个股分析：关键价位 =====
-  stockAnalysisLevels: (symbol: string, days = 120): Promise<StockLevels> =>
-    request<StockLevels>(`/api/stock-analysis/levels?symbol=${encodeURIComponent(symbol)}&days=${days}`),
+  /**
+   * 关键价位是否可用。
+   *
+   * ⚠️ 该端点**只有 HTTP 后端**有实现（无 embedded 分支）。默认部署是 embedded，
+   * 所以调用它必然 404 —— 早期调用方把它放在 `Promise.allSettled` 里，失败被吞掉，
+   * 界面表现为「没有关键价位」，属于**静默失效**（功能死了但没人知道）。
+   * 现在调用方必须先问这个函数，并在不可用时**显式说明原因**。
+   */
+  stockAnalysisLevelsAvailable: (): boolean => dataSource === 'http',
+
+  stockAnalysisLevels: (symbol: string, days = 120): Promise<StockLevels> => {
+    if (dataSource !== 'http') {
+      // 明确抛错（而不是发一个注定 404 的请求），调用方据此展示「不可用」原因。
+      throw new Error('关键价位需要 HTTP 后端（当前为内置 embedded 模式，未提供 /api/stock-analysis/levels）')
+    }
+    return request<StockLevels>(`/api/stock-analysis/levels?symbol=${encodeURIComponent(symbol)}&days=${days}`)
+  },
 
   // ===== 自选股（MCP：本地 localStorage；HTTP：后端） =====
   watchlistList: async (): Promise<{ symbols: WatchlistEntry[] }> => {

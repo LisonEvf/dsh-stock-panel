@@ -5,7 +5,7 @@
 // 背景：
 //   - index 半用 tsdown 构建，dts 输出为 lib/index-*.d.ts 分片，
 //     按 package.json `exports["."]` 约定补齐 lib/types/index.d.ts。
-//   - client 半用 rolldown 直接构建（scripts/build-client.mjs），
+//   - client 半用 esbuild 直接构建（scripts/build-client.mjs），
 //     输出单文件 CJS lib/client.js，无 .d.ts。
 //
 //   因此这里生成两个入口 .d.ts：
@@ -43,7 +43,7 @@ function writeIndexDts() {
 /** 为 client 半生成 lib/types/client/index.d.ts 薄壳类型。 */
 function writeClientDts() {
   const clientDts = `// 由 scripts/postbuild-dts.mjs 自动生成，勿手改。
-// client 半由 rolldown 构建（无 .d.ts），这里声明 dsh.client 包契约面。
+// client 半由 esbuild 构建（无 .d.ts），这里声明 dsh.client 包契约面。
 
 /** 运行时由 @deepseek-ai/dsh-client-runtime 提供的 ctx。 */
 export type DshClientCtx = any;

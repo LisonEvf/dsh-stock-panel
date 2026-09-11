@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ClipboardList, Flame, Plus, RefreshCw, Save, X } from 'lucide-react'
+import { ClipboardList, Flame, Plus, RefreshCw, Save, Sparkles, X } from 'lucide-react'
 import { loadLadder, type LadderSnapshot, type LadderStock } from '@/lib/ladder'
 import { fetchAllA, computeBreadth, fetchIndexQuotes, type AShareRow, type Breadth, type IndexQuote } from '@/lib/market'
 import { computeRegime, bandLabel, bandColor, type Regime, type RegimeInputs } from '@/lib/regime'
@@ -58,6 +58,11 @@ import { fmtBigNum } from '@/lib/format'
 import { inferMarket, type MarketTag } from '@/lib/symbol'
 import { watchAddSymbol } from '@/lib/watchlist-store'
 import type { OpenStock } from '@/panel/PanelApp'
+// v1.3：一键让模型给「明日预期」打分排序（AI 直调通道，结论回填本页草稿）
+import { useAiTask } from '@/lib/ai-task'
+import { compactBreadth, compactRows, reviewPlanOf } from '@/lib/ai'
+import type { ReviewPlan, ReviewPlanItem } from '@/lib/ai-contract'
+import { AiRankList, type AiRankRow } from '@/components/AiRankList'
 
 const UP = '#c74040'
 const DOWN = '#2d9b65'
@@ -459,6 +464,114 @@ export function ReviewPage({ onOpenStock }: Props) {
     setExpectations((prev) => prev.filter((e) => e.id !== id))
   }
 
+  // ── v1.3：AI 预期排序（一键把「明日预期」按兑现概率排序 + 补理由） ──
+  const aiPlan = useAiTask('review-plan')
+  const [plan, setPlan] = useState<ReviewPlan | null>(null)
+  const [planRaw, setPlanRaw] = useState('')
+
+  /** 跑一次 AI 排序：把当日真实盘面 + 自己已写的预期一起喂给模型。 */
+  const runAiPlan = useCallback(async () => {
+    const res = await aiPlan.run({
+      day,
+      breadth: breadth ? compactBreadth(breadth as unknown as Record<string, unknown>) : null,
+      regime: regime !== null ? { temperature: regime.temperature, band: regime.band, drivers: regime.drivers } : null,
+      mainLine: (ladder?.boards ?? []).slice(0, 6).map((b) => ({ board: b.name, limitUpCount: b.limitUpCount, pct: b.pct, rep: b.rep })),
+      limitUpLadder: (ladder?.limitUp ?? []).slice(0, 20).map((s) => ({
+        symbol: `${s.market}${s.code}`,
+        name: s.name,
+        streak: s.streak,
+        pct: s.pct,
+        amount: s.amount,
+      })),
+      limitDownCount: ladder?.limitDownCount ?? null,
+      myExpectations: expectations.map((e) => ({
+        symbol: e.symbol,
+        name: e.name,
+        state: e.state,
+        scenario: e.scenario,
+        auctionOK: e.auctionOK,
+        failIf: e.failIf,
+        reason: e.reason,
+      })),
+      keyEvents: compactRows(
+        [
+          ...breakEvents.map((e) => ({ kind: '炸板', name: e.name, time: e.time })),
+          ...limitDownEvents.map((e) => ({ kind: '跌停', name: e.name, time: e.time })),
+        ] as unknown as Array<Record<string, unknown>>,
+        ['kind', 'name', 'time'],
+        12,
+      ),
+    })
+    if (res === null) return
+    if (!res.ok) {
+      setPlan(null)
+      setPlanRaw(res.text ?? '')
+      return
+    }
+    const parsed = reviewPlanOf(res)
+    setPlan(parsed)
+    setPlanRaw(res.text ?? '')
+  }, [aiPlan, day, breadth, regime, ladder, expectations, breakEvents, limitDownEvents])
+
+  /** 把 AI 条目加进本地草稿（只加有明确标的的；满 5 条或已存在则不动）。 */
+  const addFromAiPlan = (item: ReviewPlanItem) => {
+    if (item.symbol === undefined) return
+    if (expectations.length >= 5) return
+    if (expectations.some((e) => e.symbol === item.symbol)) return
+    const code = item.symbol.slice(2)
+    const hit = ladder?.limitUp.find((s) => s.code === code)
+    setExpectations((prev) => [
+      ...prev,
+      {
+        id: uid(),
+        symbol: item.symbol as string,
+        name: hit?.name ?? item.symbol?.slice(2) ?? '',
+        tags: {
+          themeDay: 1,
+          level: (hit?.streak ?? 0) >= 4 ? 'high' : (hit?.streak ?? 0) >= 2 ? 'mid' : 'low',
+          role: (hit?.streak ?? 0) >= 3 ? 'leader' : 'catchup',
+        },
+        state: (hit?.streak ?? 0) >= 4 ? 'highRisk' : (hit?.streak ?? 0) >= 3 ? 'strong' : 'divergence',
+        scenario: item.text,
+        auctionOK: '',
+        failIf: '',
+        // 留痕：模型给的分数进理由，便于次日回看「当时模型怎么说」
+        reason: `[AI ${item.score}] ${item.reason}`,
+      },
+    ])
+  }
+
+  /** 把 AI 排序结果转成列表行。 */
+  const planRows: AiRankRow[] = useMemo(() => {
+    if (plan === null) return []
+    return plan.items.map((item, i) => {
+      const symbol = item.symbol
+      const existed = symbol !== undefined && expectations.some((e) => e.symbol === symbol)
+      const full = expectations.length >= 5
+      return {
+        key: `${i}-${symbol ?? item.text}`,
+        rank: i + 1,
+        title: item.text,
+        ...(symbol !== undefined ? { subtitle: symbol } : {}),
+        score: item.score,
+        reason: item.reason,
+        ...(existed ? { note: '已在清单' } : symbol === undefined ? { note: '无标的·参考' } : {}),
+        actions:
+          symbol !== undefined && !existed ? (
+            <button
+              type="button"
+              className="dc-btn dc-btn--accent dc-btn--icon"
+              disabled={full}
+              title={full ? '预期清单已满 5 条' : '加入预期清单'}
+              onClick={() => addFromAiPlan(item)}
+            >
+              <Plus size={11} />
+            </button>
+          ) : undefined,
+      }
+    })
+  }, [plan, expectations, ladder])
+
   /** 存档：装配当日 ReviewSnapshot 并写入 review-store。 */
   const save = () => {
     if (!breadth || !regime || !ladder) {
@@ -536,6 +649,8 @@ export function ReviewPage({ onOpenStock }: Props) {
         ))}
       </div>
 
+      {/* 宽屏列流：把七步流程的各步并排展开（窄屏自动回落单列，顺序仍由序号与引导条保持） */}
+      <div className="dc-flow">
       {breadth && regime && (
         <>
           {/* ① 整体情绪：温度计 + 广度（先看天气再看衣服） */}
@@ -768,18 +883,63 @@ export function ReviewPage({ onOpenStock }: Props) {
         onUnmark={unmarkWind}
         onOpenStock={onOpenStock}
       />
+      </div>
+      {/* ⑦ 是**输出**（动作），刻意放在列流之外占满整行：信息并排看，结论单独写 */}
 
       {/* ⑦ 明日交易计划：预期清单（≤5；板块跟踪 / 竞价信号出手 / 信号收手） */}
       <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
         <div className="mb-1 flex items-center justify-between">
           <span className="text-[10px] font-medium text-slate-400">⑦ 明日交易计划 · 预期清单 · {expectations.length}/5</span>
-          <button
-            onClick={() => setPicking((v) => !v)}
-            className="flex items-center gap-0.5 rounded bg-emerald-500 px-1.5 py-0.5 text-[9px] font-medium text-white hover:bg-emerald-600"
-          >
-            <Plus className="h-2.5 w-2.5" />从涨停池加入
-          </button>
+          <div className="flex items-center gap-1">
+            {/* v1.3：一键让模型按「明日兑现概率」给预期打分排序（含我自己写的草稿） */}
+            <button
+              type="button"
+              onClick={() => void runAiPlan()}
+              disabled={aiPlan.busy || aiPlan.availability?.available === false}
+              title={
+                aiPlan.availability?.available === false
+                  ? `不可用：${aiPlan.availability.reason ?? ''}`
+                  : '让模型基于今日广度/温度/涨停梯队/主线/炸板跌停，对预期逐条打分排序（只作参考，需你点「+」才进清单）'
+              }
+              className="flex items-center gap-0.5 rounded border border-emerald-200 px-1.5 py-0.5 text-[9px] font-medium text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"
+            >
+              {aiPlan.busy ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+              {aiPlan.busy ? '排序中…' : 'AI 排序'}
+            </button>
+            <button
+              onClick={() => setPicking((v) => !v)}
+              className="flex items-center gap-0.5 rounded bg-emerald-500 px-1.5 py-0.5 text-[9px] font-medium text-white hover:bg-emerald-600"
+            >
+              <Plus className="h-2.5 w-2.5" />从涨停池加入
+            </button>
+          </div>
         </div>
+
+        {/* AI 排序结果（参考区，不自动覆盖草稿） */}
+        {plan !== null || aiPlan.status === 'error' || aiPlan.busy ? (
+          <div className="mb-1.5 rounded-md border border-emerald-100 bg-white px-1.5 py-1.5">
+            <div className="mb-1 flex items-center gap-1">
+              <Sparkles className="h-2.5 w-2.5 text-emerald-500" />
+              <span className="text-[10px] font-medium text-slate-500">AI 预期排序（参考）</span>
+              {plan?.summary ? <span className="min-w-0 flex-1 truncate text-[10px] text-slate-400">· {plan.summary}</span> : <span className="flex-1" />}
+              {aiPlan.meta ? <span className="shrink-0 font-mono text-[8px] text-slate-300">{(aiPlan.meta.ms / 1000).toFixed(1)}s</span> : null}
+              <button type="button" onClick={() => { setPlan(null); setPlanRaw(''); aiPlan.reset() }} className="shrink-0 text-slate-300 hover:text-slate-500">
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+            {aiPlan.busy ? <div className="py-1 text-[10px] text-slate-400">模型正在打分…</div> : null}
+            {aiPlan.status === 'error' ? <div className="py-1 text-[10px] text-red-500">{aiPlan.error}</div> : null}
+            {aiPlan.meta?.shrunk !== undefined && aiPlan.meta.shrunk.length > 0 ? (
+              <div className="dc-ai-note" title={aiPlan.meta.shrunk.join('；')}>
+                ⚠ 上下文过大，已自动裁剪后重试：{aiPlan.meta.shrunk[aiPlan.meta.shrunk.length - 1]}
+              </div>
+            ) : null}
+            {plan !== null ? <AiRankList rows={planRows} /> : null}
+            {plan === null && !aiPlan.busy && planRaw !== '' ? (
+              <div className="dc-ai-raw mt-1">{planRaw}</div>
+            ) : null}
+          </div>
+        ) : null}
 
         {picking && ladder && (
           <div className="mb-1.5 max-h-40 overflow-y-auto rounded border border-slate-100 bg-white py-0.5">

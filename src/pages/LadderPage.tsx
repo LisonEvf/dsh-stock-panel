@@ -31,14 +31,15 @@ export function LadderPage({ onOpenStock }: Props) {
   const busyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (busyRef.current) return
     busyRef.current = true
     if (abortRef.current) abortRef.current.abort()
     const ac = new AbortController()
     abortRef.current = ac
     try {
-      const s = await loadLadder(ac.signal)
+      // 默认走 30s 共享缓存（与作战页同轮只算一次）；手动刷新传 force。
+      const s = await loadLadder(ac.signal, { force })
       if (!ac.signal.aborted) {
         setSnap(s)
         setError('')
@@ -53,7 +54,10 @@ export function LadderPage({ onOpenStock }: Props) {
 
   useEffect(() => {
     void load()
-    const timer = window.setInterval(() => void load(), REFRESH_MS)
+    const timer = window.setInterval(() => {
+      if (document.hidden) return
+      void load()
+    }, REFRESH_MS)
     return () => {
       window.clearInterval(timer)
       abortRef.current?.abort()
@@ -95,7 +99,7 @@ export function LadderPage({ onOpenStock }: Props) {
           <button
             onClick={() => {
               setLoading(true)
-              void load()
+              void load(true)
             }}
             className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-500"
             title="刷新"

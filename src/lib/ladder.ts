@@ -52,8 +52,38 @@ const LIMIT_EPS = 1e-6
 /** 参与热度聚合的板块类型：3=地区, 4=概念, 12=行业（剔除 5 风格/策略类伪板块）。 */
 const BOARD_TYPES = new Set(['3', '4', '12'])
 
-export async function loadLadder(signal?: AbortSignal): Promise<LadderSnapshot> {
-  const all = await fetchAllA(true)
+/**
+ * 快照缓存（B3：请求预算）。
+ *
+ * 为什么必须有：`loadLadder` 是**最贵的调用**——每个涨停股要拉 kline + belong_board
+ * （实测 ≤1 + ≤160 次工具调用/轮），而它被三个调用方各自重算（作战页 30s、梯队页 30s、
+ * 复盘页一次性）。实测口径下 ladder 占全部工具调用的约 90%。
+ *
+ * 策略：
+ *   - TTL 30s（与两个 30s 轮询者的节奏一致 → 同轮只算一次）；
+ *   - in-flight 去重：并发调用共享同一个 Promise（作战页与梯队页同时打开也不会算两遍）；
+ *   - `force=true` 绕过新鲜快照（用户手动刷新时用）；
+ *   - 失败不写缓存（下一轮可重试）。
+ */
+const LADDER_TTL_MS = 30_000
+let ladderCache: LadderSnapshot | null = null
+let ladderInflight: Promise<LadderSnapshot> | null = null
+
+/** 已缓存的快照（不触发计算；UI 显示 "as of" 用）。 */
+export function getCachedLadder(): LadderSnapshot | null {
+  return ladderCache
+}
+
+/** 让缓存立即失效（手动刷新 / 换交易日时用）。 */
+export function invalidateLadder(): void {
+  ladderCache = null
+}
+
+/** 计算一轮快照（不含缓存逻辑）。 */
+async function computeLadder(signal?: AbortSignal): Promise<LadderSnapshot> {
+  // 用 market 的 20s TTL 缓存（force=false）：作战页同轮已 force 过一次全 A，
+  // 这里直接复用那一份，不再重复拉 ≥2MB 的全量快照。
+  const all = await fetchAllA()
   const limitUpRaw = all.filter(
     (r) => r.buy_price_limit > 0 && Math.abs(r.close - r.buy_price_limit) < LIMIT_EPS,
   )
@@ -140,6 +170,33 @@ export async function loadLadder(signal?: AbortSignal): Promise<LadderSnapshot> 
     .slice(0, 12)
 
   return { limitUp: stocks, limitDownCount, boards, fetchedAt: Date.now() }
+}
+
+/**
+ * 取涨停梯队 + 板块热度快照（**带 30s 缓存 + in-flight 去重**）。
+ *
+ * @param signal 仅作用于本轮真正发起的那次计算；命中缓存/共享在途时会立即返回。
+ * @param opts.force 绕过新鲜快照（用户手动刷新）。
+ */
+export async function loadLadder(
+  signal?: AbortSignal,
+  opts: { force?: boolean } = {},
+): Promise<LadderSnapshot> {
+  const fresh =
+    ladderCache !== null && Date.now() - ladderCache.fetchedAt < LADDER_TTL_MS ? ladderCache : null
+  if (!opts.force && fresh !== null) return fresh
+  if (!opts.force && ladderInflight !== null) return ladderInflight
+
+  const run = computeLadder(signal)
+    .then((snap) => {
+      ladderCache = snap
+      return snap
+    })
+    .finally(() => {
+      if (ladderInflight === run) ladderInflight = null
+    })
+  ladderInflight = run
+  return run
 }
 
 /** 板块类型标签（TDX board_type）。 */
