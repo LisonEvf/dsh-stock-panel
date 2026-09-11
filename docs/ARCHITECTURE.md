@@ -188,17 +188,24 @@ registerStateBridge(ws)                          // GET/POST /api/stock-panel/st
 `invalidRecords: 'backup-and-skip'`（单条脏记录被移开并跳过，**不让整域打不开**）、
 `global = { schemaVersion, migratedFromLocalStorage, updatedAt }`。
 
-**版本与 schema 演进策略**：
+**版本与 schema 演进策略**（前两条是**用宿主真实存储栈跑出来的**，见 §9 校验脚本）：
 
-1. `version` **固定为 1**，绝不因字段变更上调（否则老介质直接 `version-mismatch`，子系统不做迁移）；
-2. 自有演进用 global 的 `schemaVersion` + 启动迁移遍历；
-3. 记录校验只做**介质边界最小校验**（必须是 JSON 对象 + 关键字段是字符串），
+1. `version` **固定为 1**，绝不因字段变更上调。⚠️ 实测语义与直觉不同：per-record 布局下
+   每条记录落盘为 `{ "version": N, "record": {...} }`，**version 不一致不会报错，而是把旧记录静默丢弃**
+   （打开成功、记录数为 0）——静默丢数据比报错更糟，所以这条是硬要求；
+2. 真要升版本，必须同时声明 `compatibleVersions: [旧版本…]`（官方逃生口，实测有效：
+   用 `version: 2 + compatibleVersions: [1]` 打开仍能读到 version=1 的记录）；
+3. 日常演进用 global 的 `schemaVersion` + 启动迁移遍历（版本保持不变）；
+4. 记录校验只做**介质边界最小校验**（必须是 JSON 对象 + 关键字段是字符串），
    语义校验留在各 store 载入时 —— 严 schema 会让「加字段」变成「老记录被拒 → 整域打不开」；
-4. 破坏性变更 = 换**表名**（如 `review_v2`），启动时把老表读出来重写后删除。
+5. 破坏性变更 = 换**表名**（如 `review_v2`），启动时把老表读出来重写后删除；
+6. **记录键必须编码**：per-record 布局把键当文件名，要求匹配 `^[a-zA-Z0-9_-]+$`，不匹配直接抛错。
+   我们的自然键含 `:` 与中文（事件流的 `SH-600519-10:03-封涨停板`）→ host 层用
+   `encodeStateKey()` 做 base64url 编解码，对客户端完全透明。
 
 **8 张表**（清单单一来源 `src/lib/state-tables.ts`，host/client 共用）：
 `watchlist`（自选）、`review`（复盘存档，键=交易日）、`dayrun`（当日运行/Q1-Q3/竞价判定）、
-`positions`（持仓）、`tradelog`（交易日志）、`verdicts`（AI 结论，键=`symbol@day`）、
+`positions`（持仓）、`tradelog`（交易日志）、`verdicts`（AI 结论，键=`day:SYMBOL`）、
 `events`（事件流，键=事件指纹）、`viewed`（看过的个股，A4 左栏「个股」分组的数据源）。
 
 **前端接入（✅ 已实现，`src/lib/host-state.ts`；各 store 的对外 API 零改动）**：
@@ -269,7 +276,8 @@ registerStateBridge(ws)                          // GET/POST /api/stock-panel/st
 | `window.__STOCK_PANEL__`（version / viewRegistered / transport / endpoints / listTools / callTool / watchlist） | `src/client.ts` |
 | `GET /api/stock-panel/ai` | AI 可用性与解析出的路由 |
 | host 日志 | `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`、AI 可用性行 |
-| 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract,embedded}.mjs`（前三个离线、已进 CI） |
+| 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract}.mjs`（离线、已进 CI）+ `scripts/smoke-embedded.mjs`（需真机行情） |
+| **真实存储栈校验** | `node scripts/verify-state-domain.mjs`：用宿主安装的 cordis + dsh-storage + storage-json + storage-domain **真跑一遍**手搓 spec（16 项断言：open 接受 / 8 表 / 键编码必要性 / 落盘持久性 / version 语义 / compatibleVersions 逃生口）。不进 CI（CI 无 DSH 安装），改契约后必跑 |
 | ⏳ 待补 | 数据链路 / 缓存命中 / HIST 快照 / 存储可用性 **诊断面板**（ROADMAP B5-③）；底栏已显示版本+构建 id |
 
 ---

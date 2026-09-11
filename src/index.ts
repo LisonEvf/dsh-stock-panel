@@ -118,7 +118,10 @@ export { runAiTask, aiAvailability, resolveAiRuntime, registerAiBridge } from '.
 export { hostBuildInfo, registerBuildInfoRoute } from './host/build-info'
 // host 侧持久化导出（诊断/脚本复用）。
 export {
+  buildStateSpec,
   closeStateDomain,
+  decodeStateKey,
+  encodeStateKey,
   initStateDomain,
   markMigrated,
   registerStateBridge,

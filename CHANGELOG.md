@@ -88,6 +88,14 @@
 - B5-② 缓存收口：`cache.ts` 新增命令式 `swrFetch`，`market.fetchAllA` 删掉私有缓存改走同一 SWR store
   （此前同一份全 A 快照有两套缓存、两套新鲜度）；
 - 清理：删除死文件 `src/lib/queryKeys.ts`（零引用，且 react-query 并非依赖）。
+- **真实存储栈校验暴露并修掉两个契约陷阱**（`scripts/verify-state-domain.mjs`：用宿主安装的
+  cordis + dsh-storage + storage-json + storage-domain 真跑一遍手搓 spec，16 项断言）：
+  ① `layout: per-record` 把记录键当**文件名**（要求 `^[a-zA-Z0-9_-]+$`），而自然键含 `:` 与中文
+     （事件流 `SH-600519-10:03-封涨停板`）→ 不加处理**每次事件写入都会抛错**；
+     修法：host 层 `encodeStateKey/decodeStateKey`（base64url，对客户端完全透明）；
+  ② `version` 不一致**不报错，而是静默丢弃旧记录**（打开成功、记录数 0）——比报错更危险，
+     因此「版本固定为 1」是硬要求；实测 `compatibleVersions: [旧版本]` 是官方逃生口。
+  这两条都写进了 `docs/ARCHITECTURE.md` §5.2 与代码注释（含介质证据）。
 
 ---
 

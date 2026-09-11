@@ -20,10 +20,16 @@
  *
  * ## 域的形态与版本策略
  *
- * - 领域名 `stock_panel`、版本固定 `1`（`UNIT_NAME_RE = ^[a-z][a-z0-9_]*$`，**不能有连字符**；
- *   版本上调会让老介质直接 `version-mismatch` 且子系统**不做迁移**，所以版本只用于「介质格式」
- *   这种真正不兼容的变化）；
- * - `layout: 'per-record'`：事件流是追加型、写入频繁，逐记录文档避免「每次写都重发整个 unit」；
+ * - 领域名 `stock_panel`、版本**固定 `1`**（`UNIT_NAME_RE = ^[a-z][a-z0-9_]*$`，**不能有连字符**）。
+ *   ⚠️ 实测（介质证据见 `scripts/verify-state-domain.mjs`）：per-record 布局下每条记录落盘为
+ *   `{ "version": N, "record": {...} }`，**version 不一致时不会报错，而是把旧记录静默丢弃**
+ *   （打开成功但记录数为 0）——静默丢数据比报错更危险，所以版本绝不能随手上调。
+ *   真要升版本，必须同时声明 `compatibleVersions: [旧版本…]`（官方逃生口）让旧记录继续可读；
+ *   日常字段演进走 `global.schemaVersion` + 启动迁移遍历（版本保持不变）。
+ * - `layout: 'per-record'`：事件流是追加型、写入频繁，逐记录文档避免「每次写都重发整个 unit」。
+ *   ⚠️ 该布局把**记录键当文件名**，要求匹配 `^[a-zA-Z0-9_-]+$`，不匹配直接抛错 →
+ *   自然键（含 `:` 与中文，如事件流的 `SH-600519-10:03-封涨停板`）必须经 `encodeStateKey()`
+ *   做 base64url 编码（见下方「记录键编码」一节）；
  * - `invalidRecords: 'backup-and-skip'`：单条坏记录被移到一边并跳过，**不让整域打不开**
  *   （否则一条脏数据就会让用户的复盘/持仓全部读不出来）；
  * - 语义校验仍在 store 层（各 store 载入时本来就会 shape 过滤），这里只做介质边界的最小校验。
@@ -125,8 +131,14 @@ const KEY_FIELD: Record<string, string | undefined> = {
   viewed: 'code',
 }
 
-/** 手搓的领域 spec（形态与 `defineDomain` 的输出一致）。 */
-function buildSpec(): unknown {
+/**
+ * 手搓的领域 spec（形态与 `defineDomain` 的输出一致）。
+ *
+ * 导出原因：`scripts/verify-state-domain.mjs` 用**宿主的真实存储栈**
+ * （cordis + dsh-storage + storage-json + storage-domain）打开同一份 spec 做校验——
+ * 手搓 spec 的风险只能靠「用真实现跑一遍」来排除，靠假实现不算验证。
+ */
+export function buildStateSpec(): unknown {
   const tables: Record<string, { valueSchema: MiniSchema }> = {}
   for (const meta of STATE_TABLES) {
     tables[meta.table] = { valueSchema: miniObjectSchema(meta.label, KEY_FIELD[meta.table]) }
@@ -157,7 +169,7 @@ function ensureOpen(facility: StateFacility | null): Promise<void> {
     return opening
   }
   opening = facility
-    .open(buildSpec())
+    .open(buildStateSpec())
     .then((d) => {
       domain = d
       console.log(
@@ -237,6 +249,37 @@ export interface StateSnapshot extends StateStatus {
   tables: Record<string, Record<string, JsonObject>>
 }
 
+/**
+ * 自然键 → 路径安全键（base64url，无 padding）。
+ *
+ * ⚠️ 实测发现（只有用**宿主真实存储栈**才暴露）：`layout: 'per-record'` 的 json 后端
+ * 把记录键映射成**文件名**，因此要求键匹配 `^[a-zA-Z0-9_-]+$`（SAFE_KEY_RE），
+ * 不匹配直接**抛错**。而我们的自然键含 `:` 与中文——例如事件流的
+ * `${market}-${code}-${time}-${desc}` = `SH-600519-10:03-封涨停板`；
+ * 不处理的话**每一次事件写入都会抛异常**。base64url 的字符集恰好在允许集内，
+ * 编解码放在 host 层，对客户端完全透明（wire 与诊断看到的始终是自然键）。
+ */
+export function encodeStateKey(key: string): string {
+  const bytes = new TextEncoder().encode(key)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/** 路径安全键 → 自然键（非本编码的键原样返回，便于人工排查介质）。 */
+export function decodeStateKey(encoded: string): string {
+  try {
+    const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/')
+    const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4))
+    const bin = atob(b64 + pad)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+    return new TextDecoder().decode(bytes)
+  } catch {
+    return encoded
+  }
+}
+
 export function stateSnapshot(): StateSnapshot {
   const status = stateStatus()
   const tables: Record<string, Record<string, JsonObject>> = {}
@@ -244,7 +287,7 @@ export function stateSnapshot(): StateSnapshot {
     for (const meta of STATE_TABLES) {
       const out: Record<string, JsonObject> = {}
       try {
-        for (const [k, v] of domain.table(meta.table).entries()) out[k] = v
+        for (const [k, v] of domain.table(meta.table).entries()) out[decodeStateKey(k)] = v
       } catch (err) {
         lastError = `读取表 ${meta.table} 失败：${(err as Error)?.message ?? String(err)}`
       }
@@ -265,14 +308,14 @@ async function touchGlobal(patch: Partial<StateGlobal>): Promise<void> {
 export async function statePut(table: string, key: string, value: JsonObject): Promise<void> {
   if (domain === null) throw new Error(unavailableReason ?? '持久化域不可用')
   if (!isStateTable(table)) throw new Error(`未声明的表 '${table}'`)
-  await domain.table(table).put(key, value)
+  await domain.table(table).put(encodeStateKey(key), value)
 }
 
 /** 删一条记录（返回是否真的删掉了）。 */
 export async function stateDelete(table: string, key: string): Promise<boolean> {
   if (domain === null) throw new Error(unavailableReason ?? '持久化域不可用')
   if (!isStateTable(table)) throw new Error(`未声明的表 '${table}'`)
-  return domain.table(table).delete(key)
+  return domain.table(table).delete(encodeStateKey(key))
 }
 
 /** 迁移标记（写入一次即可）。 */
