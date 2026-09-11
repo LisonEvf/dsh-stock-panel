@@ -231,6 +231,10 @@ frontend-dsh/
   构建期读成字符串导出；client 半由 `scripts/build-client.mjs` 单独跑 tailwind 管线。
 - **client bundle 必须单模块**：契约要求 flat module graph，**不能 code splitting**，
   因此体积只能靠「减少内联代码」而非拆分（见 `scripts/check-bundle-size.mjs` 头部的体积账）。
+- **client 半默认 minify + sourcemap**（B2）：体积 822.5 → 530.8KB（−35.7%）；
+  `lib/client.js.map` 供宿主 client-modules 层读取（它会把 map 校验为 Source Map v3 并盖章自己的
+  组合 map URL，缺失不影响执行）→ 可调试性靠 map 保住。要读产物本体：`CLIENT_MINIFY=0 pnpm build`
+  （此时体积必然超护栏，加 `CLIENT_MAX_KB=900`）。成分分析：`node scripts/bundle-report.mjs`。
 - **视图会被卸载**：ui-conversation 只渲染当前选中的视图，因此面板自身的 Tab/标的状态全部持久化。
 
 ## 版本

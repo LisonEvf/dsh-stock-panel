@@ -108,6 +108,13 @@
   做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）
   ② 持久化可用性 + 8 表 + 服务来源 ③ 写→读→删闭环（真域真介质，含清理）④ AI/行情信息项。
   它把「重启后到底好了没」从人肉 DevTools 变成一条命令，并能区分「旧 host 半」与真失败。
+- **B2 体积：默认 minify + sourcemap（用户决策）**：client.js 822.5 → **530.8 KB（−35.7%）**，
+  护栏 840 → **600 KB**（余量从 2% 回到 11.5%）。
+  先量后减：新增 `scripts/bundle-report.mjs`（esbuild metafile 成分报告）——实测大头是
+  `lightweight-charts` 216.8KB(26%) 与我们自己的页面代码 175.9KB(22%)，不存在"随手砍零碎"的空间。
+  可调试性用 `lib/client.js.map` 补偿（宿主 client-modules 层读取并校验为 Source Map v3、
+  再盖章组合 map URL；缺失不影响执行）；包装改用 esbuild 的 banner/footer 以保证 sourcemap
+  行号含包装行；逃生阀 `CLIENT_MINIFY=0`（需配 `CLIENT_MAX_KB`）。minify 后契约冒烟全绿。
 
 ---
 

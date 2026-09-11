@@ -65,6 +65,7 @@
     "smoke:host": "node scripts/smoke-host-state.mjs",
     "verify:live": "node scripts/verify-live.mjs",
     "verify:domain": "node scripts/verify-state-domain.mjs",
+    "report:bundle": "node scripts/bundle-report.mjs --minify",
     "publish": "npm publish --registry=https://npm.pkg.github.com"
   }
 }

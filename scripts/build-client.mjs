@@ -12,7 +12,7 @@
 //
 // 依赖：esbuild（devDependency，提供 JS API + 平台二进制）。
 
-import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, copyFileSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { computeBuildId, pluginVersion } from './build-id.mjs'
@@ -128,8 +128,30 @@ function cssAsString() {
   }
 }
 
+/** 包装头/尾：让 esbuild 直接产出完整文件（banner+body+footer），sourcemap 的行号才对得上。 */
+const WRAP_HEAD =
+  'window.__ModuleLoader__.load({\n'
+  + '\tid: ' + JSON.stringify(PLUGIN_ID) + ',\n'
+  + '\tfactory: (require) => {\n'
+  + '\t\tvar module = { exports: {} };\n'
+  + '\t\tvar exports = module.exports;\n'
+const WRAP_TAIL =
+  '\n\t\treturn module.exports;\n'
+  + '\t}\n'
+  + '});\n'
+
+/**
+ * 是否 minify。
+ *
+ * B2 决策（2026-09-12，用户确认）：**默认开启**。体积账（`bundle-report.mjs` 实测）：
+ *   未压缩 822.5KB → minify 527.4KB（−36%），gzip 179.8 → 141.8KB。
+ * 体量主因是两类无法靠"删代码"解决的东西：图表库 216.8KB（26%）与我们自己的页面代码 525KB（65%）。
+ * 代价是不可读的产物 —— 用 sourcemap 补偿（见下），并保留逃生阀 `CLIENT_MINIFY=0`。
+ */
+const MINIFY = process.env.CLIENT_MINIFY !== '0'
+
 /** esbuild 构建配置（单次 build 与 watch context 共用）。 */
-function buildConfig(outfile) {
+function buildConfig(outfile, { sourcemap = false } = {}) {
   return {
     entryPoints: [ENTRY],
     bundle: true,
@@ -140,6 +162,13 @@ function buildConfig(outfile) {
     jsx: 'transform',
     jsxFactory: 'React.createElement',
     jsxFragment: 'React.Fragment',
+    minify: MINIFY,
+    // sourcemap 补偿 minify 的可调试性损失：产物尾部的 sourceMappingURL 由 esbuild 追加，
+    // 指向同名 .map（与 lib/client.js 同级）。
+    ...(sourcemap ? { sourcemap: true } : {}),
+    // 包装用 banner/footer 而不是事后字符串拼接：这样 sourcemap 的行号包含包装行，映射不错位。
+    banner: { js: WRAP_HEAD },
+    footer: { js: WRAP_TAIL },
     // 构建期常量：与 host 半（tsdown.config.ts）注入同一组值，
     // 浏览器据此与 GET /api/stock-panel/build 对比，检出「跑着旧构建」。
     define: {
@@ -151,23 +180,10 @@ function buildConfig(outfile) {
   }
 }
 
-/** 组装 __ModuleLoader__.load 包装后的最终字节。 */
-function wrap(body) {
-  return Buffer.from(
-    'window.__ModuleLoader__.load({\n'
-    + '\tid: ' + JSON.stringify(PLUGIN_ID) + ',\n'
-    + '\tfactory: (require) => {\n'
-    + '\t\tvar module = { exports: {} };\n'
-    + '\t\tvar exports = module.exports;\n'
-    + body.replace(/\n$/, '')
-    + '\n\t\treturn module.exports;\n'
-    + '\t}\n'
-    + '});\n',
-  )
-}
-
 /**
  * 生成 client.js（官方 __ModuleLoader__.load 契约）。
+ *
+ * minify 打开时同时产出 `lib/client.js.map`（sourcemap 补偿可调试性）。
  * @param {{ check?: boolean }} opts
  * @returns {{ ok: boolean, errors?: string[], skipped?: string }}
  */
@@ -177,26 +193,33 @@ export async function generate({ check = false } = {}) {
   }
   const { build } = await import('esbuild')
 
-  const tmpOut = OUTPUT + '.tmp'
-  await build(buildConfig(tmpOut))
-  const body = readFileSync(tmpOut, 'utf8')
-  try { unlinkSync(tmpOut) } catch {}
-
-  const code = wrap(body)
-
   if (!check) {
+    // 直接产出到最终路径：esbuild 会同时写 client.js 与 client.js.map，
+    // 且 sourceMappingURL 指向正确（在临时文件上构建会写成 client.js.tmp.map）。
     mkdirSync(join(ROOT, 'lib'), { recursive: true })
-    writeFileSync(OUTPUT, code)
+    await build(buildConfig(OUTPUT, { sourcemap: true }))
     return { ok: true }
   }
+
+  // --check：只生成到临时文件做比对（跳过 sourcemap，加快速度）。
+  const tmpOut = OUTPUT + '.tmp'
+  await build(buildConfig(tmpOut, { sourcemap: false }))
+  const fresh = readFileSync(tmpOut, 'utf8')
+  try { unlinkSync(tmpOut) } catch {}
+
   let committed = null
   try {
-    committed = readFileSync(OUTPUT)
+    committed = readFileSync(OUTPUT, 'utf8')
   } catch {
     return { ok: false, errors: [OUTPUT + ' 不存在：运行 node scripts/build-client.mjs 生成'] }
   }
-  if (Buffer.compare(committed, code) !== 0) {
-    return { ok: false, errors: ['client.js 与生成器输出不一致：运行 node scripts/build-client.mjs 重新生成（手改生成物禁止）'] }
+  // 磁盘产物带 `//# sourceMappingURL=client.js.map`（check 版没有），比对时忽略这一行。
+  const strip = (s) => s.replace(/\/\/# sourceMappingURL=.*\n?$/, '')
+  if (strip(committed) !== strip(fresh)) {
+    return {
+      ok: false,
+      errors: ['client.js 与生成器输出不一致：运行 node scripts/build-client.mjs 重新生成（手改生成物禁止）'],
+    }
   }
   return { ok: true }
 }
@@ -211,13 +234,19 @@ export async function watch() {
     return
   }
   const { context } = await import('esbuild')
+  const tmpOut = OUTPUT + '.tmp'
   const finalCtx = await context({
-    ...buildConfig(OUTPUT + '.tmp'),
+    ...buildConfig(tmpOut, { sourcemap: true }),
     onEnd(result) {
       if (result.errors.length === 0) {
-        const body = readFileSync(OUTPUT + '.tmp', 'utf8')
+        // banner/footer 已在 build 里写好包装，这里只需搬到最终路径。
         mkdirSync(join(ROOT, 'lib'), { recursive: true })
-        writeFileSync(OUTPUT, wrap(body))
+        copyFileSync(tmpOut, OUTPUT)
+        try {
+          copyFileSync(tmpOut + '.map', OUTPUT + '.map')
+        } catch {
+          /* sourcemap 缺失不影响产物 */
+        }
         console.log('[build-client] rebuilt → lib/client.js')
       } else {
         for (const e of result.errors) console.error('[build-client]', e.text)

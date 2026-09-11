@@ -184,21 +184,33 @@ CSS 里 64 条暗色主题重映射作为过渡层。
 
 **规模**：S
 
-### B2 · 体积与减重
+### B2 · 体积与减重 ✅ **主体已完成（2026-09-12）**
 
-**现状**：`lib/client.js` **796.7 KB / 护栏 820 KB → 余量 23.3 KB（2.9%）**，
-且契约要求 client bundle **单模块（不能 code splitting）**；`lib/index.js` 无护栏；
-文档 4 套互相矛盾的阈值（400/450/600/820）已在本轮统一为脚本实际值。
+**现状（起点）**：`lib/client.js` 825.8 KB / 护栏 840 KB → 余量仅 2%；
+契约要求 client bundle **单模块（不能 code splitting）**。
 
-**内容**：① 先减重再上新功能（A5 迁移 + 旧页退役 + 死代码清理：`queryKeys.ts`、
-13 个 `api.*` 里 9 个死方法、AI 报告历史整链不可达、HTTP-only 残留分支、
-`gateway/` 目录与其 2.4MB 运行日志、根目录 `types/` 悬空 .d.ts）；
-② 护栏口径重设：client / host / CSS 分列，明确 raw 或 gzip，阈值变更必须在脚本头部留体积账。
+**落地**：
+1. **先量后减**：新增 `scripts/bundle-report.mjs`（esbuild metafile 成分报告：三类汇总 /
+   按目录 / 单文件 top25 / 未压缩·minify·gzip 三口径）。实测成分（未压缩 822.5 KB）：
+   `lightweight-charts` 216.8 KB(26%) · `src/pages` 175.9 KB(22%，ReviewPage 单文件 51.8 KB)
+   · `src/components` 136 KB(17%) · `src/lib` 125.7 KB(16%) · 内联 CSS 44.6 KB(5.5%)。
+   → 结论：**大头是我们的代码 + 图表库**，不存在"随手砍零碎"的空间。
+2. **默认 minify + sourcemap（用户决策）**：822.5 → **530.8 KB（−35.7%）**；
+   `lib/client.js.map` 补偿可调试性（宿主 client-modules 层会读取并校验为 Source Map v3，
+   再盖章自己的组合 map URL；缺失不影响执行）。逃生阀 `CLIENT_MINIFY=0`（体积必然超护栏，
+   需配 `CLIENT_MAX_KB`）。包装改用 esbuild 的 banner/footer，使 sourcemap 行号包含包装行。
+3. **护栏重设为 600 KB**（余量 69 KB）——从"2% 的假门禁"回到真门禁；体积账在脚本头部逐行登记。
+4. 顺带清理：删除死文件 `src/lib/queryKeys.ts`（零引用，且 react-query 并非依赖）。
 
-**验收锚点**：client.js 降到 ≤700 KB（腾出 ≥100 KB 给 A2/A4）；护栏覆盖三个产物；
-脚本头部体积账新增一行。
+**仍未做（故意留下，不阻塞）**：`lib/index.js` 护栏、CSS 单列口径、死代码清理的剩余部分
+（`api.*` 9 个死方法、AI 报告历史整链、HTTP-only 残留分支、`gateway/` 目录与其 2.4 MB 日志、
+根目录 `types/` 悬空 .d.ts）——这些主要影响认知负担与仓库卫生，体积收益有限；
+真正的大头减重靠 **A5**（token 迁移 + 退役被新骨架取代的旧页面）。
 
-**规模**：M
+**验收锚点**：✅ client.js 530.8 KB ≤ 700 KB（护栏 600 KB 且余量 14%）；
+⏳ 护栏覆盖 host/CSS 产物；✅ 体积账新增多行登记；✅ 成分报告可一键复现。
+
+**规模**：M（主体 S，剩余为卫生项）
 
 ### B3 · 请求预算与缓存一致性
 

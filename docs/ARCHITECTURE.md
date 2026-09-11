@@ -41,13 +41,18 @@
 | 视图注册只用 `ctx.slots.inject('conversation.view', …)` | 声明感知：宿主 apply 早晚都成立，声明消失/HMR 自动装卸 |
 | `llm` / `agentDefaultModel` **刻意不列进 inject** | 它们是可选增强：宿主没挂 LLM 服务时只置灰按钮，不拖累行情链路 |
 
-产物与体积（2026-09-12 实测）：
+产物与体积（2026-09-12 实测；client 半默认 minify，B2）
 
-| 产物 | 大小 | 护栏 |
+| 产物 | 大小 | 护栏 / 说明 |
 | --- | --- | --- |
-| `lib/client.js` | 815,857 B（796.7 KB） | **820 KB**（`CLIENT_MAX_KB` 可覆盖），余量 23.3 KB = 2.9% |
-| `lib/index.js` | 162,379 B（158.6 KB） | 无护栏（ROADMAP B2 建议补） |
-| `lib/index.js.map` | 454,171 B | 不随包发布 |
+| `lib/client.js` | 543,488 B（**530.8 KB**） | **600 KB**（`CLIENT_MAX_KB` 可覆盖），余量 69 KB = 11.5% |
+| `lib/client.js.map` | 1.65 MB | 不随 npm 包发布（`files` 未列）；宿主 client-modules 会读取它做 sourcemap |
+| `lib/index.js` | 182,113 B（177.8 KB） | 无护栏（ROADMAP B2 待补） |
+| `lib/index.js.map` | 489,372 B | 不随包发布 |
+
+成分（`node scripts/bundle-report.mjs`，未压缩口径 822.5 KB）：`lightweight-charts` 216.8 KB(26%)
+· `src/pages` 175.9 KB(22%) · `src/components` 136 KB(17%) · `src/lib` 125.7 KB(16%) · 内联 CSS 44.6 KB(5.5%)。
+minify 后为 527.4 KB（64.1%）；gzip：未压缩 179.8 KB / minify 141.8 KB。
 
 ---
 

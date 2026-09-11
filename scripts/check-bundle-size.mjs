@@ -2,20 +2,30 @@
 /**
  * check-bundle-size.mjs — client.js 体积护栏（M11，CI 用）。
  *
- * 说明：lib/client.js 为未压缩产物（保留可调试性，wrapper 不做 minify）；
- * 内联的 CSS 字符串已在构建期压缩（scripts/build-client.mjs 的 minifyCss）。
- * 阈值默认 840KB（env CLIENT_MAX_KB 可覆盖）。
+ * 说明：client.js **默认 minify**（B2 决策，2026-09-12）；同时产出 `lib/client.js.map`
+ * 补偿可调试性 —— 宿主 client-modules 层会读取该 map 并校验为 Source Map v3，
+ * 再盖章自己的组合 map URL（map 缺失不影响插件执行）。逃生阀：`CLIENT_MINIFY=0`。
+ * 阈值默认 600KB（env CLIENT_MAX_KB 可覆盖）。
  *
  * 体积账：
- *   665KB   1.1.x 基线（窄列版：10 个页面全内联）
+ *   665KB   1.1.x 基线（窄列版：10 个页面全内联，未压缩）
  *   ≈687KB  1.2.0（官方 conversation.view 化）
  *   ≈757KB  1.3.0（宽视图重排：三段式骨架 + 盯盘工作区 + AI 双通道 + 跟随 DSH 主题）
  *           其中 CSS 字符串 45.6KB（压缩前 ≈69KB，minifyCss 已回收 23KB）
  *   796.7KB 1.4.0 合并发布（+ 构建可见性 / ladder 共享缓存 / B6 修复）
- *   814.0KB 1.4.0+A1（host 侧持久化：host-state 客户端接入 + 8 张表映射 + viewed store
- *           + 底栏持久化状态）→ **阈值 820 → 840KB**（登记在案；余量 26KB）
- *           ⚠️ 之后进入 B2「减重」：目标回到 ≤700KB（退役旧页面 / 删 token 过渡层 /
- *           清死代码），并在那时决定「是否为了体积放弃未压缩可调试性」。
+ *   814.0KB 1.4.0+A1（host 侧持久化）→ 当时阈值 820 → 840KB（余量只剩 2%）
+ *   825.8KB 1.4.0+B5③（诊断面板）
+ *   **530.8KB 1.4.0+B2（开启 minify；−35.7%）→ 阈值 840 → 600KB（余量 69KB）**
+ *
+ * 成分（`node scripts/bundle-report.mjs`，未压缩口径 822.5KB）：
+ *   lightweight-charts 216.8KB(26%) · src/pages 175.9KB(22%；ReviewPage 单文件 51.8KB)
+ *   · src/components 136KB(17%) · src/lib 125.7KB(16%) · 内联 CSS 44.6KB(5.5%)
+ *   压缩口径：minify 527.4KB（64.1%）· gzip(未压缩) 179.8KB · gzip(minify) 141.8KB
+ * 结论：体积大头是「我们的代码 + 图表库」，不是可随手砍的零碎 —— 先用 minify 拿回
+ * 35% 的确定收益；后续减重靠 A5（token 迁移、退役旧页面）与死代码清理。
+ *
+ * ⚠️ 逃生阀 `CLIENT_MINIFY=0` 下体积会**超护栏**（≈825.8KB）：这是预期行为，护栏卡的是
+ * 「随包分发的体积」。本地要读产物时用 `CLIENT_MAX_KB=900 CLIENT_MINIFY=0 pnpm build`。
  *
  * 为什么不能靠"拆分"瘦身：插件契约要求 client bundle 是**单模块**（flat module
  * graph，见 README §技术要点），esbuild 无法 code splitting —— 视图不能动态 import。
@@ -32,7 +42,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const file = join(resolve(__dirname, '..'), 'lib', 'client.js')
-const maxKb = Number(process.env.CLIENT_MAX_KB ?? 840)
+const maxKb = Number(process.env.CLIENT_MAX_KB ?? 600)
 
 if (!existsSync(file)) {
   console.error('[check-bundle] 缺 lib/client.js —— 请先 pnpm build')
