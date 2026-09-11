@@ -183,21 +183,29 @@ DSH 的 `dsh-base` 已挂载存储栈（**本 profile 直接可用，无需额�
 ```ts
 // ① 不写进静态 inject —— storageDomain 是可选增强（同 llm 立场）：
 //    缺服务时只降级为 localStorage，不该让整个插件不激活（行情链路必须照常）。
-// ② 但也**不能**在 apply 时读一次就定生死 —— 见下方时序教训。
-initStateDomain(ctx)                       // 只记 ctx，不在启动时判定
-ctx.inject(['storageDomain'], () => {      // cordis 声明式注入：服务出现/变化时回调
-  initStateDomain(ctx)                     // 幂等；服务消失时 cordis 会重跑
+// ② 但**必须**用声明感知的 ctx.inject，并**使用回调给的 scoped ctx** —— 见下方两条真机教训。
+initStateDomain(ctx)                              // 只在服务已挂载时能命中
+ctx.inject(['storageDomain'], (scoped) => {       // 声明式注入：服务出现/变化时回调
+  noteStateInjectFired()
+  initStateDomain(scoped ?? ctx)                  // ⚠️ 必须是 scoped，不是外层 ctx
 })
-registerStateBridge(ws)                    // GET/POST /api/stock-panel/state
+registerStateBridge(ws)                           // GET/POST /api/stock-panel/state
 ```
 
-**⚠️ 时序教训（真机实测踩到，已修）**：cordis 的插件激活是**服务可用性驱动**的，
-`storage-domain` 的挂载时刻**不保证早于**本插件的 `apply`。旧实现在 `apply` 里
-`getOwnPropertySafe(ctx,'storageDomain')` 读一次，读不到就把「不可用」**永久缓存** ——
-结果运行实例一直返回 `available:false`（原因：`ctx.storageDomain 不可用`），而 dsh-base
-明明挂了存储栈。现在双保险：`ctx.inject` 声明 + **请求路径惰性重试**（`ensureStateReady()`，
-不缓存否定结论）。回归用例见 `smoke-host-state.mjs` 的 `[6][7][8]`（服务晚到 / 挂在 hub 上 /
-声明式注入三条路径）。
+**⚠️ 服务访问的两条真机教训（各踩了一轮，务必读完）**：
+
+1. **cordis 的服务只有被 inject 声明过，才在该 ctx 上可见**。我最初为了不拖累行情链路而
+   *完全不声明*、改用 `getOwnPropertySafe(ctx,'storageDomain')` —— 真机上永远读不到，
+   惰性重试也救不了（未声明的服务在该 ctx 上就是取不到）。
+   官方消费方 `dsh-session-projection-cache` 的写法是静态 `inject: ['storageDomain', …]`
+   再 `ctx.storageDomain.open(spec)`；我们改用 `ctx.inject([...], cb)` 达到同样效果，
+   同时保留"缺存储时不连带禁用行情"的韧性。
+2. **回调必须使用它给的作用域 ctx**：服务挂在 scoped ctx 上，**外层 ctx 依然没有它**。
+   第一轮修完（只加了 `ctx.inject`）真机仍然 `available:false`，就是因为回调里传了外层 ctx。
+3. 另外保留**请求路径惰性重试**（`ensureStateReady()`，不缓存否定结论），覆盖服务晚挂的情况。
+
+回归用例：`smoke-host-state.mjs` `[6]`（服务晚到自愈）`[7]`（挂在 hub 上）`[8]`（**只挂在 scoped ctx 上**
+也必须可用 —— 模拟真实 cordis 作用域语义）`[9]`（不可用时必须交代 inject 声明与回调触发情况）。
 辅助解析：`ctx.storageDomain`，兜底 `ctx.storage.domain`（文档：两者是同一个对象）。
 
 **两条硬约束（实测确认，踩过）**：

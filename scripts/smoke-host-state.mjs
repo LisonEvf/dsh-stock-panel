@@ -128,8 +128,11 @@ function makeCtx({ storageDomain }) {
 }
 
 /**
- * 假 ctx（含 cordis 的 ctx.inject）：记录声明并把回调立即调用一次。
- * @param {{ storageDomain?: object, lateDomain?: object }} opts lateDomain = 回调时才挂上的服务
+ * 假 ctx（含 cordis 的 ctx.inject），**模拟真实 cordis 的作用域语义**：
+ * 服务挂在「被声明过依赖的那个 scoped ctx」上，**外层 ctx 上没有它**
+ * —— 这正是真机第二轮踩到的坑（回调用外层 ctx → 永远读不到服务）。
+ *
+ * @param {{ onOuter?: object, onScoped?: object }} opts onOuter = 外层 ctx 可见的服务；onScoped = scoped ctx 可见的服务
  */
 function makeCtxWithInject(opts = {}) {
   const routes = []
@@ -145,12 +148,13 @@ function makeCtxWithInject(opts = {}) {
     tools: { register: () => () => {} },
     inject(deps, cb) {
       injectCalls.push(deps)
-      // 模拟 cordis：服务就绪后调用回调（此处 lateDomain 视为「挂载晚于 apply」）
-      if (opts.lateDomain !== undefined) ctx.storageDomain = opts.lateDomain
-      return cb(ctx)
+      // 模拟 cordis：服务就绪后，用**一个新作用域**调用回调，服务只挂在该作用域上。
+      const scoped = { ...ctx }
+      if (opts.onScoped !== undefined) scoped.storageDomain = opts.onScoped
+      return cb(scoped)
     },
   }
-  if (opts.storageDomain !== undefined) ctx.storageDomain = opts.storageDomain
+  if (opts.onOuter !== undefined) ctx.storageDomain = opts.onOuter
   return { ctx, routes, injectCalls }
 }
 
@@ -315,10 +319,12 @@ async function main() {
     assert(snap.facilitySource === 'ctx.storage.domain', `来源=${snap.facilitySource}`)
   }
 
-  console.log('[8] 声明式注入：apply 会向 cordis 声明 storageDomain 依赖')
+  console.log('[8] 声明式注入：apply 会向 cordis 声明 storageDomain，并用 scoped ctx 打开领域')
   {
     const modE = await import(moduleUrl + '?case=e')
-    const e = makeCtxWithInject({ lateDomain: makeFacility({}) })
+    // 关键：服务**只挂在 scoped ctx 上**（真实 cordis 语义）——外层 ctx 上没有它。
+    // 若实现回调用外层 ctx，本用例必然失败（这正是真机第二轮踩到的坑）。
+    const e = makeCtxWithInject({ onScoped: makeFacility({}) })
     modE.apply(e.ctx)
     assert(
       e.injectCalls.some((deps) => Array.isArray(deps) && deps.includes('storageDomain')),
@@ -327,9 +333,27 @@ async function main() {
     const route = routeOf(e.routes, '/api/stock-panel/state')
     const { res, out } = makeRes()
     await route.handler(makeReq('GET'), res)
+    const snap = JSON.parse(out.body)
     assert(
-      JSON.parse(out.body).available === true,
-      '经由 ctx.inject 回调挂上的服务可用（声明感知生效）',
+      snap.available === true,
+      `只挂在 scoped ctx 上的服务也能用（available=${snap.available}）—— 回调用外层 ctx 就会失败`,
+    )
+    assert(snap.facilitySource === 'ctx.storageDomain', `来源=${snap.facilitySource}`)
+  }
+
+  console.log('[9] 真机取证增强：不可用时必须交代 inject 声明与回调触发情况')
+  {
+    const modF = await import(moduleUrl + '?case=f')
+    const f = makeCtxWithInject({ onScoped: undefined }) // 服务始终不存在
+    modF.apply(f.ctx)
+    const route = routeOf(f.routes, '/api/stock-panel/state')
+    const { res, out } = makeRes()
+    await route.handler(makeReq('GET'), res)
+    const snap = JSON.parse(out.body)
+    assert(snap.available === false, '服务不存在时如实报不可用')
+    assert(
+      typeof snap.reason === 'string' && snap.reason.includes('inject 已声明=是') && snap.reason.includes('回调已触发='),
+      `原因里带取证字段（${snap.reason}）`,
     )
   }
 

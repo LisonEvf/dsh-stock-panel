@@ -163,6 +163,9 @@ let lastError: string | null = null
 let hostCtx: unknown = null
 /** 服务解析来源（诊断用：能区分「服务晚到」与「服务确实没挂」）。 */
 let facilitySource = '尚未解析'
+/** 诊断：是否已向 cordis 声明 storageDomain 依赖 / 回调是否触发。 */
+let injectDeclared = false
+let injectFired = false
 
 function isFacility(v: unknown): v is StateFacility {
   return v !== null && typeof v === 'object' && typeof (v as StateFacility).open === 'function'
@@ -171,11 +174,16 @@ function isFacility(v: unknown): v is StateFacility {
 /**
  * 解析存储服务（每次调用都重新看）。
  *
- * ⚠️ 为什么不在 apply 时取一次就完事（**真机实测踩到的 bug**）：
- * cordis 的插件激活是**服务可用性驱动**的，`storage-domain` 的挂载时刻不保证早于本插件
- * 的 apply。旧实现「apply 时读一次 → 读不到就把不可用结论**永久缓存**」导致真机上
- * `available:false`（原因：ctx.storageDomain 不可用）——而 dsh-base 明明挂了存储栈。
- * 现在：`ctx.inject` 声明（服务出现时回调）+ **每次请求惰性重试**双保险。
+ * ⚠️ **真机实测结论（两轮踩坑，务必读完）**：
+ * 1. cordis 的服务**必须由 inject 声明才会暴露在该 ctx 上** —— 官方消费方
+ *    `dsh-session-projection-cache` 就是静态 `inject: ['storageDomain', …]` + `ctx.storageDomain.open()`。
+ *    我最初为了「缺存储时不拖累行情链路」而**不声明**、改用 `getOwnPropertySafe(ctx,'storageDomain')`，
+ *    结果在真机上永远读不到（未声明的服务在该 ctx 上取不到）。
+ * 2. 修法**不是**退化成静态 inject（那样缺存储时整个插件不激活，行情一起死），而是
+ *    `ctx.inject(['storageDomain'], (scoped) => …)`：声明感知、服务出现/变化时重跑，
+ *    且**必须用回调给的 scoped ctx** —— 服务挂在 scoped ctx 上，外层 ctx 依然没有它
+ *    （第二轮踩的就是这个：回调里传了外层 ctx）。
+ * 3. 本函数仍保留「每次请求重新解析」，覆盖服务晚挂的情况。
  */
 function resolveFacility(): StateFacility | null {
   const direct = getOwnPropertySafe(hostCtx, 'storageDomain')
@@ -193,8 +201,19 @@ function resolveFacility(): StateFacility | null {
   facilitySource =
     hostCtx === null
       ? '尚未拿到宿主 ctx'
-      : 'ctx.storageDomain / ctx.storage.domain 均不可用（服务可能晚于 apply 挂载，下次请求会重试）'
+      : `ctx.storageDomain / ctx.storage.domain 均取不到`
+        + `（inject 已声明=${injectDeclared ? '是' : '否'}，回调已触发=${injectFired ? '是' : '否'}）`
   return null
+}
+
+/** 记录「已向 cordis 声明 storageDomain」。 */
+export function noteStateInjectDeclared(): void {
+  injectDeclared = true
+}
+
+/** 记录「ctx.inject 回调已触发」（= 服务此刻确实存在）。 */
+export function noteStateInjectFired(): void {
+  injectFired = true
 }
 
 /** 打开领域（幂等；失败只记录原因，不抛）。 */

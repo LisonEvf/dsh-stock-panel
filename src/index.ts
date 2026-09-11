@@ -19,7 +19,13 @@
 import { getOwnPropertySafe, registerEmbeddedTdxBridge, type HostCtx } from './host-util'
 import { registerStockTools } from './host-tools'
 import { registerBuildInfoRoute } from './host/build-info'
-import { closeStateDomain, initStateDomain, registerStateBridge } from './host/state'
+import {
+  closeStateDomain,
+  initStateDomain,
+  noteStateInjectDeclared,
+  noteStateInjectFired,
+  registerStateBridge,
+} from './host/state'
 import { disposeTdxClient } from './host/tdx-data'
 import { aiAvailability, registerAiBridge, resolveAiRuntime, type AiRuntime } from './host-ai'
 
@@ -71,21 +77,23 @@ export function apply(ctx: HostCtx): (() => void) | void {
     registerStateBridge(ws as NonNullable<HostCtx['webServer']>)
   }
 
-  // host 侧持久化（A1）：`storageDomain` **刻意不列进静态 inject**（它是可选增强，同 llm 立场：
-  // 宿主没挂存储子系统时只降级为 localStorage，不该拖累 TDX 桥接与对话工具的加载）。
-  // 但也**不能在 apply 时读一次就定生死**——cordis 的插件激活是服务可用性驱动的，
-  // `storage-domain` 可能晚于本插件挂载（**真机实测踩到**：运行实例曾永久报
-  // 「ctx.storageDomain 不可用」，而 dsh-base 明明挂了存储栈）。
-  // 正确做法：`ctx.inject(['storageDomain'], cb)`（服务出现/变化时重跑）
-  // + 请求路径惰性重试（见 state.ts 的 ensureStateReady）。
+  // host 侧持久化（A1）：**不能**把 `storageDomain` 写进静态 inject —— 那是可选增强（同 llm 立场），
+  // 缺存储时若整个插件不激活，行情链路会一起死。
+  // 但**必须**用声明感知的 `ctx.inject(['storageDomain'], cb)`：真机两轮实测证明
+  //   ① cordis 的服务只有被声明过才在该 ctx 上可见（未声明 → 读不到，惰性重试也没用）；
+  //   ② 回调**必须使用它给的 scoped ctx** —— 服务挂在 scoped ctx 上，外层 ctx 依然没有它。
+  // 另加请求路径惰性重试（state.ts 的 ensureStateReady），覆盖服务晚挂的情况。
   initStateDomain(ctx)
   const injectFn = getOwnPropertySafe(ctx, 'inject')
   if (typeof injectFn === 'function') {
+    // 只有真的能声明时才标记「已声明」——诊断字段必须如实（否则排查会被自己误导）。
+    noteStateInjectDeclared()
     ;(injectFn as (deps: string[], cb: (scoped: unknown) => void | (() => void)) => unknown)(
       ['storageDomain'],
-      () => {
-        // 服务已就绪：再解析一次（已打开则为幂等空操作）。
-        initStateDomain(ctx)
+      (scoped) => {
+        noteStateInjectFired()
+        // ⚠️ 用 scoped ctx（不是外层 ctx）：服务只在该作用域上可见。
+        initStateDomain(scoped ?? ctx)
       },
     )
   }

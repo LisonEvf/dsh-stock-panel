@@ -104,6 +104,19 @@
   `ensureStateReady()` 惰性重试，**不缓存否定结论**；兜底解析 `ctx.storage.domain`；
   诊断新增 `facilitySource`（区分「服务晚到」与「确实没挂」）。
   回归用例：`smoke-host-state.mjs` `[6]`（服务晚到后自愈）`[7]`（hub 路径）`[8]`（声明式注入）。
+- **第一轮真机验证又推翻了我的判断（已再修）**：用户重启后运行实例仍报
+  `available:false`，原因文案里出现「inject 已声明/回调已触发」的取证字段 —— 证明新代码在跑，
+  但服务仍取不到。取证（读官方消费方 `dsh-session-projection-cache` 的源码 + 检查
+  `~/.dsh/storages/workspace.json` 当日仍在写）得到两条硬结论：
+  ① **cordis 的服务只有被 inject 声明过才在该 ctx 上可见** —— 我最初「完全不声明、只用
+  `getOwnPropertySafe` 读」的做法在真机上必然读不到，惰性重试也救不了；
+  ② `ctx.inject(deps, cb)` 的**回调必须使用它给的 scoped ctx**：服务挂在作用域 ctx 上，
+  外层 ctx 依然没有它（第一轮修完仍失败就是栽在这里）。
+  修法：`ctx.inject(['storageDomain'], (scoped) => initStateDomain(scoped))`（声明感知、
+  非静态 inject → 缺存储时不连带禁用行情），并保留请求路径惰性重试；
+  诊断字段改为**如实**记录「是否真的声明成功 / 回调是否触发」（原先无条件打标记，会误导排查）。
+  新增回归用例 `[8]`（服务**只**挂在 scoped ctx 上也必须可用 —— 模拟真实 cordis 语义）、
+  `[9]`（不可用时必须交代取证字段）。
 - **新增实机验收工具** `scripts/verify-live.mjs`（`pnpm verify:live`）：对运行中的 dsh web
   做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）
   ② 持久化可用性 + 8 表 + 服务来源 ③ 写→读→删闭环（真域真介质，含清理）④ AI/行情信息项。
