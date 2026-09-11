@@ -19,7 +19,7 @@
 import { getOwnPropertySafe, registerEmbeddedTdxBridge, type HostCtx } from './host-util'
 import { registerStockTools } from './host-tools'
 import { registerBuildInfoRoute } from './host/build-info'
-import { closeStateDomain, initStateDomain, registerStateBridge, type StateFacility } from './host/state'
+import { closeStateDomain, initStateDomain, registerStateBridge } from './host/state'
 import { disposeTdxClient } from './host/tdx-data'
 import { aiAvailability, registerAiBridge, resolveAiRuntime, type AiRuntime } from './host-ai'
 
@@ -71,10 +71,24 @@ export function apply(ctx: HostCtx): (() => void) | void {
     registerStateBridge(ws as NonNullable<HostCtx['webServer']>)
   }
 
-  // host 侧持久化：`storageDomain` **刻意不列进 inject**——它是可选增强（同 llm 的立场）：
-  // 宿主没挂存储子系统时只降级为 localStorage，不该拖累 TDX 桥接与对话工具的加载。
-  const storageDomain = getOwnPropertySafe(ctx, 'storageDomain') as StateFacility | undefined
-  initStateDomain(storageDomain ?? null)
+  // host 侧持久化（A1）：`storageDomain` **刻意不列进静态 inject**（它是可选增强，同 llm 立场：
+  // 宿主没挂存储子系统时只降级为 localStorage，不该拖累 TDX 桥接与对话工具的加载）。
+  // 但也**不能在 apply 时读一次就定生死**——cordis 的插件激活是服务可用性驱动的，
+  // `storage-domain` 可能晚于本插件挂载（**真机实测踩到**：运行实例曾永久报
+  // 「ctx.storageDomain 不可用」，而 dsh-base 明明挂了存储栈）。
+  // 正确做法：`ctx.inject(['storageDomain'], cb)`（服务出现/变化时重跑）
+  // + 请求路径惰性重试（见 state.ts 的 ensureStateReady）。
+  initStateDomain(ctx)
+  const injectFn = getOwnPropertySafe(ctx, 'inject')
+  if (typeof injectFn === 'function') {
+    ;(injectFn as (deps: string[], cb: (scoped: unknown) => void | (() => void)) => unknown)(
+      ['storageDomain'],
+      () => {
+        // 服务已就绪：再解析一次（已打开则为幂等空操作）。
+        initStateDomain(ctx)
+      },
+    )
+  }
 
   // 对话行情工具（chat 联动，零 FastAPI）：当前对话助手可直接调用取数分析。
   // ctx.tools 经 inject 声明就绪；仍做安全兜底，失败不影响桥接。

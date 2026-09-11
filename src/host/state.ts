@@ -39,7 +39,7 @@
  * 宿主没挂存储子系统（或 open 失败）时**不崩、不阻塞**：只标记不可用并给出原因，
  * 前端继续用 localStorage（`localStorage 降级兜底`）。
  */
-import { readBody } from '../host-util'
+import { getOwnPropertySafe, readBody } from '../host-util'
 import { STATE_ROUTE } from '../lib/endpoints'
 import { STATE_DOMAIN, STATE_DOMAIN_VERSION, STATE_TABLES, isStateTable } from '../lib/state-tables'
 import { hostBuildInfo } from './build-info'
@@ -159,39 +159,96 @@ let domain: StateDomainHandle | null = null
 let opening: Promise<void> | null = null
 let unavailableReason: string | null = null
 let lastError: string | null = null
+/** 宿主 ctx（惰性解析服务用）。 */
+let hostCtx: unknown = null
+/** 服务解析来源（诊断用：能区分「服务晚到」与「服务确实没挂」）。 */
+let facilitySource = '尚未解析'
+
+function isFacility(v: unknown): v is StateFacility {
+  return v !== null && typeof v === 'object' && typeof (v as StateFacility).open === 'function'
+}
+
+/**
+ * 解析存储服务（每次调用都重新看）。
+ *
+ * ⚠️ 为什么不在 apply 时取一次就完事（**真机实测踩到的 bug**）：
+ * cordis 的插件激活是**服务可用性驱动**的，`storage-domain` 的挂载时刻不保证早于本插件
+ * 的 apply。旧实现「apply 时读一次 → 读不到就把不可用结论**永久缓存**」导致真机上
+ * `available:false`（原因：ctx.storageDomain 不可用）——而 dsh-base 明明挂了存储栈。
+ * 现在：`ctx.inject` 声明（服务出现时回调）+ **每次请求惰性重试**双保险。
+ */
+function resolveFacility(): StateFacility | null {
+  const direct = getOwnPropertySafe(hostCtx, 'storageDomain')
+  if (isFacility(direct)) {
+    facilitySource = 'ctx.storageDomain'
+    return direct
+  }
+  // 文档说明领域层同时挂在 ctx.storage.domain（与 ctx.storageDomain 同一个对象）
+  const hub = getOwnPropertySafe(hostCtx, 'storage')
+  const viaHub = hub === undefined ? undefined : getOwnPropertySafe(hub, 'domain')
+  if (isFacility(viaHub)) {
+    facilitySource = 'ctx.storage.domain'
+    return viaHub
+  }
+  facilitySource =
+    hostCtx === null
+      ? '尚未拿到宿主 ctx'
+      : 'ctx.storageDomain / ctx.storage.domain 均不可用（服务可能晚于 apply 挂载，下次请求会重试）'
+  return null
+}
 
 /** 打开领域（幂等；失败只记录原因，不抛）。 */
 function ensureOpen(facility: StateFacility | null): Promise<void> {
   if (opening !== null) return opening
   if (facility === null || typeof facility.open !== 'function') {
-    unavailableReason = '宿主未挂载存储子系统（ctx.storageDomain 不可用）'
-    opening = Promise.resolve()
-    return opening
+    // ⚠️ 不把结论永久缓存：下一次请求还会再解析一次（见 resolveFacility 的说明）。
+    unavailableReason = `宿主未挂载存储子系统（${facilitySource}）`
+    return Promise.resolve()
   }
   opening = facility
     .open(buildStateSpec())
     .then((d) => {
       domain = d
+      unavailableReason = null
       console.log(
-        `[stock-panel] 持久化域 '${STATE_DOMAIN}' 已就绪（${STATE_TABLES.length} 张表 @ json 后端）`,
+        `[stock-panel] 持久化域 '${STATE_DOMAIN}' 已就绪（${STATE_TABLES.length} 张表 @ json 后端，服务来源 ${facilitySource}）`,
       )
     })
     .catch((err: unknown) => {
       unavailableReason = `持久化域打开失败：${(err as Error)?.message ?? String(err)}`
+      // 打开失败可能也是时序问题（后端未就绪）→ 允许下次请求重试。
+      opening = null
       console.warn('[stock-panel] ' + unavailableReason + ' —— 前端将退回 localStorage')
     })
   return opening
 }
 
-/** 在 host 半启动时调用（同步返回；打开过程异步进行）。 */
-export function initStateDomain(facility: StateFacility | null): void {
-  void ensureOpen(facility)
+/**
+ * 确保领域可用（请求路径调用）：域已开 → 直接返回；否则解析服务并尝试打开。
+ *
+ * 这是 A1 的关键修补点：把「启动时一次性判定」改成「按需 + 可重试」。
+ */
+export async function ensureStateReady(): Promise<void> {
+  if (domain !== null) return
+  await ensureOpen(resolveFacility())
 }
 
-/** 关闭领域（fiber dispose 时调用）。 */
+/**
+ * 在 host 半启动时调用（同步返回；打开过程异步进行）。
+ *
+ * 传 `ctx`（不是 facility）：服务可能在 apply 之后才挂上，所以这里只记 ctx。
+ */
+export function initStateDomain(ctx: unknown): void {
+  hostCtx = ctx
+  void ensureOpen(resolveFacility())
+}
+
+/** 关闭领域（fiber dispose / 服务消失时调用；重置后可再次打开）。 */
 export async function closeStateDomain(): Promise<void> {
   const d = domain
   domain = null
+  opening = null
+  unavailableReason = null
   if (d !== null) {
     try {
       await d.close()
@@ -207,6 +264,8 @@ export interface StateStatus {
   reason?: string
   domain: string
   version: number
+  /** 存储服务的解析来源（区分「服务晚到/确实没挂」）。 */
+  facilitySource?: string
   schemaVersion?: number
   migratedFromLocalStorage?: boolean
   /** 各表记录数（可用时）。 */
@@ -221,6 +280,7 @@ export function stateStatus(): StateStatus {
       ...(unavailableReason !== null ? { reason: unavailableReason } : {}),
       domain: STATE_DOMAIN,
       version: STATE_DOMAIN_VERSION,
+      facilitySource,
       ...(lastError !== null ? { lastError } : {}),
     }
   }
@@ -237,6 +297,7 @@ export function stateStatus(): StateStatus {
     available: true,
     domain: STATE_DOMAIN,
     version: STATE_DOMAIN_VERSION,
+    facilitySource,
     schemaVersion: typeof g.schemaVersion === 'number' ? g.schemaVersion : 1,
     migratedFromLocalStorage: g.migratedFromLocalStorage === true,
     counts,
@@ -357,7 +418,7 @@ export function registerStateBridge(webServer: WebServerLike): void {
         const method = String((req as { method?: string }).method ?? 'GET').toUpperCase()
 
         if (method === 'GET') {
-          await ensureOpen(null) // 已打开则立即返回；未打开且无 facility 时给出降级原因
+          await ensureStateReady() // 按需解析服务（可重试）：服务晚到也能自愈
           send(200, { ok: true, build: hostBuildInfo(), ...stateSnapshot() })
           return
         }

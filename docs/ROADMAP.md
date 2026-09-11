@@ -65,6 +65,25 @@ host 半新增同源读写路由（`GET/POST /api/stock-panel/state`）；前端
 
 **规模**：M
 
+### A1 的真机验收（一条命令，需重启一次）
+
+host 半是**进程内**加载的：`lib/index.js` 改了必须重启 `dsh web` 才生效（client 半只需硬刷新）。
+验收不用开 DevTools：
+
+```powershell
+dsh web                              # 重启宿主（会中断当前会话）
+node scripts/verify-live.mjs         # ① host 新鲜度 ② 持久化可用性 ③ 写→读→删闭环
+```
+
+脚本会逐项报告，并把「运行的是重启前的旧 host 半」与真实失败区分开（实测示例：
+运行 `1cd46631` / 源码 `fcb2f869` → 明确提示重启）。额外人工确认两点：
+底栏应显示 `持久化：host`；清一次浏览器 localStorage 再刷新，自选/复盘/持仓仍在。
+
+**已修的真机 bug（时序）**：旧实现在 `apply` 里读一次 `ctx.storageDomain` 并把「不可用」
+**永久缓存**，而 cordis 的服务挂载时刻不保证早于 apply → 运行实例一直 `available:false`
+（探测实证）。修法：`ctx.inject(['storageDomain'], …)` 声明式注入 + 请求路径惰性重试，
+不缓存否定结论；回归用例 `smoke-host-state.mjs` `[6][7][8]`。
+
 ### A1.1 · 「看过的个股」store ✅（A4 的数据源，UI 待 A4）
 
 `src/lib/viewed-store.ts`（表 `viewed`）：最近看过的标的（新→旧、去重、上限 30、带查看次数），

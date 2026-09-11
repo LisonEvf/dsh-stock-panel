@@ -167,12 +167,24 @@ DSH 的 `dsh-base` 已挂载存储栈（**本 profile 直接可用，无需额�
 **用法**（host 半，`src/host/state.ts`，✅ 已实现）：
 
 ```ts
-// inject 里**不加** storageDomain —— 它是可选增强（同 llm 立场）：
-// 宿主没挂存储子系统时只降级为 localStorage，不该拖累 TDX 桥接与对话工具加载。
-const storageDomain = getOwnPropertySafe(ctx, 'storageDomain') as StateFacility | undefined
-initStateDomain(storageDomain ?? null)          // 异步 open；失败只记原因，不抛
-registerStateBridge(ws)                          // GET/POST /api/stock-panel/state
+// ① 不写进静态 inject —— storageDomain 是可选增强（同 llm 立场）：
+//    缺服务时只降级为 localStorage，不该让整个插件不激活（行情链路必须照常）。
+// ② 但也**不能**在 apply 时读一次就定生死 —— 见下方时序教训。
+initStateDomain(ctx)                       // 只记 ctx，不在启动时判定
+ctx.inject(['storageDomain'], () => {      // cordis 声明式注入：服务出现/变化时回调
+  initStateDomain(ctx)                     // 幂等；服务消失时 cordis 会重跑
+})
+registerStateBridge(ws)                    // GET/POST /api/stock-panel/state
 ```
+
+**⚠️ 时序教训（真机实测踩到，已修）**：cordis 的插件激活是**服务可用性驱动**的，
+`storage-domain` 的挂载时刻**不保证早于**本插件的 `apply`。旧实现在 `apply` 里
+`getOwnPropertySafe(ctx,'storageDomain')` 读一次，读不到就把「不可用」**永久缓存** ——
+结果运行实例一直返回 `available:false`（原因：`ctx.storageDomain 不可用`），而 dsh-base
+明明挂了存储栈。现在双保险：`ctx.inject` 声明 + **请求路径惰性重试**（`ensureStateReady()`，
+不缓存否定结论）。回归用例见 `smoke-host-state.mjs` 的 `[6][7][8]`（服务晚到 / 挂在 hub 上 /
+声明式注入三条路径）。
+辅助解析：`ctx.storageDomain`，兜底 `ctx.storage.domain`（文档：两者是同一个对象）。
 
 **两条硬约束（实测确认，踩过）**：
 1. 领域名/表名必须匹配 `UNIT_NAME_RE = ^[a-z][a-z0-9_]*$` —— **不能有连字符**，
@@ -277,6 +289,7 @@ registerStateBridge(ws)                          // GET/POST /api/stock-panel/st
 | `GET /api/stock-panel/ai` | AI 可用性与解析出的路由 |
 | host 日志 | `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`、AI 可用性行 |
 | 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract}.mjs`（离线、已进 CI）+ `scripts/smoke-embedded.mjs`（需真机行情） |
+| **实机验收** | `node scripts/verify-live.mjs [baseUrl]`：对**运行中**的 dsh web 做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）② 持久化 `available` + 8 表 + 服务来源 ③ 往 `viewed` 写 canary → 读回 → 删除（真域真介质的写读删闭环）④ AI/行情信息项。host 半是进程内加载的，改完必须重启；client 半只需硬刷新 |
 | **真实存储栈校验** | `node scripts/verify-state-domain.mjs`：用宿主安装的 cordis + dsh-storage + storage-json + storage-domain **真跑一遍**手搓 spec（16 项断言：open 接受 / 8 表 / 键编码必要性 / 落盘持久性 / version 语义 / compatibleVersions 逃生口）。不进 CI（CI 无 DSH 安装），改契约后必跑 |
 | ⏳ 待补 | 无（B5-③ 诊断面板已实现：`src/panel/DiagnosticsPanel.tsx`，底栏 🩺 按钮 —— 构建一致性 / 持久化 / 数据链路 / 缓存底账 / AI 与 HIST，五类状态一处可查） |
 

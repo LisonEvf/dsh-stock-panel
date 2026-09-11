@@ -127,6 +127,33 @@ function makeCtx({ storageDomain }) {
   return { ctx, routes }
 }
 
+/**
+ * 假 ctx（含 cordis 的 ctx.inject）：记录声明并把回调立即调用一次。
+ * @param {{ storageDomain?: object, lateDomain?: object }} opts lateDomain = 回调时才挂上的服务
+ */
+function makeCtxWithInject(opts = {}) {
+  const routes = []
+  const injectCalls = []
+  const ctx = {
+    provide() {},
+    webServer: {
+      register(route) {
+        routes.push(route)
+        return () => {}
+      },
+    },
+    tools: { register: () => () => {} },
+    inject(deps, cb) {
+      injectCalls.push(deps)
+      // 模拟 cordis：服务就绪后调用回调（此处 lateDomain 视为「挂载晚于 apply」）
+      if (opts.lateDomain !== undefined) ctx.storageDomain = opts.lateDomain
+      return cb(ctx)
+    },
+  }
+  if (opts.storageDomain !== undefined) ctx.storageDomain = opts.storageDomain
+  return { ctx, routes, injectCalls }
+}
+
 /** 按 path 找已注册路由。 */
 function routeOf(routes, path) {
   return routes.find((r) => r.path === path)
@@ -243,6 +270,67 @@ async function main() {
     const snap = JSON.parse(out.body)
     assert(snap.available === false, `如实地报不可用（available=${snap.available}）`)
     assert(typeof snap.reason === 'string' && snap.reason.length > 0, `给出原因（${snap.reason}）`)
+  }
+
+  // ⚠️ 回归用例：**真机实测踩到的 bug** —— 存储服务晚于 apply 挂载时，
+  // 旧实现把「不可用」永久缓存，导致运行实例一直报告 ctx.storageDomain 不可用。
+  console.log('[6] 服务晚到：apply 时没有 storageDomain，之后才挂上 → 请求时应自愈')
+  {
+    const modC = await import(moduleUrl + '?case=c')
+    const c = makeCtx({})
+    modC.apply(c.ctx)
+    const stateRouteC = routeOf(c.routes, '/api/stock-panel/state')
+    const before = makeRes()
+    await stateRouteC.handler(makeReq('GET'), before.res)
+    assert(
+      JSON.parse(before.out.body).available === false,
+      '服务未挂时如实报不可用（第一次请求）',
+    )
+    // 服务此刻挂上（模拟 cordis 稍后完成挂载）
+    c.ctx.storageDomain = makeFacility({})
+    const after = makeRes()
+    await stateRouteC.handler(makeReq('GET'), after.res)
+    const snapAfter = JSON.parse(after.out.body)
+    assert(
+      snapAfter.available === true,
+      `服务挂上后**无需重启**即自愈（available=${snapAfter.available}）—— 不可用结论不再被永久缓存`,
+    )
+    assert(
+      snapAfter.facilitySource === 'ctx.storageDomain',
+      `诊断里能看到服务来源（${snapAfter.facilitySource}）`,
+    )
+  }
+
+  console.log('[7] 服务挂载在 hub 上（ctx.storage.domain）时也能解析')
+  {
+    const modD = await import(moduleUrl + '?case=d')
+    const d = makeCtx({})
+    d.ctx.storage = { domain: makeFacility({}) } // 文档：与 ctx.storageDomain 同一个对象
+    modD.apply(d.ctx)
+    const route = routeOf(d.routes, '/api/stock-panel/state')
+    const { res, out } = makeRes()
+    await route.handler(makeReq('GET'), res)
+    const snap = JSON.parse(out.body)
+    assert(snap.available === true, `hub 路径可解析（available=${snap.available}）`)
+    assert(snap.facilitySource === 'ctx.storage.domain', `来源=${snap.facilitySource}`)
+  }
+
+  console.log('[8] 声明式注入：apply 会向 cordis 声明 storageDomain 依赖')
+  {
+    const modE = await import(moduleUrl + '?case=e')
+    const e = makeCtxWithInject({ lateDomain: makeFacility({}) })
+    modE.apply(e.ctx)
+    assert(
+      e.injectCalls.some((deps) => Array.isArray(deps) && deps.includes('storageDomain')),
+      `ctx.inject 声明了 storageDomain（实际：${JSON.stringify(e.injectCalls)}）`,
+    )
+    const route = routeOf(e.routes, '/api/stock-panel/state')
+    const { res, out } = makeRes()
+    await route.handler(makeReq('GET'), res)
+    assert(
+      JSON.parse(out.body).available === true,
+      '经由 ctx.inject 回调挂上的服务可用（声明感知生效）',
+    )
   }
 
   if (failures > 0) {

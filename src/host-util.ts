@@ -25,6 +25,16 @@ export interface HostCtx {
   tools?: {
     register: (definition: unknown) => () => void
   }
+  /**
+   * cordis 注册表混入的方法：声明式注入。
+   * `inject(deps, cb)` 在所需服务**出现/变化时**重跑回调 —— 这是处理「服务晚于 apply 挂载」的
+   * 官方做法（可选服务不能写进静态 inject：那样缺服务时整个插件都不激活）。
+   */
+  inject?: (deps: string[], callback: (scoped: unknown) => void | (() => void)) => unknown
+  /** 存储领域层服务（可选：dsh-base 挂了存储栈，但挂载时刻不保证早于本插件）。 */
+  storageDomain?: { open: (spec: unknown) => Promise<unknown> }
+  /** 存储枢纽（其 `domain` 字段与 `storageDomain` 是同一个对象）。 */
+  storage?: { domain?: { open: (spec: unknown) => Promise<unknown> } }
 }
 
 /** 安全获取 ctx 属性，未注入时返回 undefined 而非抛异常。 */

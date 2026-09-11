@@ -96,6 +96,18 @@
   ② `version` 不一致**不报错，而是静默丢弃旧记录**（打开成功、记录数 0）——比报错更危险，
      因此「版本固定为 1」是硬要求；实测 `compatibleVersions: [旧版本]` 是官方逃生口。
   这两条都写进了 `docs/ARCHITECTURE.md` §5.2 与代码注释（含介质证据）。
+- **真机探测又抓到一个时序 bug（A1 会因此完全失效）**：旧实现在 `apply` 里读一次
+  `ctx.storageDomain`，读不到就把「不可用」永久缓存 —— 而 cordis 的服务挂载时刻**不保证**
+  早于本插件 `apply`。运行实例实测一直返回 `available:false`（原因：ctx.storageDomain 不可用），
+  尽管 dsh-base 确实挂了存储栈。
+  修法：`ctx.inject(['storageDomain'], cb)`（声明式注入，服务出现/变化时重跑）+ 请求路径
+  `ensureStateReady()` 惰性重试，**不缓存否定结论**；兜底解析 `ctx.storage.domain`；
+  诊断新增 `facilitySource`（区分「服务晚到」与「确实没挂」）。
+  回归用例：`smoke-host-state.mjs` `[6]`（服务晚到后自愈）`[7]`（hub 路径）`[8]`（声明式注入）。
+- **新增实机验收工具** `scripts/verify-live.mjs`（`pnpm verify:live`）：对运行中的 dsh web
+  做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）
+  ② 持久化可用性 + 8 表 + 服务来源 ③ 写→读→删闭环（真域真介质，含清理）④ AI/行情信息项。
+  它把「重启后到底好了没」从人肉 DevTools 变成一条命令，并能区分「旧 host 半」与真失败。
 
 ---
 
