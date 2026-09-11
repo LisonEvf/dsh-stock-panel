@@ -69,6 +69,16 @@ Browser（src/lib/mcp.ts，25s 超时）
 默认参数：`pool_n=200`（全 A 成交额榜）、`window=60` 交易日、`min_corr=0.45`、快照 TTL 3600s、
 **首次调用惰性重建**（冷启动要拉数百只 K 线，`hist_concept_status` 会显示快照未就绪）。
 
+> ⚠️ **默认参数偏粗，产品侧请显式传 `window=90` + `min_corr=0.6`**（并过滤 `weak_chain=true`）：
+> 默认值下 `min_corr=0.45` 会切出一个 ~141 只的「传递链」巨类（类内相关仅 0.027），
+> 而 `0.6 + window=90` 能切出语义自洽的小类（电力/地产/工程机械/面板/白酒…，类内相关 0.57–0.81）。
+> 完整取证与推荐见 `docs/CONCEPT-CALIBRATION.md`（`pnpm concept:sweep` / `pnpm concept:stability`）。
+>
+> 两个实操坑：
+> 1. **换 `as_of` 或换参数都会触发重建**（~7–8s）→ 逐类调用 `hist_concept_class` 很贵，
+>    需要成员时优先用 `hist_concept_classes` 的 `top_members` 一次拿到；
+> 2. 类的成员字段是 **`top`（名字数组）**；取 `members` 会得到空集（且空集算相似度恒为 0，会伪装成"每天重组"）。
+
 ## 3. 排障
 
 | 现象 | 检查 |

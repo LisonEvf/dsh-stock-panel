@@ -147,6 +147,38 @@ function histStatusText(d: Record<string, any>): string {
   return `HIST 引擎：${d?.engine ?? ''}；快照${d?.snapshot_ready ? '就绪' : '未就绪'}${snap?.as_of ? ` as_of=${snap.as_of}` : ''}；K线缓存 ${d?.kline_cached ?? 0} 条`
 }
 
+/**
+ * HIST 自挖概念的**调参字段**（三个查询工具共用）。
+ *
+ * 为什么必须暴露：默认参数在当前实现下会退化（`min_corr=0.45` 出一个 141 只的「弱链」巨类，
+ * 类内相关仅 0.027）——**调参不是可选项**。实测（`docs/CONCEPT-CALIBRATION.md`）：
+ * `min_corr=0.6 + window=90` 才切出语义自洽的小类（电力/地产/工程机械/面板/白酒…）。
+ * 早期这些字段没声明，调用方传了也会被丢掉，于是拿到「看起来对、其实是默认参数」的结果
+ * —— 属于静默错误，已修。
+ */
+const HIST_TUNING_PROPS: Record<string, { type: string; description: string }> = {
+  pool_n: { type: 'number', description: '候选池大小（全 A 成交额榜前 N，默认 200）' },
+  window: { type: 'number', description: '相关窗口（交易日，默认 60；实测 90 切分更稳）' },
+  min_corr: {
+    type: 'number',
+    description: '聚类切边阈值（默认 0.45；**实测 0.6 才可用**，否则出「弱链」巨类）',
+  },
+  as_of: { type: 'string', description: '截断日期 YYYY-MM-DD（默认最新交易日）' },
+  refresh: { type: 'boolean', description: '强制重建快照（默认用缓存；换日期/参数会自动重建）' },
+}
+
+/** 从工具入参里挑出 HIST 调参字段（未给就不传，交给引擎默认）。 */
+function histTuningArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (typeof args.as_of === 'string' && args.as_of !== '') out.as_of = args.as_of
+  if (args.refresh === true) out.refresh = true
+  for (const key of ['pool_n', 'window', 'min_corr'] as const) {
+    const v = Number(args[key])
+    if (Number.isFinite(v) && v > 0) out[key] = v
+  }
+  return out
+}
+
 function defs(): RawToolDef[] {
   return [
     textTool(
@@ -220,18 +252,24 @@ function defs(): RawToolDef[] {
     ),
     textTool(
       'hist_concept_query',
-      '查询一只票的 HIST 自挖概念：所在共动类 + 最近共动邻居（corr/是否同类）。无监督算法把「市场自己认定的板块」挖出来。market 仅 SZ/SH。',
+      '查询一只票的 HIST 自挖概念：所在共动类 + 最近共动邻居（corr/是否同类）。无监督算法把「市场自己认定的板块」挖出来。market 仅 SZ/SH。可用 min_corr/window/pool_n 调粒度（默认参数偏粗）。',
       {
         market: { type: 'string', description: '市场 SZ/SH', enum: ['SZ', 'SH'] },
         code: { type: 'string', description: '股票代码，如 603259' },
         topk: { type: 'number', description: '返回最近共动邻居数（默认 8）' },
+        ...HIST_TUNING_PROPS,
       },
       ['market', 'code'],
       async (args) => {
         const market = String(args.market ?? '').toUpperCase()
         if (market !== 'SZ' && market !== 'SH') return `无效市场：${args.market}（仅 SZ/SH）`
         try {
-          const d = await hostToolCall('hist_concept_query', { market, code: String(args.code ?? ''), topk: Number(args.topk) || 8 }) as Record<string, any>
+          const d = await hostToolCall('hist_concept_query', {
+            market,
+            code: String(args.code ?? ''),
+            topk: Number(args.topk) || 8,
+            ...histTuningArgs(args),
+          }) as Record<string, any>
           return histQueryText(d)
         } catch (e) {
           return `查询失败：${(e as Error).message}`
@@ -240,14 +278,20 @@ function defs(): RawToolDef[] {
     ),
     textTool(
       'hist_concept_classes',
-      '查询当天全部 HIST 自挖类概要（类id/大小/类内相关/强边密度/前几名成员），等价于「市场今天把哪些股票当成同一个板块」。',
+      '查询全部 HIST 自挖类概要（类id/大小/类内相关/强边密度/前几名成员），等价于「市场今天把哪些股票当成同一个板块」。'
+        + '⚠️ weak_chain=true 的是阈值图伪类（类内相关很低），**通常应过滤不采信**；'
+        + '默认参数偏粗，实测 min_corr=0.6 + window=90 才切出语义自洽的小类。',
       {
         top_members: { type: 'number', description: '每类展示前几名成员（默认 5）' },
+        ...HIST_TUNING_PROPS,
       },
       [],
       async (args) => {
         try {
-          const d = await hostToolCall('hist_concept_classes', { top_members: Number(args.top_members) || 5 }) as Record<string, any>
+          const d = await hostToolCall('hist_concept_classes', {
+            top_members: Number(args.top_members) || 5,
+            ...histTuningArgs(args),
+          }) as Record<string, any>
           return histClassesText(d)
         } catch (e) {
           return `查询失败：${(e as Error).message}`
@@ -256,12 +300,19 @@ function defs(): RawToolDef[] {
     ),
     textTool(
       'hist_concept_class',
-      '查看某个 HIST 自挖类的完整成员表（代码/名称/类内相关/当日涨幅）。class_id 来自 hist_concept_classes。',
-      { class_id: { type: 'number', description: '类 id（来自 hist_concept_classes）' } },
+      '查看某个 HIST 自挖类的完整成员表（代码/名称/类内相关/当日涨幅）。class_id 来自 hist_concept_classes；'
+        + '**同类 id 在不同参数/日期下代表不同的类**，查询时请带上与列表相同的 min_corr/window/pool_n/as_of。',
+      {
+        class_id: { type: 'number', description: '类 id（来自 hist_concept_classes）' },
+        ...HIST_TUNING_PROPS,
+      },
       ['class_id'],
       async (args) => {
         try {
-          const d = await hostToolCall('hist_concept_class', { class_id: Number(args.class_id) || 0 }) as Record<string, any>
+          const d = await hostToolCall('hist_concept_class', {
+            class_id: Number(args.class_id) || 0,
+            ...histTuningArgs(args),
+          }) as Record<string, any>
           return histClassMembersText(d)
         } catch (e) {
           return `查询失败：${(e as Error).message}`
