@@ -6,6 +6,9 @@
 > `src/host/tdx-data.ts` + `src/lib/endpoints.ts`），默认不再依赖本 python
 > 网关进程。本目录仅服务显式 `__DSH_TDX_TRANSPORT__ = 'http'` 的遗留部署
 > （`run-gateway.ps1` 自启仍可用）。新部署请勿再配置它。
+>
+> 现行数据源与传输说明见 `MCP-SETUP.md`；本文下方「自动回退远端 MCP」「15 工具」等描述
+> **已作废**（远端 MCP 已整体移除，工具数为 19）。本目录是否保留见 `docs/ROADMAP.md` B2。
 
 把行情数据从「远端 MCP（192.168.31.196:8007，SSE + JSON-RPC）」改为**本机直连 opentdx 源码**，
 去掉 LAN 一跳（实测 TCP ~30ms）与 MCP 会话/SSE 开销，聚焦**首连/预热**优化。

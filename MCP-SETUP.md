@@ -1,187 +1,103 @@
-# MCP 数据源配置说明（方案 A）
+# 数据源与传输配置（MCP-SETUP，2026-09-12 重写）
 
-> ## ⚠️ 2026-09 传输层重构（v1.1）——远端 MCP 已移除，下文旧章节仅作历史存档
->
-> 默认数据链路为 **embedded（内置 TDX）**，见 README「传输层重构」小节与
-> `src/lib/endpoints.ts`（端点/模式单一配置源）：
->
-> ```
-> Browser ── POST /api/stock-panel/call {tool,args}（同源）
->    → host 半 registerEmbeddedTdxBridge
->    → node-tdx（src/host/vendor/opentdx.js，进程内长连接）── TCP 7709/7727 ── TDX
->        ├─ 业务错误            → {ok:false, kind:'business'}（如实上抛）
->        ├─ 未知工具            → {ok:false, kind:'unsupported'}
->        └─ 连接不可达/禁用     → {ok:false, kind:'unavailable'}
-> ```
->
-> 传输模式（`window.__DSH_TDX_TRANSPORT__` / 环境变量 `DSH_TDX_TRANSPORT`）：
-> - `embedded`（**默认**）—— 进程内 node-tdx，覆盖全部 15 个行情工具（含
->   goods_varieties），无需任何外部进程、无远端兜底；
-> - `http`（遗留）—— 自建 opentdx JSON 网关（`gateway/`，python），端点
->   `window.__DSH_TDX_GATEWAY__` / `DSH_TDX_GATEWAY`（默认 127.0.0.1:8017）。
->
-> 诊断：浏览器控制台 `window.__STOCK_PANEL__.endpoints()` / `.transport()`；
-> host 日志 `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`。
+> 本文原名「MCP 数据源配置说明」。**远端 MCP 已在 v1.1 移除**，旧内容（远端桥接、
+> `192.168.31.196:8007`、`POST /api/stock-panel/mcp`）整体作废；现行链路如下。
+> 架构背景见 `docs/ARCHITECTURE.md` §2。
 
-## 架构（旧：远端 MCP 桥接）
+## 0. 一句话
+
+数据默认来自 **host 半进程内的 node-tdx 直连**（embedded）——**零外部进程、零远端依赖**；
+业务错/未知工具/不可达一律如实上抛，**没有兜底回退**。
 
 ```
-Browser (client.ts)
-  → fetch('/api/stock-panel/mcp')  [同源，无 CORS 问题]
-  → host 半 (index.ts 的 registerMcpBridge)
-  → fetch('http://192.168.31.196:8007/mcp')  [服务端，无 CORS 问题]
-  → 返回 MCP 工具数据
+Browser（src/lib/mcp.ts，25s 超时）
+  └─ POST /api/stock-panel/call   body: {"tool": "<name>", "args": {...}}
+       → host 半 registerEmbeddedTdxBridge        （src/host-util.ts）
+       → serial() 串行队列 → node-tdx（src/host/vendor/opentdx.js，进程内长连接）
+            ├─ TCP 7709 / 7727 ── 通达信行情服务器
+            ├─ 19 个工具分发 + 输出归一化           （src/host/tdx-data.ts）
+            └─ hist_concept_* → 进程内 HistEngine   （src/host/hist-data.ts）
 ```
 
-## 数据源切换
+## 1. 传输模式
 
-默认使用 MCP 数据源。可通过全局变量切换：
+| 模式 | 说明 | 端点/开关 |
+| --- | --- | --- |
+| **embedded（默认）** | host 半进程内 node-tdx，覆盖全部 19 个工具 | 无端点；host 侧 `DSH_TDX_EMBEDDED=0` 可禁用 |
+| `http`（遗留） | 自建 python JSON 网关（`gateway/`，不随包发布） | `window.__DSH_TDX_TRANSPORT__='http'` / `DSH_TDX_TRANSPORT=http`；端点 `window.__DSH_TDX_GATEWAY__` / `DSH_TDX_GATEWAY`（默认 `http://127.0.0.1:8017`，15s 超时） |
 
-```javascript
-// 在浏览器控制台或代码中设置
-window.__DSH_DATA_SOURCE__ = 'mcp'  // MCP 数据源（默认）
-window.__DSH_DATA_SOURCE__ = 'http' // FastAPI 后端（需要后端运行）
-```
+端点与模式的**单一配置源**是 `src/lib/endpoints.ts`（同时读 host env 与 client window）。
+诊断：`window.__STOCK_PANEL__.transport()` / `.endpoints()`。
 
-## 远端 MCP 服务器地址
+错误语义（`kind`）：`business`（行情源业务错，如参数非法/无数据）、`unsupported`（未知工具）、
+`unavailable`（连接不可达或内置被禁用）。UI 按 kind 给不同提示，不重试成灾。
 
-默认：`http://192.168.31.196:8007/mcp`
+## 2. 工具清单（19 个）
 
-可通过环境变量覆盖（host 半启动时读取）：
+行情 15（与 python opentdx-mcp 契约一致）：
+
+| 工具 | 参数 | 用途与注意 |
+| --- | --- | --- |
+| `quote` | `{market, code}` | 实时报价（股票/指数通用）。指数代码：上证 `SH 999999`、深成 `SZ 399001`、创业 `SZ 399006`、科创50 `SH 000688`、科创综指 `SH 000680`、沪深300 `SH 000300`、中证500 `SH 000905`、中证1000 `SH 000852`、中小100 `SZ 399005`（`SH 000016` 上证50 无数据） |
+| `kline` | `{market, code, period, count, start, adjust}` | K 线（升序）。`adjust=QFQ` 用于自挖概念引擎 |
+| `tick_chart` | `{market, code, query_date?}` | 分时（price/avg/vol）；`query_date` 可回看历史交易日 |
+| `transaction` | `{market, code, query_date?}` | 逐笔成交。⚠️ `bs_flag` 方向与 `vol` 单位**待交易日复验** |
+| `auction` | `{market, code}` | 集合竞价 9:15–9:25 逐点。⚠️ 收盘后/盘前语义、`unmatched` 正负、`matched` 单位**待交易日复验** |
+| `unusual` | `{market, count}` | 市场异动。`market` 取 SH/SZ/BJ；⚠️ 收盘后多退化为 09:15 竞价快照，缺「炸板」类事件 |
+| `market_monitor` | `{market, count}` | 主力异动（同上限制） |
+| `board_members` | `{board_symbol, count, sort_type, sort_order}` | 板块成分；`"A"` = 全 A（约 5.5k 只完整 quote，≥2MB）。⚠️ `sort_type=AMOUNT` 服务端报错 → 按金额请客户端自排 |
+| `belong_board` | `{market, code}` | 个股所属板块。`board_type`：**3=地区 / 4=概念 / 5=风格 / 12=行业**（热度榜剔除 5；命名差异对照只用 12） |
+| `capital_flow` | `{market, code}` | 当日 + 5 日主力/散户净流入 |
+| `symbol_info` | `{market, code}` | 个股简况（现价/内外盘/换手/均价/活跃度） |
+| `server_info` | — | 交易日/时段/状态（驱动时段模型；休市期可能空返回 → 本地时钟兜底） |
+| `goods_quotes` / `goods_kline` / `goods_varieties` | 见工具描述 | 扩展市场（期货/港股/美股）。⚠️ 美股 `quote` 可能为空 → 页面用 K 线末两收盘自算 |
+
+自挖概念 4（v1.0 起内置）：
+
+| 工具 | 参数 | 返回要点 |
+| --- | --- | --- |
+| `hist_concept_classes` | `{top_members?, window?, pool_n?, min_corr?, as_of?, refresh?}` | 当日全部自挖类概要（class_id/size/mean_intra_corr/前几名成员）+ `isolated_n`。`weak_chain=true` 的类是阈值图伪类，**通常应过滤不采信** |
+| `hist_concept_query` | `{market, code, topk?, …}` | 该票所在共动类 + 最近共动邻居（corr / 是否同类）。**market 仅 SZ/SH** |
+| `hist_concept_class` | `{class_id, …}` | 某类完整成员表（代码/名称/类内相关/当日涨幅） |
+| `hist_concept_status` | — | 引擎状态：引擎名、快照是否就绪、`as_of`、K 线缓存条数 |
+
+默认参数：`pool_n=200`（全 A 成交额榜）、`window=60` 交易日、`min_corr=0.45`、快照 TTL 3600s、
+**首次调用惰性重建**（冷启动要拉数百只 K 线，`hist_concept_status` 会显示快照未就绪）。
+
+## 3. 排障
+
+| 现象 | 检查 |
+| --- | --- |
+| 面板完全不出现在会话页 | `window.__STOCK_PANEL__.viewRegistered`（false = 槽未声明或注册失败）；host 日志有无 `视图「A股工作台」已注册` |
+| 数据全空、红条「行情源不可达」 | host 半是否加载（日志 `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`）；`window.__STOCK_PANEL__.callTool('server_info',{})` 是否返回 |
+| 路由 404 | 本包是否在 profile 的 `dsh.profile.bundles` 里；改完 host 半是否**重启**过 `dsh web` |
+| 界面还是旧版 | 浏览器加载的是上次刷新的 bundle：`pnpm build` → 重启 `dsh web` → **硬刷新**（Ctrl+Shift+R）。`window.__STOCK_PANEL__.version` 可核对 |
+| 单只票无数据 | 可能停牌/退市/代码错；换标的验证 |
+| 自挖概念首次很慢/未就绪 | 引擎惰性重建（数百只 K 线）；`hist_concept_status` 看 `snapshot_ready`，或显式传 `refresh=true` 重建 |
+
+验证脚本：
 
 ```bash
-__DSH_MCP_ENDPOINT=http://your-mcp-server:8007/mcp dsh web
+node scripts/smoke-embedded.mjs    # 内置 TDX：19 工具 + 输出归一化（需真机行情）
+node scripts/smoke-mcp.mjs         # ⚠️ 历史脚本，指向已移除的远端 MCP，仅作协议模板参考
+node scripts/smoke-gateway.mjs     # 遗留 http 网关（需本机 8017 在跑）
 ```
 
-或修改 `src/index.ts` 的 `registerMcpBridge` 函数中的 `endpoint` 变量。
+## 4. 遗留 http 网关（`gateway/`）
 
-## 已验证的 MCP 工具（opentdx 3.4.0，15 个）
+python 实现的 opentdx JSON 网关，**不随 npm 包发布**，仅在需要旁路调试（例如对照 python 侧
+解析结果）时手动启动：`gateway/run-gateway.ps1`（默认 8017）。前端切到 `http` 模式即可用它。
 
-| 工具 | 用途 | 备注 |
-| --- | --- | --- |
-| `quote` | 实时报价（`{market, code}`），股票/指数通用 | 指数代码实测：上证 `SH 999999`、深成 `SZ 399001`、创业 `SZ 399006`、科创50 `SH 000688`、科创综指 `SH 000680`、沪深300 `SH 000300`、中证500 `SH 000905`、中证1000 `SH 000852`、中小100 `SZ 399005`（`SH 000016` 上证50 无数据） |
-| `kline` | K 线（`{market, code, period, count, start}`），指数同样可用 | 升序返回，`datetime` 形如 `2026-09-04T00:00:00` |
-| `tick_chart` | 分时（`{market, code, query_date?}`），指数可用 | 返回 `price/avg/vol` 逐分钟 |
-| `board_members` | 板块成分行情（`{board_symbol, count, sort_type, sort_order}`） | `board_symbol="A"` 一次返回全 A 5566 只完整 quote；⚠️ `sort_type=AMOUNT` 服务端报错，按金额请客户端自排 |
-| `unusual` / `market_monitor` | 市场异动 / 主力异动（`{market, count}`，market 取 SH/SZ/BJ） | `desc` 如「封涨停板/封跌停板」，`market` 数值 0=SZ/1=SH/2=BJ；⚠️ 收盘后/盘前多为 09:15 竞价快照，缺「炸板」类事件 |
-| `belong_board` | 个股所属板块（`{market, code}`） | ✅ 已验证（M6 板块热度）：板块行自带 `board_symbol/board_symbol_name/涨停数/跌停数` 与板块指数 `close/pre_close`；`board_type` 3=地区 4=概念 5=风格 12=行业（热度榜剔除 type5 伪板块） |
-| `transaction` / `auction` / `capital_flow` / `symbol_info` | 逐笔 / 竞价 / 资金流 / 简况 | 后续 M9 个股页用 |
-| `goods_*` | 期货/港股/美股扩展行情 | 独立品类 |
+> 该目录在工作区会留 `gateway/*.log`（可到 MB 级，已在 `.gitignore` 中）。确认不再需要时，
+> 建议连同 `gateway/`、`scripts/smoke-gateway.mjs`、`smoke-mcp.mjs` 一并评估删除（ROADMAP B2）。
 
-> ⚠️ 响应格式：服务器对 `tools/*` **始终返回 SSE**（`event: message\ndata: {...}`），
-> 客户端必须按 SSE 解析（`src/lib/mcp.ts` 的 `parseMcpBody`，已兼容纯 JSON 兜底）。
-> 旧版 `resp.json()` 会静默失败 —— 已修复。
->
-> ⚠️ 超时兜底：`mcp.ts` 每个请求带 15s AbortSignal 超时（实测偶发慢调用/挂起，
-> 无超时会让梯队等批量轮询卡死）；批量并发 ≤6（`src/lib/pool.ts`）。
+## 5. 交易日复验清单（阻塞项）
 
-## M5 之后的本地化（无后端）
+以下字段/行为**只在休市或快照数据上验证过**，需要在交易日盘中复核后回填本文：
 
-- **自选股**：`src/lib/watchlist-store.ts`，localStorage（key `dsh-stock-panel:watchlist:v1`）
-- **搜索**：`src/lib/market.ts` 的 `searchInstruments`，用全 A 索引（`board_members("A")` 缓存 20s）本地过滤
-- **市场统计**：广度/分布/榜单均在客户端由全 A 列表计算；涨停/跌停用 `buy_price_limit` 精确判定
-- **数据源切换**：`window.__DSH_DATA_SOURCE__ = 'mcp' | 'http'`（HTTP 走原 FastAPI 后端，用于关键价位/AI 分析）
-
-## 测试步骤
-
-1. **重启 DSH web 进程**以加载新的 host 半 bundle：
-   ```powershell
-   # 终止当前进程（PID 18716）
-   Stop-Process -Id 18716 -Force
-   # 重新启动
-   dsh web --no-open
-   ```
-
-2. **打开 DSH web GUI**（http://127.0.0.1:3080）
-
-3. **在右侧工作台列输入股票代码**（如 `000001`）
-
-4. **验证内容加载**：
-   - 搜索框
-   - 信息条
-   - 日 K 图
-   - 关键价位
-   - 自选股
-   - AI 分析
-
-5. **检查浏览器控制台**：
-   - 应看到 `[stock-panel] MCP bridge registered at /api/stock-panel/mcp`
-   - 无 CORS 错误
-   - 数据加载成功
-
-## 故障排查
-
-### 问题：面板内容空白
-
-**可能原因：**
-1. host 半未加载（未重启 DSH）
-2. MCP 服务器不可达
-3. CORS 问题（不应出现，因走 host 半桥接）
-
-**排查步骤：**
-1. 确认已重启 DSH web 进程
-2. 检查 MCP 服务器可达性：
-   ```powershell
-   Invoke-WebRequest -Uri "http://192.168.31.196:8007/mcp" -Method Post -ContentType "application/json" -Body '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' -Headers @{ Accept = "application/json, text/event-stream" }
-   ```
-   应返回 200
-
-3. 检查浏览器开发者工具 → Network → 查看 `/api/stock-panel/mcp` 请求：
-   - 状态码应为 200
-   - 响应应为 SSE 格式（`event: message\ndata: {...}`）
-
-### 问题：host 半未注册桥接路由
-
-**检查日志：**
-- DSH 启动日志应包含 `[stock-panel] MCP bridge registered at /api/stock-panel/mcp`
-
-**确认 bundle 已更新：**
-```powershell
-# 检查安装的包是否有桥接代码
-Select-String -Path "C:\Users\Lison\.dsh\profiles\web\node_modules\@lisonevf\dsh-stock-panel\lib\index.js" -Pattern "stock-panel/mcp"
-```
-
-## 技术细节
-
-### host 半桥接路由
-
-**路由：** `POST /api/stock-panel/mcp`
-
-**请求体：**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "initialize",
-  "params": {
-    "protocolVersion": "2024-11-05",
-    "capabilities": {},
-    "clientInfo": { "name": "dsh-stock-panel", "version": "1.0" }
-  },
-  "sessionId": "可选，用于维持会话"
-}
-```
-
-**响应：** SSE 流
-```
-event: message
-data: {"jsonrpc":"2.0","id":1,"result":{...}}
-```
-
-### browser 半 MCP 客户端
-
-**文件：** `src/lib/mcp.ts`
-
-**方法：**
-- `initialize()` — 建立会话
-- `listTools()` — 列出工具
-- `callTool(name, args)` — 调用工具
-
-**桥接路由：** `/api/stock-panel/mcp`（同源，由 host 半转发）
-
-## 优势
-
-1. **无 CORS 问题** — 浏览器只调用同源路由，host 半在服务端转发
-2. **无需 FastAPI 后端** — 直接调用远端 MCP 服务器
-3. **数据源可切换** — 支持 MCP 和 HTTP 两种数据源
-4. **符合 DSH 最佳实践** — 使用 `ctx.webServer` 注册路由
+1. `auction`：`unmatched` 正负语义（买/卖未匹配方向）、`matched` 单位（手/股）、
+   与 `buy_price_limit` 的涨停价对齐、开盘后是否停止更新；
+2. `transaction`：`bs_flag` 方向口径、`vol` 单位（手/股）；
+3. `unusual` / `market_monitor`：盘中增量质量（炸板/回封事件是否真的出现）；
+4. 自挖概念引擎：`as_of` 跨日推进、参数（pool_n/window/min_corr）校准后的类规模分布与稳定性；
+5. 温度计实算值（晋级率/炸板率/首板溢价）在真实盘中的表现。
