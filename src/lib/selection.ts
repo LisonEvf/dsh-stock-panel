@@ -39,23 +39,30 @@ export const PRIMARY_VIEWS: Array<{ id: PrimaryView; label: string; hint: string
   { id: 'watch', label: '看盘', hint: '自由查看：左列表 + 主图 + AI 研判（3）' },
 ]
 
-/** 工具抽屉条目（旧页面入口，任何时段可达；不属于看盘流程）。 */
+/**
+ * 工具条目（A4：全部在**一张单页**上分区呈现，不再是"抽屉里切页"）。
+ *
+ * 顺序即页面上的区块顺序：与流程相关的放前面，**外盘放最后并标为次要**（弱化），
+ * 因为它与本插件的定位（A 股盯盘执行台）关系最远。
+ */
 export interface ToolEntry {
   id: string
   label: string
   hint: string
   group: '市场' | '研究' | '自选与监控' | '个股'
+  /** 次要区块：默认折叠、视觉弱化（A4 的「外盘可以弱化」）。 */
+  secondary?: boolean
 }
 
 export const TOOL_VIEWS: ToolEntry[] = [
   { id: 'overview', label: '市场总览', hint: '广度 / 涨跌分布 / 榜单 / 异动', group: '市场' },
   { id: 'indices', label: '指数', hint: '9 大指数日K与分时', group: '市场' },
   { id: 'ladder', label: '涨停梯队', hint: '连板梯队 + 板块热度 TOP', group: '市场' },
-  { id: 'global', label: '外盘', hint: '港股 / 美股 / 期货', group: '市场' },
   { id: 'scout', label: '选股筛选', hint: '快照筛选 + MA 信号 + AI 排序', group: '研究' },
   { id: 'watchlist', label: '自选盘', hint: '自选表格（加删/清空）', group: '自选与监控' },
   { id: 'alerts', label: '监控规则', hint: '价格/涨跌幅/关键词规则与命中', group: '自选与监控' },
   { id: 'detail', label: '个股明细', hint: '旧版全功能个股页（信息条/筹码/逐笔）', group: '个股' },
+  { id: 'global', label: '外盘', hint: '港股 / 美股 / 期货（次要，默认折叠）', group: '市场', secondary: true },
 ]
 
 /**
@@ -73,8 +80,14 @@ export const SUB_VIEWS: Record<PrimaryView, Array<{ id: string; label: string }>
   ],
 }
 
-/** 左栏（盯盘列表）的分组。 */
-export type LeftGroup = 'watch' | 'limit' | 'unusual'
+/**
+ * 左栏（盯盘列表）的分组。
+ *
+ * A4（2026-09-12）收敛为两组：**自选**（手工维护的观察池）+ **个股**（最近看过的，自动积累）。
+ * 原来的「涨停」「异动」两组下线：涨停有「涨停梯队」工具页、异动并入工具单页 ——
+ * 左栏只回答「我要盯谁」，不再兼作行情浏览器。
+ */
+export type LeftGroup = 'watch' | 'viewed'
 
 /** 面板 UI 状态（持久化）。 */
 export interface UiState {
@@ -156,6 +169,15 @@ function migrateLegacy(): Selection | null {
   }
 }
 
+/**
+ * 左栏分组归一（A4）。
+ * 旧持久化值里的 `limit` / `unusual` 已下线，一律落到「自选」；未知值同。
+ * 因此**不需要**再升 UI 键版本：v3 里的旧值会被就地收敛。
+ */
+function leftGroupOf(v: unknown): LeftGroup {
+  return v === 'viewed' ? 'viewed' : 'watch'
+}
+
 /** 从旧 v2 状态（4 视图时代）搬走仍然有意义的偏好：标的、栏显隐、K 线窗口。 */
 function migrateV2(): Partial<UiState> {
   try {
@@ -163,11 +185,10 @@ function migrateV2(): Partial<UiState> {
     if (raw === null) return {}
     const p: unknown = JSON.parse(raw)
     if (!isRecord(p)) return {}
-    const leftGroup: LeftGroup = p.leftGroup === 'limit' || p.leftGroup === 'unusual' ? p.leftGroup : 'watch'
     return {
       leftRail: p.leftRail !== false,
       rightRail: p.rightRail !== false,
-      leftGroup,
+      leftGroup: leftGroupOf(p.leftGroup),
       klineDays: typeof p.klineDays === 'number' && p.klineDays >= 20 && p.klineDays <= 1000 ? p.klineDays : DEFAULT_UI.klineDays,
       showMA: p.showMA !== false,
       selection: asSelection(p.selection) ?? migrateLegacy(),
@@ -201,7 +222,7 @@ function loadUi(): UiState {
     }
     const view = isPrimaryView(p.view) ? p.view : DEFAULT_UI.view
     const klineDays = typeof p.klineDays === 'number' && p.klineDays >= 20 && p.klineDays <= 1000 ? p.klineDays : DEFAULT_UI.klineDays
-    const leftGroup: LeftGroup = p.leftGroup === 'limit' || p.leftGroup === 'unusual' ? p.leftGroup : 'watch'
+    const leftGroup: LeftGroup = leftGroupOf(p.leftGroup)
     const tool = typeof p.tool === 'string' && TOOL_VIEWS.some((t) => t.id === p.tool) ? p.tool : null
     return {
       view,

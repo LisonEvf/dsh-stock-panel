@@ -308,6 +308,62 @@ body[data-ds-dark-theme] .dsh-stock {
   flex-direction: column;
 }
 
+/* ─────────────────────── 工具单页（A4） ─────────────────────── */
+
+/* 区块标题行：当前展开哪一个，一眼可见 */
+.dc-page-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 2px 4px;
+  border-bottom: 1px solid var(--dc-border);
+}
+.dc-page-head strong {
+  font-size: 12px;
+}
+.dc-tool-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-top: 4px;
+}
+/* 其余工具的入口列表：标题常驻、内容按需挂载 */
+.dc-tool-more {
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--dc-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dc-tool-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dc-text);
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.dc-tool-entry:hover {
+  border-color: var(--dc-border);
+  background: var(--dc-hover);
+}
+.dc-tool-entry-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.dc-tool-entry-hint {
+  color: var(--dc-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ─────────────────────────── 3. 基础控件 ─────────────────────────── */
 
 .dc-btn {

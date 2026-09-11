@@ -1,30 +1,34 @@
 /**
- * src/panel/WatchList.tsx — 左栏盯盘列表（自选 / 涨停 / 异动）。
+ * src/panel/WatchList.tsx — 左栏盯盘列表（**自选 / 个股**）。
  *
- * 三栏联动的起点：**点任意一行 = 设当前标的**（lib/selection.ts），
- * 主图、下部面板、右栏 AI 卡全部跟着换。
+ * A4（2026-09-12）收敛为两组，定位是「**我要盯谁**」：
+ *   - **自选**：手工维护的观察池（`watchlist-store`）；
+ *   - **个股**：最近看过的（`viewed-store`，自动积累，见 `selection.setSelection` 的埋点）。
+ * 原来的「涨停」「异动」下线：涨停有「涨停梯队」工具页，异动并入工具单页 ——
+ * 左栏不再兼作行情浏览器（也顺带省掉左栏那条 30s×3 的异动轮询）。
  *
- * 请求预算刻意压到「零额外请求」：
- *   - 「自选」「涨停」两组都从状态带已经在轮询的**全 A 快照**（swr:mkt:allA）里取，
- *     客户端过滤/排序，不再逐只拉报价（窄列时代逐只 quote 的做法已废弃）；
- *   - 「异动」复用市场页同 key 的异动缓存（20s TTL）。
- * 因此左栏放多少只自选都不会增加网络流量。
+ * 交互（A4 的关键变化）：**点任意一行 = 设当前标的 + 切到「看盘」**，
+ * 于是主区立刻渲染这只票的个股信息（报价头 / 图 / 资金·逐笔·竞价 / 右栏 AI），
+ * 而不是"只换标的不换页"——用户点它就是为了看它。
+ *
+ * 请求预算：零额外请求。「自选」「个股」两组的**价格都取自状态带已在轮询的全 A 快照**
+ * （`swr:mkt:allA`，30s），左栏放多少只都不增加网络流量。
  *
  * 键盘：j/k 或 ↑/↓ 在当前分组里移动（即时切换主图）。
  */
 import { useEffect, useMemo, useReducer } from 'react'
 import { useSwr, swrKey } from '@/lib/cache'
-import { computeBreadth, fetchAllA, fetchUnusualAll } from '@/lib/market'
-import { setSelection, updateUi, useUi, type LeftGroup } from '@/lib/selection'
+import { fetchAllA } from '@/lib/market'
+import { openStockAndWatch, updateUi, useUi, type LeftGroup } from '@/lib/selection'
 import { getWatchlist, subscribeWatchlist, type WatchItem } from '@/lib/watchlist-store'
+import { getViewed, subscribeViewed, type ViewedStock } from '@/lib/viewed-store'
 import { useHotkeys } from './hooks'
 import { pctClass } from './StatusStrip'
-import { fmtBigNum, fmtPrice } from '@/lib/format'
+import { fmtPrice } from '@/lib/format'
 
 const GROUPS: Array<{ id: LeftGroup; label: string; hint: string }> = [
-  { id: 'watch', label: '自选', hint: '本地自选（价格取自全 A 快照，零额外请求）' },
-  { id: 'limit', label: '涨停', hint: '按涨停价精确判定的涨停池，按涨幅排序' },
-  { id: 'unusual', label: '异动', hint: '市场异动事件（盘中增量）' },
+  { id: 'watch', label: '自选', hint: '手工维护的观察池（价格取自全 A 快照，零额外请求）；点行即看它' },
+  { id: 'viewed', label: '个股', hint: '最近看过的标的（自动积累，上限 30）；点行即看它' },
 ]
 
 /** 列表行统一形状。 */
@@ -44,22 +48,34 @@ function useWatchItems(): WatchItem[] {
   return useMemo(() => getWatchlist(), [tick])
 }
 
+/** 订阅「看过的个股」变更。 */
+function useViewedItems(): ViewedStock[] {
+  const [tick, bump] = useReducer((x: number) => x + 1, 0)
+  useEffect(() => subscribeViewed(bump), [])
+  return useMemo(() => getViewed(), [tick])
+}
+
+/** 「多久以前看的」——个股栏要的是"最近"，不是精确时间。 */
+function agoText(at: number): string {
+  const d = Date.now() - at
+  if (d < 60_000) return '刚刚'
+  if (d < 3_600_000) return `${Math.floor(d / 60_000)} 分钟前`
+  if (d < 86_400_000) return `${Math.floor(d / 3_600_000)} 小时前`
+  return `${Math.floor(d / 86_400_000)} 天前`
+}
+
 export function WatchList() {
   const ui = useUi()
   const items = useWatchItems()
+  const viewed = useViewedItems()
   const allA = useSwr(swrKey.allA(), () => fetchAllA(), {
     ttl: 15000,
     refreshInterval: 30000,
     // 左栏收起（HTML hidden，组件仍挂载）时停止轮询：收起 = 不看，不必再拉（B3）。
     enabled: ui.leftRail,
   })
-  const unusual = useSwr(swrKey.unusualAll(), () => fetchUnusualAll(40), {
-    ttl: 20000,
-    refreshInterval: 30000,
-    enabled: ui.leftRail,
-  })
 
-  /** 全 A 快照 → code 索引（自选用它免请求查价）。 */
+  /** 全 A 快照 → code 索引（自选/个股用它免请求查价）。 */
   const byCode = useMemo(() => {
     const map = new Map<string, { name: string; close: number; pct: number }>()
     for (const r of allA.data ?? []) map.set(r.code, { name: r.name, close: r.close, pct: r.pct })
@@ -67,8 +83,8 @@ export function WatchList() {
   }, [allA.data])
 
   const rows: Row[] = useMemo(() => {
-    if (ui.leftGroup === 'watch') {
-      return items.map((it) => {
+    if (ui.leftGroup === 'viewed') {
+      return viewed.map((it) => {
         const snap = byCode.get(it.code)
         return {
           market: it.market,
@@ -76,34 +92,21 @@ export function WatchList() {
           name: it.name || snap?.name || it.code,
           price: snap?.close ?? null,
           pct: snap?.pct ?? null,
+          extra: agoText(it.at),
         }
       })
     }
-    if (ui.leftGroup === 'limit') {
-      const list = (allA.data ?? []).filter(
-        (r) => r.buy_price_limit > 0 && Math.abs(r.close - r.buy_price_limit) < 1e-6,
-      )
-      list.sort((a, b) => b.pct - a.pct || b.amount - a.amount)
-      return list.slice(0, 80).map((r) => ({
-        market: r.market,
-        code: r.code,
-        name: r.name,
-        price: r.close,
-        pct: r.pct,
-        extra: fmtBigNum(r.amount),
-      }))
-    }
-    return (unusual.data ?? []).slice(0, 80).map((u) => ({
-      market: u.market,
-      code: u.code,
-      name: u.name,
-      price: null,
-      pct: null,
-      extra: u.desc || u.kind || '',
-    }))
-  }, [ui.leftGroup, items, byCode, allA.data, unusual.data])
-
-  const breadth = useMemo(() => (allA.data ? computeBreadth(allA.data) : null), [allA.data])
+    return items.map((it) => {
+      const snap = byCode.get(it.code)
+      return {
+        market: it.market,
+        code: it.code,
+        name: it.name || snap?.name || it.code,
+        price: snap?.close ?? null,
+        pct: snap?.pct ?? null,
+      }
+    })
+  }, [ui.leftGroup, items, viewed, byCode])
 
   /** 键盘移动光标：把当前 selected 在列表中的位置 ±1。 */
   const move = (delta: number) => {
@@ -112,7 +115,7 @@ export function WatchList() {
     const at = sel === null ? -1 : rows.findIndex((r) => r.market === sel.market && r.code === sel.code)
     const next = at < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + delta))
     const row = rows[next]
-    if (row !== undefined) setSelection({ market: row.market, code: row.code, name: row.name })
+    if (row !== undefined) openStockAndWatch({ market: row.market, code: row.code, name: row.name })
   }
 
   useHotkeys((e) => {
@@ -126,8 +129,6 @@ export function WatchList() {
     }
   })
 
-  const loading = ui.leftGroup === 'unusual' ? unusual.status === 'loading' : allA.status === 'loading'
-  const error = ui.leftGroup === 'unusual' ? unusual.error : allA.error
   const activeGroup = GROUPS.find((g) => g.id === ui.leftGroup)
 
   return (
@@ -148,26 +149,21 @@ export function WatchList() {
           ))}
         </div>
         <span style={{ flex: 1 }} />
-        <span
-          className="dc-num dc-flat"
-          title={breadth ? `全市场 上涨 ${breadth.up} / 下跌 ${breadth.down}` : (activeGroup?.hint ?? '')}
-        >
+        <span className="dc-num dc-flat" title={activeGroup?.hint ?? ''}>
           {rows.length}
         </span>
       </div>
 
       <div className="dc-rail-body dc-scroll">
-        {error ? (
-          <div className="dc-row-hint">数据不可达：{error}</div>
-        ) : loading && rows.length === 0 ? (
+        {allA.error ? (
+          <div className="dc-row-hint">行情快照不可达：{allA.error}（自选仍可点开看图）</div>
+        ) : allA.status === 'loading' && rows.length === 0 ? (
           <div className="dc-row-hint">加载中…</div>
         ) : rows.length === 0 ? (
           <div className="dc-row-hint">
             {ui.leftGroup === 'watch'
-              ? '自选为空：在「个股」报价头点 ☆，或从「涨停」列表里挑一只加入。'
-              : ui.leftGroup === 'limit'
-                ? '当前没有涨停（休市或数据源空返回）。'
-                : '暂无异动事件（盘中增量捕获）。'}
+              ? '自选为空：在「看盘」报价头点 ☆ 加入，或 ⌘K 搜索标的。'
+              : '还没有看过的个股：在左栏/搜索/任意列表点开一只票，它就会出现在这里。'}
           </div>
         ) : (
           <div className="dc-list">
@@ -178,7 +174,8 @@ export function WatchList() {
                 <div
                   key={`${r.market}${r.code}`}
                   className={`dc-row${active ? ' is-active' : ''}`}
-                  onClick={() => setSelection({ market: r.market, code: r.code, name: r.name })}
+                  title={`${r.name} ${r.market}${r.code}${r.extra !== undefined ? ` · ${r.extra}` : ''}（点击查看个股信息）`}
+                  onClick={() => openStockAndWatch({ market: r.market, code: r.code, name: r.name })}
                 >
                   <div className="dc-row-main">
                     <span className="dc-row-name">{r.name || r.code}</span>

@@ -204,7 +204,7 @@ export function DiagnosticsPanel({ onClose, serverBuildId }: Props) {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ fontWeight: 600, marginBottom: 3, color: 'var(--dc-text-muted, #64748b)' }}>{title}</div>
+      <div style={{ fontWeight: 600, marginBottom: 3, color: 'var(--dc-text-3, #64748b)' }}>{title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</div>
     </div>
   )
@@ -213,7 +213,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function Row({ label, value, tone = '' }: { label: string; value: string; tone?: string }) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-      <span style={{ minWidth: 150, color: 'var(--dc-text-muted, #94a3b8)' }}>{label}</span>
+      <span style={{ minWidth: 150, color: 'var(--dc-text-3, #94a3b8)' }}>{label}</span>
       <span className={`dc-num ${tone}`} style={{ wordBreak: 'break-all' }}>
         {value}
       </span>

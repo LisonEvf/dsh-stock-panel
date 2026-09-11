@@ -1,14 +1,19 @@
 /**
- * src/views/ToolHost.tsx — **工具抽屉**：旧功能入口的集中地（不属于看盘流程）。
+ * src/views/ToolHost.tsx — **工具单页**（A4：一张页面放下全部工具，取代旧的"抽屉切页"）。
  *
- * 为什么要它：一级导航改按看盘流程组织（复盘/作战/看盘）之后，
- * 市场总览 / 指数 / 涨停梯队 / 外盘 / 选股筛选 / 自选盘 / 监控 / 个股明细
- * 这些页面不能消失——它们是**随手查证**的工具，而不是流程的一环。
- * 抽屉把它们从"占据一级导航"降级为"一键可达"，习惯不丢、流程不乱。
+ * 为什么改成单页：`PRODUCT-DESIGN.md` §6d.2 的决策是「工具合并在一个页面上表达」——
+ * 抽屉的毛病是"切页即失忆"：用户想看指数与涨停梯队的关系，只能在两组数据间来回切。
+ * 现在**全部区块的标题与说明**都摊在同一页上（锚点导航 + ⌘K 直达），信息架构一眼可见。
  *
- * 交互：顶部一行工具切换（按分组），右侧「返回阶段」关闭抽屉。
+ * ⚠️ 但**只挂载当前展开的区块**，这是硬约束不是偷懒：
+ *   市场总览 20s / 指数 15s / 涨停梯队 30s（**单轮 ≤177 次工具调用**）/ 自选盘 12s /
+ *   监控 / 选股 / 个股明细 / 外盘各有自己的轮询与服务端计算。
+ *   8 个一起挂 = 请求预算直接打爆（见 `docs/ARCHITECTURE.md` §3.1）。
+ *   所以：区块标题常驻、内容按需挂载（点标题展开；离开即卸载 → 轮询随之停止）。
+ *
+ * 外盘（`secondary`）按决策**弱化**：排在最后、标题标注「次要」、默认不展开。
  */
-import { X } from 'lucide-react'
+import { X, ChevronRight } from 'lucide-react'
 import { MarketOverview } from '@/pages/MarketOverview'
 import { IndicesPage } from '@/pages/IndicesPage'
 import { LadderPage } from '@/pages/LadderPage'
@@ -27,59 +32,86 @@ import {
   useUi,
 } from '@/lib/selection'
 
-const GROUPS = ['市场', '研究', '自选与监控', '个股'] as const
+/** 渲染某个工具区块（只有当前展开的那个会被调用）。 */
+function renderTool(id: string, sel: ReturnType<typeof useSelection>) {
+  switch (id) {
+    case 'overview':
+      return (
+        <MarketOverview
+          onOpenStock={openStockAndWatch}
+          onOpenIndex={(market, code, name) => setSelection({ market, code, name })}
+        />
+      )
+    case 'indices':
+      return <IndicesPage initial={null} />
+    case 'ladder':
+      return <LadderPage onOpenStock={openStockAndWatch} />
+    case 'scout':
+      return <ScoutPage onOpenStock={openStockAndWatch} />
+    case 'watchlist':
+      return <WatchlistPage onOpenStock={openStockAndWatch} />
+    case 'alerts':
+      return <AlertsPage />
+    case 'detail':
+      return <StockDetailPage open={sel} />
+    case 'global':
+      return <GlobalPage />
+    default:
+      return null
+  }
+}
 
 export function ToolHost() {
   const ui = useUi()
   const sel = useSelection()
-  const current = TOOL_VIEWS.find((t) => t.id === ui.tool) ?? TOOL_VIEWS[0]
-  const id = current.id
+  const active = ui.tool ?? TOOL_VIEWS[0].id
+  const activeEntry = TOOL_VIEWS.find((t) => t.id === active)
 
   return (
     <div className="dc-view">
-      {/* 工具条：分组切换 + 返回阶段 */}
+      {/* 锚点导航：全部区块都在这一行（点=展开并切到该区块） */}
       <div className="dc-subnav">
-        {GROUPS.map((g) => {
-          const items = TOOL_VIEWS.filter((t) => t.group === g)
-          if (items.length === 0) return null
-          return (
-            <span key={g} className="dc-toolgroup">
-              <span className="dc-toolgroup-label">{g}</span>
-              {items.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  title={t.hint}
-                  className={`dc-subnav-item${id === t.id ? ' is-on' : ''}`}
-                  onClick={() => setTool(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </span>
-          )
-        })}
+        <span className="dc-toolgroup-label">工具</span>
+        {TOOL_VIEWS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            title={t.hint}
+            className={`dc-subnav-item${active === t.id ? ' is-on' : ''}`}
+            onClick={() => setTool(t.id)}
+          >
+            {t.label}
+            {t.secondary === true ? <span className="dc-tag" style={{ marginLeft: 4 }}>次要</span> : null}
+          </button>
+        ))}
         <span style={{ flex: 1 }} />
-        <span className="dc-ai-note">工具不属于看盘流程，随手查证用</span>
+        <span className="dc-ai-note">一张页面放下全部工具 · 只展开当前区块</span>
         <button type="button" className="dc-btn dc-btn--icon" title="返回当前阶段（Esc）" onClick={() => closeTool()}>
           <X size={12} />
         </button>
       </div>
 
-      <div className="dc-view">
-        {id === 'overview' ? (
-          <MarketOverview
-            onOpenStock={openStockAndWatch}
-            onOpenIndex={(market, code, name) => setSelection({ market, code, name })}
-          />
-        ) : null}
-        {id === 'indices' ? <IndicesPage initial={null} /> : null}
-        {id === 'ladder' ? <LadderPage onOpenStock={openStockAndWatch} /> : null}
-        {id === 'global' ? <GlobalPage /> : null}
-        {id === 'scout' ? <ScoutPage onOpenStock={openStockAndWatch} /> : null}
-        {id === 'watchlist' ? <WatchlistPage onOpenStock={openStockAndWatch} /> : null}
-        {id === 'alerts' ? <AlertsPage /> : null}
-        {id === 'detail' ? <StockDetailPage open={sel} /> : null}
+      <div className="dc-view dc-scroll">
+        <div className="dc-page-head">
+          <strong>{activeEntry?.label ?? ''}</strong>
+          <span className="dc-ai-note">{activeEntry?.hint ?? ''}</span>
+        </div>
+        <div className="dc-tool-body">{renderTool(active, sel)}</div>
+
+        {/* 其余区块的标题常驻（信息架构可见），内容按需展开 */}
+        <div className="dc-tool-more">
+          <div className="dc-row-hint">全部工具（点击展开；未展开的区块不挂载、不轮询）</div>
+          {TOOL_VIEWS.filter((t) => t.id !== active).map((t) => (
+            <button key={t.id} type="button" className="dc-tool-entry" title={t.hint} onClick={() => setTool(t.id)}>
+              <ChevronRight size={11} />
+              <span className="dc-tool-entry-label">
+                {t.label}
+                {t.secondary === true ? <span className="dc-tag" style={{ marginLeft: 6 }}>次要</span> : null}
+              </span>
+              <span className="dc-tool-entry-hint">{t.hint}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
