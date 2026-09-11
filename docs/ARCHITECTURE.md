@@ -278,7 +278,7 @@ registerStateBridge(ws)                          // GET/POST /api/stock-panel/st
 | host 日志 | `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`、AI 可用性行 |
 | 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract}.mjs`（离线、已进 CI）+ `scripts/smoke-embedded.mjs`（需真机行情） |
 | **真实存储栈校验** | `node scripts/verify-state-domain.mjs`：用宿主安装的 cordis + dsh-storage + storage-json + storage-domain **真跑一遍**手搓 spec（16 项断言：open 接受 / 8 表 / 键编码必要性 / 落盘持久性 / version 语义 / compatibleVersions 逃生口）。不进 CI（CI 无 DSH 安装），改契约后必跑 |
-| ⏳ 待补 | 数据链路 / 缓存命中 / HIST 快照 / 存储可用性 **诊断面板**（ROADMAP B5-③）；底栏已显示版本+构建 id |
+| ⏳ 待补 | 无（B5-③ 诊断面板已实现：`src/panel/DiagnosticsPanel.tsx`，底栏 🩺 按钮 —— 构建一致性 / 持久化 / 数据链路 / 缓存底账 / AI 与 HIST，五类状态一处可查） |
 
 ---
 

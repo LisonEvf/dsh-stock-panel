@@ -237,10 +237,16 @@ host 新增 `GET /api/stock-panel/build` 暴露后端 id；底栏显示 `v1.4.0 
 两份 id 不一致时给出「有新构建 · 点此刷新」按钮。
 ② ✅ 全 A 快照缓存**收口为一处**：`cache.ts` 新增命令式 `swrFetch(key, fetcher, {ttl})`，
 `market.fetchAllA(force)` 删掉私有的 `allACache/allAFetching`，改走同一个 SWR store
-（此前 UI 在不同页面可能读到相差 20s 的两份数据）。③ ⏳ 诊断面板待做。
+（此前 UI 在不同页面可能读到相差 20s 的两份数据）。
+③ ✅ **诊断面板**（`src/panel/DiagnosticsPanel.tsx`，底栏 🩺 按钮 / Esc 关闭）：① 构建（本页 vs
+服务端 build id → 是否跑着旧 bundle）② 持久化（host 域可用性 / 降级原因 / 各表记录数 / 是否首迁）
+③ 数据链路（transport / 端点 / 工具数）④ 缓存（每个 SWR key 的状态、数据年龄、是否在途——
+13 个轮询者的共同底账，每秒刷新）⑤ AI 与 HIST（按需探测，不轮询）。
+设计立场：**如实展示，包括不可用的原因**（诊断面板最忌讳把失败说成正常）。
 
 **验收锚点**：✅ 改完代码只 build 不刷新时，界面能提示「当前运行的是旧构建」；
-✅ 全 A 数据只有一个缓存（`swr:mkt:allA`）；⏳ 诊断面板能一眼看出 5 项子系统的健康度。
+✅ 全 A 数据只有一个缓存（`swr:mkt:allA`）；✅ 五类子系统状态可在面板内一眼判断
+（不需要开 DevTools 抄命令）。
 
 **规模**：M
 

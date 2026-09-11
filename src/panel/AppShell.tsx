@@ -21,7 +21,7 @@
  * ```
  */
 import { useEffect, useRef, useState } from 'react'
-import { Search, Wrench } from 'lucide-react'
+import { Search, Wrench, Stethoscope } from 'lucide-react'
 import { AlertWatcher } from '@/components/AlertWatcher'
 import { getHits, markAllRead, subscribeAlerts, unreadCount } from '@/lib/alerts'
 import { searchInstruments, type SearchHit } from '@/lib/market'
@@ -44,6 +44,7 @@ import { currentStage, STAGES, type Stage } from '@/lib/stage'
 import { useMediaQuery, useHotkeys } from './hooks'
 import { CLIENT_BUILD_ID, CLIENT_VERSION, isStaleBuild, useBuildInfo } from '@/lib/build-info'
 import { hostStateInfo, subscribeHostState } from '@/lib/host-state'
+import { DiagnosticsPanel } from './DiagnosticsPanel'
 import { StatusStrip } from './StatusStrip'
 import { WatchList } from './WatchList'
 import { AiPanel } from './AiPanel'
@@ -82,6 +83,8 @@ export function AppShell({ chat }: Props) {
   const sel = useSelection()
   const symbol = selectionSymbol(sel)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  /** 子系统诊断面板（B5-③）：静默故障的集中排查入口。 */
+  const [diagOpen, setDiagOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [alertUnread, setAlertUnread] = useState(() => unreadCount())
   const [, setClockTick] = useState(0)
@@ -180,6 +183,7 @@ export function AppShell({ chat }: Props) {
     if (e.altKey) return
     if (e.key === 'Escape') {
       setPaletteOpen(false)
+      setDiagOpen(false)
       if (ui.tool !== null) closeTool()
       return
     }
@@ -279,6 +283,14 @@ export function AppShell({ chat }: Props) {
           {sel !== null ? ` · ${sel.market}${sel.code}` : ''}
         </span>
         <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="dc-btn dc-btn--ghost dc-btn--icon"
+          title="子系统诊断（构建/持久化/数据链路/缓存/AI 与 HIST）"
+          onClick={() => setDiagOpen(true)}
+        >
+          <Stethoscope size={12} />
+        </button>
         <span
           className="dc-ai-note"
           title={
@@ -345,6 +357,13 @@ export function AppShell({ chat }: Props) {
             setTool(id)
             setPaletteOpen(false)
           }}
+        />
+      ) : null}
+
+      {diagOpen ? (
+        <DiagnosticsPanel
+          onClose={() => setDiagOpen(false)}
+          {...(build.data?.buildId !== undefined ? { serverBuildId: build.data.buildId } : {})}
         />
       ) : null}
 

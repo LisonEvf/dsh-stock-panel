@@ -292,6 +292,33 @@ export async function swrFetch<T>(
 }
 
 /**
+ * 缓存诊断快照（B5-③ 诊断面板用）：每个 key 的状态 / 数据年龄 / 是否在途。
+ *
+ * 为什么值得暴露：全仓 13 个轮询者共用这一份 store，「页面上数字不对」时第一件事
+ * 就是看它到底是 fetch 失败、还是命中了陈旧缓存。
+ */
+export function swrDiagnostics(): Array<{
+  key: string
+  status: SwrStatus
+  ageMs: number | null
+  hasData: boolean
+  inflight: boolean
+  error?: string
+}> {
+  const now = Date.now()
+  return [...store.entries()]
+    .map(([key, e]) => ({
+      key,
+      status: e.status,
+      ageMs: e.at > 0 ? now - e.at : null,
+      hasData: e.data !== undefined,
+      inflight: inflight.has(key),
+      ...(e.error !== undefined ? { error: e.error } : {}),
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key))
+}
+
+/**
  * 生成缓存 key 的语义化辅助函数（与查询语义一一对应，避免字符串手拼错）。
  */
 export const swrKey = {
