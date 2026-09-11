@@ -36,6 +36,8 @@ export interface HostStateInfo {
   counts?: Record<string, number>
   /** 是否已完成过一次「从 localStorage 首迁」。 */
   migrated?: boolean
+  /** 同步失败、等待重试的表数（0 = 全部落地）。 */
+  pending?: number
   /** host 报告的构建 id（便于排查「前端/后端不同版本」）。 */
   buildId?: string
 }
@@ -47,6 +49,11 @@ const hydratedListeners = new Set<() => void>()
 const synced = new Map<string, Map<string, string>>()
 /** 每张表一条写链，避免批量写入交错。 */
 const chains = new Map<string, Promise<void>>()
+/** 上一次同步失败、尚未成功的表（用于重试与诊断）。 */
+const failedTables = new Set<string>()
+
+/** 是否已完成「本地 → host」的首迁（只有上传**全部成功**才置位）。 */
+let migrationDone = false
 
 /** 当前持久化状态。 */
 export function hostStateInfo(): HostStateInfo {
@@ -165,11 +172,13 @@ function writeLocal(meta: StateTableMeta, value: unknown): void {
  *
  * @param table 表名（必须是 `STATE_TABLES` 里的表）
  * @param value 该表在 localStorage 里的完整值（数组或键值对象）
+ * @returns 是否**真正落盘成功**（失败时已回滚指纹，下次同步会重带这批差异；
+ *          调用方通常忽略返回值 —— store 的 `persist()` 是同步上下文）
  */
-export function syncTable(table: string, value: unknown): void {
-  if (info.availability !== 'available') return
+export function syncTable(table: string, value: unknown): Promise<boolean> {
+  if (info.availability !== 'available') return Promise.resolve(false)
   const meta = STATE_TABLES.find((t) => t.table === table)
-  if (meta === undefined) return
+  if (meta === undefined) return Promise.resolve(false)
   const next = toRecords(meta, value)
   const prev = synced.get(table) ?? new Map<string, string>()
 
@@ -184,31 +193,80 @@ export function syncTable(table: string, value: unknown): void {
   for (const key of prev.keys()) if (!next.has(key)) deletes.push(key)
 
   synced.set(table, nextFingerprints)
-  if (Object.keys(put).length === 0 && deletes.length === 0) return
+  if (Object.keys(put).length === 0 && deletes.length === 0) return Promise.resolve(true)
 
   const body: Record<string, unknown> = { table }
   if (Object.keys(put).length > 0) body.records = put
   if (deletes.length > 0) body.deletes = deletes
 
   const prevChain = chains.get(table) ?? Promise.resolve()
-  const chain = prevChain.then(async () => {
+  const chain = prevChain.then(async (): Promise<boolean> => {
     const r = await postState(body)
-    if (!r.ok) {
-      // 同步失败：把指纹回滚，下一轮重试时仍会带上这批差异。
-      const back = synced.get(table)
-      if (back !== undefined) for (const k of Object.keys(put)) back.delete(k)
-      setInfo({ reason: `同步失败（${table}）：${r.error ?? '未知'}`, availability: 'available' })
+    if (r.ok) {
+      failedTables.delete(table)
+      return true
     }
+    // 同步失败：把指纹回滚，下一轮重试时仍会带上这批差异。
+    const back = synced.get(table)
+    if (back !== undefined) for (const k of Object.keys(put)) back.delete(k)
+    failedTables.add(table)
+    setInfo({ reason: `同步失败（${table}）：${r.error ?? '未知'}`, availability: 'available', pending: failedTables.size })
+    return false
   })
-  chains.set(table, chain)
+  chains.set(
+    table,
+    chain.then(() => undefined),
+  )
+  return chain
 }
 
-/** 标记「本地数据已首迁到 host」（只写一次 global）。 */
-export function markLocalDataMigrated(): void {
-  if (info.availability !== 'available') return
-  void postState({ migrated: true }).then((r) => {
-    if (r.ok) setInfo({ migrated: true })
-  })
+/**
+ * 等待所有在途写入落地。
+ *
+ * 首迁必须用它：**先确认全部上传成功，再写「已首迁」标记** ——
+ * 否则会出现真机实测过的那种矛盾状态：标记写了、数据一条没有
+ * （页面在途刷新会取消 fetch，标记却落了地）。
+ */
+export async function flushState(): Promise<{ ok: boolean; failed: string[] }> {
+  await Promise.allSettled([...chains.values()])
+  return { ok: failedTables.size === 0, failed: [...failedTables] }
+}
+
+/** 标记「本地数据已首迁到 host」（仅在上传确认成功后调用）。 */
+export async function markLocalDataMigrated(): Promise<boolean> {
+  if (info.availability !== 'available') return false
+  const r = await postState({ migrated: true })
+  if (r.ok) {
+    migrationDone = true
+    setInfo({ migrated: true })
+    return true
+  }
+  setInfo({ reason: `首迁标记写入失败：${r.error ?? '未知'}（下次打开会重试）` })
+  return false
+}
+
+/** 失败重试：可见时（用户回到页面）与一次延时之后各试一次。 */
+function scheduleSyncRetry(): void {
+  const retry = (): void => {
+    if (failedTables.size === 0) return
+    for (const table of [...failedTables]) {
+      const local = readLocalFor(table)
+      if (local !== null) void syncTable(table, local)
+      else failedTables.delete(table)
+    }
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) retry()
+    })
+  }
+  window.setTimeout(retry, 5000)
+}
+
+/** 按表名读回 localStorage 镜像（重试用）。 */
+function readLocalFor(table: string): unknown {
+  const meta = STATE_TABLES.find((t) => t.table === table)
+  return meta === undefined ? null : readLocal(meta)
 }
 
 /**
@@ -243,6 +301,8 @@ export async function initHostState(): Promise<HostStateAvailability> {
     }
 
     let uploaded = false
+    /** 需要上传的表（首迁）。 */
+    const toUpload: string[] = []
     for (const meta of STATE_TABLES) {
       const remote = body.tables?.[meta.table] ?? {}
       if (Object.keys(remote).length > 0) {
@@ -258,7 +318,8 @@ export async function initHostState(): Promise<HostStateAvailability> {
           const recs = toRecords(meta, local)
           if (recs.size > 0) {
             uploaded = true
-            syncTable(meta.table, local)
+            toUpload.push(meta.table)
+            void syncTable(meta.table, local)
           }
         }
       }
@@ -267,10 +328,25 @@ export async function initHostState(): Promise<HostStateAvailability> {
       availability: 'available',
       reason: '',
       counts: body.counts ?? {},
-      migrated: body.migratedFromLocalStorage === true || uploaded,
+      migrated: body.migratedFromLocalStorage === true || migrationDone,
+      pending: failedTables.size,
       ...(typeof body.build?.buildId === 'string' ? { buildId: body.build.buildId } : {}),
     })
-    if (uploaded) markLocalDataMigrated()
+
+    // 首迁：**先等上传确认成功，再写「已首迁」标记**（顺序反了就会出现
+    // 真机实测过的矛盾状态：标记写了、数据一条没有 —— 刷新会取消在途 fetch）。
+    if (uploaded) {
+      const { ok, failed } = await flushState()
+      if (ok) {
+        await markLocalDataMigrated()
+      } else {
+        setInfo({
+          reason: `首迁上传未完成（${failed.join('、')}）：数据仍在本地镜像，回到页面或 5 秒后自动重试`,
+          pending: failed.length,
+        })
+        scheduleSyncRetry()
+      }
+    }
 
     // 通知各 store 用 host 权威数据重载（同步回调，UI 立即刷新）
     for (const fn of hydratedListeners) {

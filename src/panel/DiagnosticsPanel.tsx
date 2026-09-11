@@ -140,6 +140,15 @@ export function DiagnosticsPanel({ onClose, serverBuildId }: Props) {
             />
             {host.reason !== '' ? <Row label="原因" value={host.reason} tone="dc-warn" /> : null}
             <Row label="已首迁" value={host.migrated === true ? '是' : '否（域为空且本地有数据时会一次性上传）'} />
+            <Row
+              label="待同步表数"
+              value={
+                (host.pending ?? 0) === 0
+                  ? '0（全部已落地）'
+                  : `${host.pending} 张表未落地 —— 数据仍在本地镜像，回到页面/5 秒后自动重试`
+              }
+              tone={(host.pending ?? 0) === 0 ? 'dc-up' : 'dc-warn'}
+            />
             {host.counts !== undefined ? (
               <Row
                 label="各表记录数"

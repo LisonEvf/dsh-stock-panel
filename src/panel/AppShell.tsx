@@ -312,10 +312,10 @@ export function AppShell({ chat }: Props) {
             type="button"
             className="dc-tag"
             style={{ background: 'var(--dc-danger)', color: '#fff', cursor: 'pointer', border: 'none' }}
-            title={`服务端已是新构建（build ${build.data?.buildId ?? '?'}），当前页面仍是 build ${CLIENT_BUILD_ID}。点击重新加载页面。`}
+            title={`构建产物与运行实例不一致：本页 build ${CLIENT_BUILD_ID} · 服务端 build ${build.data?.buildId ?? '?'}。\n先硬刷新（Ctrl+Shift+R）：若只是 client 半改动，刷新即恢复一致；\n若刷新后仍提示，说明 host 半是重启前的构建 —— 需要重启 dsh web。`}
             onClick={() => window.location.reload()}
           >
-            有新构建 · 点此刷新
+            构建已更新 · 点此刷新
           </button>
         ) : null}
         <span
