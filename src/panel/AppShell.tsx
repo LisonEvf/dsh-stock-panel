@@ -43,6 +43,7 @@ import {
 import { currentStage, STAGES, type Stage } from '@/lib/stage'
 import { useMediaQuery, useHotkeys } from './hooks'
 import { CLIENT_BUILD_ID, CLIENT_VERSION, isStaleBuild, useBuildInfo } from '@/lib/build-info'
+import { hostStateInfo, subscribeHostState } from '@/lib/host-state'
 import { StatusStrip } from './StatusStrip'
 import { WatchList } from './WatchList'
 import { AiPanel } from './AiPanel'
@@ -117,6 +118,10 @@ export function AppShell({ chat }: Props) {
   // 构建可见性：服务端 build id 与本 bundle 不一致 = 页面跑着旧构建（改完代码未硬刷新）。
   const build = useBuildInfo()
   const staleBuild = isStaleBuild(build.data)
+
+  // 持久化状态（A1）：host 域可用 →「持久化 host」；否则「本地存储」+ 悬浮给出原因。
+  const [hostState, setHostState] = useState(() => hostStateInfo())
+  useEffect(() => subscribeHostState(() => setHostState(hostStateInfo())), [])
 
   // 窄屏首帧自动收起右栏（用户手动展开后本会话不再干预）。
   const wide = useMediaQuery('(min-width: 1120px)')
@@ -274,6 +279,22 @@ export function AppShell({ chat }: Props) {
           {sel !== null ? ` · ${sel.market}${sel.code}` : ''}
         </span>
         <span style={{ flex: 1 }} />
+        <span
+          className="dc-ai-note"
+          title={
+            hostState.availability === 'available'
+              ? `数据持久化在 host 侧（DSH 存储子系统 stock_panel 域），浏览器 localStorage 仅作镜像。记录数：${Object.entries(
+                  hostState.counts ?? {},
+                )
+                  .map(([k, v]) => `${k}=${v}`)
+                  .join(' ')}`
+              : hostState.availability === 'unknown'
+                ? '正在接入 host 侧持久化…'
+                : `${hostState.reason || 'host 侧持久化不可用'}（数据仍保存在浏览器 localStorage，清缓存会丢）`
+          }
+        >
+          持久化：{hostState.availability === 'available' ? 'host' : hostState.availability === 'unknown' ? '接入中' : '本地'}
+        </span>
         {staleBuild ? (
           <button
             type="button"

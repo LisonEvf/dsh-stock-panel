@@ -62,6 +62,7 @@
     "watch": "tsdown --watch",
     "smoke:view": "node scripts/smoke-client-view.mjs",
     "smoke:ai": "node scripts/smoke-ai-contract.mjs",
+    "smoke:host": "node scripts/smoke-host-state.mjs",
     "publish": "npm publish --registry=https://npm.pkg.github.com"
   }
 }

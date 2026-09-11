@@ -97,8 +97,8 @@ export function registerEmbeddedTdxBridge(webServer: {
   }
 }
 
-/** 读取 HTTP 请求体（JSON）。 */
-async function readBody(req: unknown): Promise<{ payload: unknown; sessionId?: string }> {
+/** 读取 HTTP 请求体（JSON）。host 半各路由共用。 */
+export async function readBody(req: unknown): Promise<{ payload: unknown; sessionId?: string }> {
   const chunks: Uint8Array[] = []
   let size = 0
   // IncomingMessage 既是 ReadableStream 也是 AsyncIterable

@@ -8,6 +8,7 @@
  */
 
 import type { ExpectItem } from './review-store'
+import { onHostHydrated, syncTable } from './host-state'
 
 // ===== 持仓 =====
 
@@ -90,10 +91,12 @@ function loadLog(): TradeLog[] {
 
 function persistPos(): void {
   try { localStorage.setItem(POS_KEY, JSON.stringify(positions)) } catch { /* ignore */ }
+  syncTable('positions', positions)
 }
 
 function persistLog(): void {
   try { localStorage.setItem(LOG_KEY, JSON.stringify(log)) } catch { /* ignore */ }
+  syncTable('tradelog', log)
 }
 
 function notify(): void {
@@ -212,3 +215,10 @@ export function statsLabel(s: StatsResult): string {
   if (!s.hasEvidence) return `无证据（${s.count} 样本），空仓`
   return `胜率 ${(s.p * 100).toFixed(0)}% · 盈亏比 ${s.b.toFixed(2)} · ${s.count} 样本`
 }
+
+// A1：host 域数据落地后，用权威版本重载（持仓 + 交易日志两张表）。
+onHostHydrated(() => {
+  positions = loadPos()
+  log = loadLog()
+  notify()
+})

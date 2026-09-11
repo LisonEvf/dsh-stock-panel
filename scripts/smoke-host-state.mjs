@@ -1,0 +1,255 @@
+// scripts/smoke-host-state.mjs —— host 半离线冒烟（无需 DSH 宿主）
+//
+// 用法：
+//   pnpm build && node scripts/smoke-host-state.mjs
+//
+// 目的：host 半此前**没有任何离线覆盖**（唯一的 host 冒烟 smoke-embedded 需要真机行情）。
+// 本脚本在 Node 里加载 lib/index.js，喂一个假 ctx，断言：
+//   1. 三条同源路由都注册了（call / build / state），且都是 exact；
+//   2. GET /api/stock-panel/build → { version: package.json, buildId: 8 位十六进制 }；
+//   3. 持久化领域的 spec 契约正确：领域名合法（^[a-z][a-z0-9_]*$，不能有连字符）、
+//      version=1、layout=per-record、8 张表且每张带 valueSchema.parse、global schema 拒绝 null；
+//   4. GET /api/stock-panel/state → 全量快照（含全部表）；POST 写入后能被 GET 读到；
+//   5. **降级**：宿主没挂 storageDomain 时，GET 返回 available:false + 原因，且 apply 不抛异常。
+//
+// 注：不触碰真实 TDX、不写任何文件（storageDomain 用内存假实现）。
+
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const HOST_BUNDLE = join(ROOT, 'lib', 'index.js')
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+
+let failures = 0
+/** 断言：记录失败但不中断（跑完全部用例后统一退出码）。 */
+function assert(cond, msg) {
+  if (cond) {
+    console.log(`  ✅ ${msg}`)
+  } else {
+    failures += 1
+    console.error(`  ❌ ${msg}`)
+  }
+}
+
+/** 假 res：收集 statusCode / 头 / body。 */
+function makeRes() {
+  const out = { statusCode: 0, headers: {}, body: '' }
+  return {
+    out,
+    res: {
+      set statusCode(v) {
+        out.statusCode = v
+      },
+      get statusCode() {
+        return out.statusCode
+      },
+      setHeader(k, v) {
+        out.headers[k] = v
+      },
+      end(b) {
+        out.body = b
+      },
+    },
+  }
+}
+
+/** 假 req：GET 用 { method }；POST 附带 async-iterable body。 */
+function makeReq(method, body) {
+  const req = { method, headers: {} }
+  if (body !== undefined) {
+    const buf = Buffer.from(JSON.stringify(body), 'utf8')
+    req[Symbol.asyncIterator] = async function* () {
+      yield buf
+    }
+  }
+  return req
+}
+
+/**
+ * 内存版 storageDomain 假实现（严格按实测契约：open / table / global / close）。
+ * @param {object} [recorder] 用于把 open 收到的 spec 回传出来做断言
+ */
+function makeFacility(recorder) {
+  return {
+    async open(spec) {
+      if (recorder) recorder.spec = spec
+      const tables = new Map()
+      for (const name of Object.keys(spec.tables)) tables.set(name, new Map())
+      let global = { ...spec.global.initial }
+      return {
+        name: spec.name,
+        global: {
+          get: () => global,
+          set: async (v) => {
+            global = v
+          },
+        },
+        table(name) {
+          const m = tables.get(name)
+          if (m === undefined) throw new Error(`declares no table '${name}'`)
+          return {
+            get: (k) => m.get(k),
+            entries: () => [...m.entries()][Symbol.iterator](),
+            keys: () => [...m.keys()][Symbol.iterator](),
+            get size() {
+              return m.size
+            },
+            put: async (k, v) => {
+              // 走一次 schema，确保 spec 里的 schema 真的可用
+              spec.tables[name].valueSchema.parse(v)
+              m.set(k, v)
+            },
+            delete: async (k) => m.delete(k),
+          }
+        },
+        close: async () => {},
+      }
+    },
+  }
+}
+
+/** 组装假 ctx（webServer 记录注册的路由）。 */
+function makeCtx({ storageDomain }) {
+  const routes = []
+  const ctx = {
+    provide() {},
+    webServer: {
+      register(route) {
+        routes.push(route)
+        return () => {}
+      },
+    },
+    tools: { register: () => () => {} },
+  }
+  if (storageDomain !== undefined) ctx.storageDomain = storageDomain
+  return { ctx, routes }
+}
+
+/** 按 path 找已注册路由。 */
+function routeOf(routes, path) {
+  return routes.find((r) => r.path === path)
+}
+
+const moduleUrl = pathToFileURL(HOST_BUNDLE).href
+
+async function main() {
+  if (!existsSync(HOST_BUNDLE)) {
+    console.error(`[smoke-host-state] 缺 ${HOST_BUNDLE} —— 先 pnpm build`)
+    process.exit(1)
+  }
+
+  console.log('[1] 路由注册（假 ctx + 假 storageDomain）')
+  const recorder = {}
+  const modA = await import(moduleUrl + '?case=a')
+  const a = makeCtx({ storageDomain: makeFacility(recorder) })
+  modA.apply(a.ctx)
+  const callRoute = routeOf(a.routes, '/api/stock-panel/call')
+  const buildRoute = routeOf(a.routes, '/api/stock-panel/build')
+  const stateRoute = routeOf(a.routes, '/api/stock-panel/state')
+  assert(callRoute !== undefined, 'TDX 桥接路由已注册（/api/stock-panel/call）')
+  assert(buildRoute !== undefined, '构建信息路由已注册（/api/stock-panel/build）')
+  assert(stateRoute !== undefined, '持久化路由已注册（/api/stock-panel/state）')
+  assert(
+    [callRoute, buildRoute, stateRoute].every((r) => r?.kind === 'exact'),
+    '三条路由均为 exact 匹配',
+  )
+
+  console.log('[2] GET /api/stock-panel/build')
+  {
+    const { res, out } = makeRes()
+    await buildRoute.handler(makeReq('GET'), res)
+    const body = JSON.parse(out.body)
+    assert(out.statusCode === 200, `HTTP 200（实际 ${out.statusCode}）`)
+    assert(body.version === pkg.version, `version = package.json（${body.version}）`)
+    assert(/^[0-9a-f]{8}$/.test(body.buildId), `buildId 是 8 位十六进制（${body.buildId}）`)
+  }
+
+  console.log('[3] 持久化领域的 spec 契约')
+  {
+    const spec = recorder.spec
+    assert(spec !== undefined, 'facility.open 被调用（说明域已初始化）')
+    const UNIT_NAME_RE = /^[a-z][a-z0-9_]*$/
+    assert(UNIT_NAME_RE.test(spec.name), `领域名合法且无连字符（'${spec.name}'）`)
+    assert(spec.version === 1, `领域版本固定为 1（${spec.version}）—— 避免 version-mismatch 无迁移`)
+    assert(spec.layout === 'per-record', `layout = per-record（${spec.layout}）`)
+    assert(spec.invalidRecords === 'backup-and-skip', '单条坏记录不阻塞整域打开')
+    const tables = Object.keys(spec.tables)
+    assert(tables.length === 8, `声明 8 张表（实际 ${tables.length}：${tables.join(',')}）`)
+    assert(
+      tables.every((t) => typeof spec.tables[t].valueSchema?.parse === 'function'),
+      '每张表都带 valueSchema.parse（子系统逐条校验要用）',
+    )
+    assert(
+      spec.global?.schema?.safeParse(null).success === false,
+      'global schema 拒绝 null（null 是介质「从未写入」哨兵，契约要求拒绝）',
+    )
+    assert(typeof spec.global?.initial?.schemaVersion === 'number', 'global 带 schemaVersion（自有迁移用）')
+  }
+
+  console.log('[4] GET / POST /api/stock-panel/state')
+  {
+    const { res, out } = makeRes()
+    await stateRoute.handler(makeReq('GET'), res)
+    const snap = JSON.parse(out.body)
+    assert(out.statusCode === 200, `GET HTTP 200（实际 ${out.statusCode}）`)
+    assert(snap.available === true, `可用（available=${snap.available}）`)
+    assert(snap.domain === 'stock_panel', `域 = stock_panel（${snap.domain}）`)
+    assert(
+      snap.tables && Object.keys(snap.tables).length === 8,
+      `快照含全部 8 张表（实际 ${Object.keys(snap.tables ?? {}).length}）`,
+    )
+
+    const put = { table: 'watchlist', key: 'SH600519', value: { market: 'SH', code: '600519', name: '贵州茅台' } }
+    const pr = makeRes()
+    await stateRoute.handler(makeReq('POST', put), pr.res)
+    const pbody = JSON.parse(pr.out.body)
+    assert(pbody.ok === true && pbody.written === 1, `POST 写入成功（written=${pbody.written}）`)
+
+    const g2 = makeRes()
+    await stateRoute.handler(makeReq('GET'), g2.res)
+    const snap2 = JSON.parse(g2.out.body)
+    assert(
+      snap2.tables.watchlist?.['SH600519']?.name === '贵州茅台',
+      'GET 能读回刚写入的记录（写→读闭环）',
+    )
+
+    const bad = makeRes()
+    await stateRoute.handler(makeReq('POST', { table: 'nope', key: 'x', value: { a: 1 } }), bad.res)
+    const badBody = JSON.parse(bad.out.body)
+    assert(badBody.ok === false && /未声明/.test(badBody.error), `未声明的表被拒（${badBody.error}）`)
+
+    const del = makeRes()
+    await stateRoute.handler(makeReq('POST', { table: 'watchlist', key: 'SH600519', delete: true }), del.res)
+    assert(JSON.parse(del.out.body).deleted === 1, 'DELETE 语义（delete:true）生效')
+  }
+
+  console.log('[5] 降级：宿主未挂 storageDomain（不得崩溃，且如实说明）')
+  {
+    const modB = await import(moduleUrl + '?case=b')
+    const b = makeCtx({})
+    let threw = false
+    try {
+      modB.apply(b.ctx)
+    } catch {
+      threw = true
+    }
+    assert(!threw, 'apply 不抛异常（GUI/行情链路不受影响）')
+    const stateRouteB = routeOf(b.routes, '/api/stock-panel/state')
+    assert(stateRouteB !== undefined, '降级时路由仍注册（前端可据此显示原因）')
+    const { res, out } = makeRes()
+    await stateRouteB.handler(makeReq('GET'), res)
+    const snap = JSON.parse(out.body)
+    assert(snap.available === false, `如实地报不可用（available=${snap.available}）`)
+    assert(typeof snap.reason === 'string' && snap.reason.length > 0, `给出原因（${snap.reason}）`)
+  }
+
+  if (failures > 0) {
+    console.error(`[smoke-host-state] ${failures} 项断言失败`)
+    process.exit(1)
+  }
+  console.log('[smoke-host-state] 全部通过 ✅')
+}
+
+await main()

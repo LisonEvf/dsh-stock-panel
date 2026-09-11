@@ -42,7 +42,12 @@ function assert(cond, msg) {
 /** 桩掉浏览器全局（bundle 内部对这些访问都带 typeof/ try 守卫，但仍需存在）。 */
 function stubBrowserGlobals() {
   const store = new Map()
-  globalThis.window = { __ModuleLoader__: { load: (o) => { registered = o } } }
+  globalThis.window = {
+    __ModuleLoader__: { load: (o) => { registered = o } },
+    // 客户端代码（host-state 的超时兜底、cache 的轮询）用 window.setTimeout —— 桩必须给。
+    setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+    clearTimeout: (h) => globalThis.clearTimeout(h),
+  }
   globalThis.document = {
     getElementById: () => null,
     querySelector: () => null,
@@ -61,7 +66,7 @@ function stubBrowserGlobals() {
 
 let registered = null
 
-function main() {
+async function main() {
   if (!existsSync(CLIENT)) {
     console.error(`[smoke-client-view] 缺 ${CLIENT} —— 先跑 pnpm build`)
     process.exit(1)
@@ -142,6 +147,22 @@ function main() {
     `buildId 是 8 位构建哈希 = ${diag?.buildId}（构建可见性 / 旧 bundle 检出依赖它）`,
   )
   assert(diag?.ai === '/api/stock-panel/ai', `AI 路由已暴露 = ${diag?.ai}`)
+
+  console.log('[3b] host 侧持久化接入（A1）：fetch 不可用时降级、不得抛')
+  {
+    // 本冒烟的 fetch 桩是「抛异常」的，所以 initHostState 必须走到降级分支。
+    await new Promise((r) => setTimeout(r, 0))
+    const info = diag?.hostState?.()
+    assert(info !== undefined, '__STOCK_PANEL__.hostState() 存在（可排查数据存哪）')
+    assert(
+      info?.availability === 'unavailable',
+      `fetch 抛异常 → 降级为不可用（实际 ${info?.availability}）`,
+    )
+    assert(
+      typeof info?.reason === 'string' && info.reason.length > 0,
+      `降级原因非空（${info?.reason}）`,
+    )
+  }
 
   console.log('[4] 契约缺失时优雅降级（不得抛异常）')
   for (const [label, badCtx] of [['ctx.slots 无 inject', { slots: {} }], ['ctx 为空', {}]]) {

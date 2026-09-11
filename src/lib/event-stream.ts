@@ -18,6 +18,7 @@
 import { callToolJson, fetchMarketMonitor, fetchUnusual, type UnusualRow } from './stock-data'
 import { marketIdToTag, type MarketTag } from './symbol'
 import { buildClock, type SessionPhase } from './session-clock'
+import { onHostHydrated, syncTable } from './host-state'
 
 /** 事件类型（与 WarPage 的 kindLabel/eventColor 枚举对齐）。 */
 export type EventKind =
@@ -78,6 +79,8 @@ function persist(): void {
   } catch {
     /* 隐私模式等忽略 */
   }
+  // A1：host 域同步（增量：只发新增/变化/删除的记录 —— 500 条也不会每轮全量重发）。
+  syncTable('events', events)
 }
 
 function notify(): void {
@@ -221,5 +224,13 @@ export async function captureOnce(signal?: AbortSignal): Promise<number> {
 export function clearEvents(): void {
   events = []
   try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+  // A1：同步清空到 host（增量同步会把这一批键当作删除下发）。
+  syncTable('events', events)
   notify()
 }
+
+// A1：host 域数据落地后，用权威版本重载并通知 UI。
+onHostHydrated(() => {
+  events = load()
+  notify()
+})

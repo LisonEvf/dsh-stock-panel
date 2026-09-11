@@ -12,6 +12,7 @@
  */
 
 import type { Regime } from './regime'
+import { onHostHydrated, syncTable } from './host-state'
 
 /** 时空标签（PRODUCT-DESIGN §4.2）。 */
 export type PhaseTag =
@@ -150,6 +151,8 @@ function persist(): void {
   } catch {
     /* 隐私模式等忽略 */
   }
+  // A1：host 域同步（增量；不可用时自动 no-op）。
+  syncTable('review', snapshots)
 }
 
 function notify(): void {
@@ -263,3 +266,9 @@ export function nextDayStr(day: string): string {
 export function today(): string {
   return todayStr()
 }
+
+// A1：host 域数据落地后，用权威版本重载并通知 UI。
+onHostHydrated(() => {
+  snapshots = load()
+  notify()
+})

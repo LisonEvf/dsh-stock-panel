@@ -75,9 +75,12 @@ Browser(invokeTool / useSwr)
        → node-tdx（src/host/vendor/opentdx.js，进程内长连接）── TCP 7709/7727 ── TDX
 ```
 
-- **19 个工具** = 15 个行情工具（quote/kline/tick_chart/transaction/auction/unusual/market_monitor/
+- **19 个工具**（内置 TDX 的**数据层**分发，浏览器经 `/api/stock-panel/call` 调用）
+  = 15 个行情工具（quote/kline/tick_chart/transaction/auction/unusual/market_monitor/
   board_members/belong_board/capital_flow/symbol_info/server_info/goods_*）+ **4 个 HIST 自挖概念工具**
   （`hist_concept_query` / `hist_concept_classes` / `hist_concept_class` / `hist_concept_status`）。
+- **8 个对话工具**（注册给当前对话的 agent，`host-tools.ts`）= 4 个行情（stock_quote/kline/tick/unusual）
+  + 4 个 HIST——两者不是同一个清单，不要混用数字。
 - 业务错/未知工具/不可达**如实上抛**，**不回退任何远端服务**（远端 MCP 已于 v1.1 移除）。
 - 请求超时 25s（`src/lib/mcp.ts`），并发池 ≤6（`src/lib/pool.ts`）。
 - 遗留 `http` 模式（自建 python 网关 `gateway/`，默认 127.0.0.1:8017）默认关闭，详见 `MCP-SETUP.md`。
@@ -126,12 +129,17 @@ Browser(invokeTool / useSwr)
 
 ## 存储
 
-- **现状**：全部在浏览器 localStorage，14 个键（自选/复盘存档 60 日/当日运行 60 日/持仓与交易日志/
-  AI 结论 80 条/事件流 500 条/UI 偏好…），3 种命名空间，仅 2 个键带迁移。
-- **目标（v1.5）**：改为 **host 侧持久化**（DSH 存储子系统 `ctx.storageDomain` + `defineDomain`
-  领域，json 后端落在 `$DSH_HOME/storages`），浏览器 localStorage 降级兜底。
-  收益：清缓存/换设备不失忆、可备份导出、复盘与持仓这类「资产」不再依赖浏览器。
-  详见 `docs/ARCHITECTURE.md` §5。
+- **已迁移（v1.5 / A1）**：用户可见的本地资产落在 **host 侧持久化**——DSH 存储子系统的
+  `stock_panel` 领域（json 后端 → `$DSH_HOME/storages`），8 张表：
+  自选 / 复盘存档 / 当日运行 / 持仓 / 交易日志 / AI 结论 / 事件流 / **看过的个股**。
+  浏览器 localStorage 降级为**镜像 + 离线兜底**：启动时拉一次全量快照写镜像，
+  写入按指纹**差量**推给 host（事件流 500 条也不会每轮全量重发）。
+  底栏显示 `持久化：host`（不可用时显示 `本地` 并在悬浮里给出原因）——**不静默降级**。
+- **仍在 localStorage**：UI 偏好（视图/栏显隐/K 线区间/当前标的）与信息条列配置——
+  它们是「这台机器的界面状态」，不属于跨日资产。
+- **收益**：清缓存/换设备不失忆；复盘存档这类资产不再依赖浏览器。
+- 领域契约与版本策略（为何不 import 宿主的 storage-domain 包、为何版本固定为 1）见
+  `docs/ARCHITECTURE.md` §5.2。
 
 ## 质量门禁
 
@@ -139,8 +147,9 @@ Browser(invokeTool / useSwr)
 pnpm build                                  # host + client + dts（CSS 字符串构建期压缩）
 node scripts/build-client.mjs --check       # 生成物与源码一致性
 npx tsc --noEmit                            # 全量类型门禁（0 错误）
-node scripts/check-bundle-size.mjs          # client.js 体积护栏 820KB（当前 796.7KB，余量 2.9%）
-node scripts/smoke-client-view.mjs          # 视图注册契约冒烟（离线，CI 已接）
+node scripts/check-bundle-size.mjs          # client.js 体积护栏 840KB（当前 814.0KB，余量 26KB）
+node scripts/smoke-client-view.mjs          # 视图注册契约 + 持久化降级冒烟（离线，CI 已接）
+node scripts/smoke-host-state.mjs           # host 半：路由/持久化域/降级（离线，CI 已接）
 node scripts/smoke-ai-contract.mjs          # AI 契约冒烟（离线假模型，CI 已接）
 node scripts/smoke-embedded.mjs             # 内置 TDX 19 工具冒烟（需真机行情）
 ```
@@ -167,15 +176,20 @@ frontend-dsh/
 ├── src/
 │   ├── index.ts          # host 半入口：TDX 桥接 + 对话工具 + AI 桥接（inject: webServer, tools）
 │   ├── host-ai.ts        # ★ 一键问模型（官方 ctx.llm + agentDefaultModel，任务化 + 自愈重试）
-│   ├── host-tools.ts     # 对话工具（19 个：行情 15 + HIST 4）
+│   ├── host-tools.ts     # 对话工具（8 个：行情 4 + HIST 4）
 │   ├── host-data.ts      # host 半取数（对话工具走 embedded）
 │   ├── host/tdx-data.ts  # ★ 内置 TDX 服务（node-tdx 适配 + 归一化 + 工具分发）
 │   ├── host/hist-data.ts # ★ 内置 HIST 自挖概念引擎（惰性单例 + 1h 快照 TTL）
+│   ├── host/state.ts     # ★ host 侧持久化（stock_panel 领域 + /api/stock-panel/state）
+│   ├── host/build-info.ts# 构建信息路由（版本 + 构建 id）
 │   ├── host/vendor/      # opentdx.js（node-tdx 构建产物 vendor + LICENSE + 类型垫片）
 │   ├── client.ts         # browser 半入口：注册 conversation.view + 注入样式 + 诊断句柄
+│   ├── lib/state-tables.ts # ★ 持久化表清单（host/client 共用单一来源）
+│   ├── lib/host-state.ts # ★ host 持久化接入（拉取/hydrate/增量同步/降级）
+│   ├── lib/viewed-store.ts # ★ 看过的个股（A4「个股」分组的数据源）
 │   ├── lib/selection.ts  # ★ 当前标的 + UI 状态（三栏联动唯一真源，v3 键 + 迁移）
 │   ├── lib/stage.ts      # ★ 阶段模型（时段 → 复盘/竞价/盘中/尾盘 + 该阶段的问题与输出）
-│   ├── lib/cache.ts      # ★ SWR 缓存层（ttl/refreshInterval/去重/失败驱逐；useSwr）
+│   ├── lib/cache.ts      # ★ SWR 缓存层（useSwr + 命令式 swrFetch；全仓唯一数据缓存）
 │   ├── lib/ai*.ts        # AI 调用封装 + 通用运行器 + 任务契约（host/client 共用）
 │   ├── lib/              # 其余领域逻辑：market/ladder/regime/situation/strength/chips/review-*/
 │   ├── panel/            # 三段式骨架：AppShell / StatusStrip / WatchList / AiPanel / use-ai

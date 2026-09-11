@@ -40,6 +40,7 @@ import { getDataSource } from './lib/api'
 import { invokeTool } from './lib/mcp'
 import { getTransportMode, endpointDiagnostics, AI_CALL_ROUTE } from './lib/endpoints'
 import { getWatchlist } from './lib/watchlist-store'
+import { hostStateInfo, initHostState } from './lib/host-state'
 import { createElement } from 'react'
 
 /** 内置 node-tdx 覆盖的全部行情工具（与 python opentdx-mcp 15 工具契约一致）。 */
@@ -192,9 +193,18 @@ export function apply(ctx: DshClientCtx): void {
       listTools: () => EMBEDDED_TOOLS,
       callTool: (name: string, args: Record<string, unknown>) => invokeTool(name, args),
       watchlist: () => getWatchlist(),
+      /** host 侧持久化状态（availability/reason/counts）——排查「数据到底存哪了」。 */
+      hostState: () => hostStateInfo(),
+      /** 手动重跑一次 host 持久化接入（诊断用）。 */
+      reinitHostState: () => initHostState(),
       ...(panel && typeof panel === 'object' ? panel : {}),
     }
   }
+
+  // A1：接入 host 侧持久化（异步，不阻塞视图注册）。
+  // 域是权威、localStorage 是镜像：拉取成功会用权威数据覆盖镜像并通知各 store 重载；
+  // 宿主机没挂存储子系统 / 路由不可达时降级为纯 localStorage（不抛、不提示错误弹窗）。
+  void initHostState()
 
   const slots = ctx?.slots
   if (!slots || typeof slots.inject !== 'function') {

@@ -1,5 +1,5 @@
 // 由 scripts/postbuild-dts.mjs 自动生成，勿手改。
-// client 半由 rolldown 构建（无 .d.ts），这里声明 dsh.client 包契约面。
+// client 半由 esbuild 构建（无 .d.ts），这里声明 dsh.client 包契约面。
 
 /** 运行时由 @deepseek-ai/dsh-client-runtime 提供的 ctx。 */
 export type DshClientCtx = any;

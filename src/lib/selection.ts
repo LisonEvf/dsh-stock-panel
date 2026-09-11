@@ -12,6 +12,7 @@
 import { useEffect, useReducer } from 'react'
 import { parseSymbol, toSymbol, type MarketTag } from './symbol'
 import { currentStage, STAGES, type Stage } from './stage'
+import { recordViewed } from './viewed-store'
 
 /** 当前聚焦的标的。 */
 export interface Selection {
@@ -313,6 +314,9 @@ export function setSelection(next: Selection | null): void {
   ui = { ...ui, selection: next }
   persist()
   notify()
+  // A4「个股栏」的数据来源：任何一次设标的都记一次「看过」
+  // （左栏/搜索/各列表点行都汇到这里，所以这里是唯一需要埋点的地方）。
+  if (next !== null) recordViewed({ market: next.market, code: next.code, name: next.name })
 }
 
 /** 按标准符号（SH600519）设置当前标的。 */

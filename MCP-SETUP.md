@@ -34,6 +34,11 @@ Browser（src/lib/mcp.ts，25s 超时）
 
 ## 2. 工具清单（19 个）
 
+> ⚠️ 这是**数据层**（`src/host/tdx-data.ts` 分发，浏览器经 `/api/stock-panel/call` 调用）的清单。
+> **对话工具是另一份清单、共 8 个**（`src/host-tools.ts` 注册给当前对话的 agent：
+> `stock_quote` / `stock_kline` / `stock_tick` / `stock_unusual` + 4 个 `hist_concept_*`）。
+> 两个数字不要混用。
+
 行情 15（与 python opentdx-mcp 契约一致）：
 
 | 工具 | 参数 | 用途与注意 |

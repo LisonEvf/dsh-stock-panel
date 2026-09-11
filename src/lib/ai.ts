@@ -11,6 +11,7 @@
  */
 import { useEffect, useReducer } from 'react'
 import { AI_CALL_ROUTE } from './endpoints'
+import { onHostHydrated, syncTable } from './host-state'
 import type {
   AiTaskKind,
   AiTaskResponse,
@@ -167,7 +168,15 @@ function persistRecords(): void {
   } catch {
     /* 隐私模式/配额：忽略 */
   }
+  // A1：host 域同步（该表本就是键值表 → shape: 'keyed'）。
+  syncTable('verdicts', records)
 }
+
+// A1：host 域数据落地后，用权威版本重载并通知 UI。
+onHostHydrated(() => {
+  records = loadRecords()
+  notify()
+})
 
 function notify(): void {
   for (const fn of listeners) {

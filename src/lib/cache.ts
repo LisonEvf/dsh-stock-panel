@@ -263,6 +263,35 @@ export function useSwr<T>(
 }
 
 /**
+ * 命令式取数（非 hook 场景）：命中新鲜缓存直接返回，否则经 in-flight 去重后取一次。
+ *
+ * B5-② 的收口点：此前 `market.ts` 自带一套 `allACache/allAFetching`（20s TTL），
+ * 与这里并排存在 —— 同一份全 A 快照有两套缓存、两套新鲜度，UI 在不同页面读到的
+ * 数据可能差 20s。现在非 hook 调用（loadLadder / WarPage / 各页面的强制刷新）
+ * 统一走这里，**全仓只有一个数据缓存**。
+ *
+ * @param key 缓存 key（用 `swrKey` 工厂生成）
+ * @param fetcher 真正的取数函数
+ * @param opts.ttl 新鲜期（毫秒）；0 = 每次都要验证（等价于 force）
+ * @throws 取数失败时抛出（错误信息来自缓存层），调用方按既有容错逻辑处理
+ */
+export async function swrFetch<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  opts: SwrOptions = {},
+): Promise<T> {
+  const ttl = opts.ttl ?? 0
+  const cur = getSnapshot<T>(key)
+  if (ttl > 0 && cur.status === 'success' && cur.data !== undefined && Date.now() - cur.at < ttl) {
+    return cur.data
+  }
+  await loadNow(key, fetcher)
+  const after = getSnapshot<T>(key)
+  if (after.status === 'success' && after.data !== undefined) return after.data
+  throw new Error(after.error ?? '取数失败')
+}
+
+/**
  * 生成缓存 key 的语义化辅助函数（与查询语义一一对应，避免字符串手拼错）。
  */
 export const swrKey = {

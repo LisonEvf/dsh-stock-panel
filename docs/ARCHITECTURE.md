@@ -11,15 +11,18 @@
 ```
 @lisonevf/dsh-stock-panel
 ├── host 半（Node，tsdown/rolldown → lib/index.js）
-│   ├── src/index.ts         Cordis entry：inject ['webServer','tools']，三件事
+│   ├── src/index.ts         Cordis entry：inject ['webServer','tools']，职责
 │   │                        ① provide 插件元数据（视图槽/ID/order）
 │   │                        ② registerEmbeddedTdxBridge → POST /api/stock-panel/call
-│   │                        ③ registerStockTools → 注册 19 个对话工具
+│   │                        ③ registerStockTools → 注册 8 个对话工具
 │   │                        ④ registerAiBridge → POST /api/stock-panel/ai（可选增强）
+│   │                        ⑤ registerStateBridge → GET/POST /api/stock-panel/state（可选增强，A1）
+│   │                        ⑥ registerBuildInfoRoute → GET /api/stock-panel/build
 │   ├── src/host/tdx-data.ts 内置 node-tdx 服务：连接管理 + serial 串行队列 + 19 工具分发
 │   ├── src/host/hist-data.ts 内置 HIST 自挖概念引擎（惰性单例，快照 TTL 3600s）
 │   ├── src/host-ai.ts       一键问模型：官方 ctx.llm + agentDefaultModel + 自愈重试
-│   ├── src/host-tools.ts    对话工具定义（raw ToolDefinition，无构建期依赖）
+│   ├── src/host-tools.ts    对话工具定义（**8 个**：行情 4 + HIST 4；raw ToolDefinition）
+│   ├── src/host/state.ts    host 侧持久化（DSH 存储子系统 stock_panel 领域 + /api/stock-panel/state）
 │   └── src/host-util.ts     ctx 安全访问 + 桥接路由注册
 └── browser 半（esbuild + tailwind → lib/client.js，**必须单模块**）
     ├── src/client.ts        apply(ctx)：注入样式 + slots.inject('conversation.view') + 诊断句柄
@@ -161,62 +164,74 @@ DSH 的 `dsh-base` 已挂载存储栈（**本 profile 直接可用，无需额�
 | `storage-json` | `@deepseek-ai/dsh-storage-json` | json 后端，root = `$DSH_HOME/storages` |
 | `storage-domain` | `@deepseek-ai/dsh-storage-domain` | 领域数据形式 `ctx.storageDomain`（backend: json） |
 
-**用法**（host 半）：
+**用法**（host 半，`src/host/state.ts`，✅ 已实现）：
 
 ```ts
-import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-
-export const inject = ['webServer', 'tools', 'storageDomain']
-
-const spec = defineDomain({
-  name: 'stock-panel',        // 必须匹配 UNIT_NAME_RE（同时是后端 unit 名）
-  version: 1,                 // ⚠️ 介质版本不一致 → open 抛 version-mismatch，且不做迁移
-  tables: {
-    watchlist: domainTable<WatchKey, WatchRecord>(watchSchema),
-    review:    domainTable<string, ReviewSnapshot>(reviewSchema),
-    dayrun:    domainTable<string, DayRun>(dayrunSchema),
-    positions: domainTable<string, Position>(positionSchema),
-    tradelog:  domainTable<string, TradeRecord>(tradeSchema),
-    viewed:    domainTable<string, ViewedStock>(viewedSchema),   // 个股栏历史
-    verdicts:  domainTable<string, VerdictRecord>(verdictSchema),
-    events:    domainTable<string, EventRecord>(eventSchema),
-  },
-  global: { schema: metaSchema, initial: { schemaVersion: 1, migratedFromLocalStorage: false } },
-})
-
-const domain = await ctx.storageDomain.open(spec)   // 调用方负责 close（ctx.effect disposer）
+// inject 里**不加** storageDomain —— 它是可选增强（同 llm 立场）：
+// 宿主没挂存储子系统时只降级为 localStorage，不该拖累 TDX 桥接与对话工具加载。
+const storageDomain = getOwnPropertySafe(ctx, 'storageDomain') as StateFacility | undefined
+initStateDomain(storageDomain ?? null)          // 异步 open；失败只记原因，不抛
+registerStateBridge(ws)                          // GET/POST /api/stock-panel/state
 ```
 
-写入语义（来自子系统契约）：`put/update/global.set` 在同一写链上排队，**先落介质再更新内存**，
-之后发 `domain/changed`（进程内事件）；`update(key, fn)` 是原子读-改-写；记录是存储对象本身
-（整体替换，不要就地改）；读是同步内存读。
+**两条硬约束（实测确认，踩过）**：
+1. 领域名/表名必须匹配 `UNIT_NAME_RE = ^[a-z][a-z0-9_]*$` —— **不能有连字符**，
+   所以领域名是 `stock_panel`（不是 `stock-panel`）；
+2. 公开 npm 上的 `@deepseek-ai/dsh-storage-domain` 只有 `0.0.1-rc.1`，而宿主跑 `0.1.2-rc.1`
+   —— **不 import 它**。`defineDomain` 只是「校验 + 身份函数」，运行期契约实测只有三处：
+   `descriptorOf(spec)`（读 name/version/tables 键/hasGlobal/layout）、
+   `spec.tables[t].valueSchema.parse(raw)`、`spec.global.schema.parse(stored)` / `initial`。
+   因此**手搓 spec** + 一个只需 `parse`/`safeParse` 的极简 schema，零依赖、不与宿主 zod 副本耦合。
 
-**版本与 schema 演进策略（必须遵守，否则会拒载）**：
+**领域形态**：`name: 'stock_panel'`、`version: 1`（**固定**）、`layout: 'per-record'`
+（事件流追加频繁，逐记录文档避免「每次写重发整个 unit」）、
+`invalidRecords: 'backup-and-skip'`（单条脏记录被移开并跳过，**不让整域打不开**）、
+`global = { schemaVersion, migratedFromLocalStorage, updatedAt }`。
 
-1. `version` **固定为 1**，绝不因字段变更上调（否则老介质直接 `version-mismatch`，且子系统不做迁移）；
-2. 自有演进用 **global 里的 `schemaVersion` + 启动迁移遍历**；
-3. zod schema 只做**加法**演进（新字段一律 optional + 默认值），避免老记录被 `invalid-record` 拒载；
-4. 破坏性变更 = 换**表名**（如 `review_v2`），启动迁移把老表读出来重写后 `delete`。
+**版本与 schema 演进策略**：
 
-**前端接入（保持现有 store API 不变）**：
+1. `version` **固定为 1**，绝不因字段变更上调（否则老介质直接 `version-mismatch`，子系统不做迁移）；
+2. 自有演进用 global 的 `schemaVersion` + 启动迁移遍历；
+3. 记录校验只做**介质边界最小校验**（必须是 JSON 对象 + 关键字段是字符串），
+   语义校验留在各 store 载入时 —— 严 schema 会让「加字段」变成「老记录被拒 → 整域打不开」；
+4. 破坏性变更 = 换**表名**（如 `review_v2`），启动时把老表读出来重写后删除。
+
+**8 张表**（清单单一来源 `src/lib/state-tables.ts`，host/client 共用）：
+`watchlist`（自选）、`review`（复盘存档，键=交易日）、`dayrun`（当日运行/Q1-Q3/竞价判定）、
+`positions`（持仓）、`tradelog`（交易日志）、`verdicts`（AI 结论，键=`symbol@day`）、
+`events`（事件流，键=事件指纹）、`viewed`（看过的个股，A4 左栏「个股」分组的数据源）。
+
+**前端接入（✅ 已实现，`src/lib/host-state.ts`；各 store 的对外 API 零改动）**：
 
 ```
-浏览器                                        host 半
-──────                                       ──────
-启动：GET /api/stock-panel/state  ─────────▶ 返回全部表快照（+ schemaVersion）
-  → 填内存 + localStorage 镜像
+浏览器                                            host 半
+──────                                           ──────
+启动（client.ts 的 apply）：GET /api/stock-panel/state
+  → 域里有记录 → 覆盖 localStorage 镜像 + 记下指纹
+  → 域里该表为空而本地有数据 → 一次性首迁上传（POST {records}）
+  → 通知各 store 重载（onHostHydrated）        ─▶ 域是权威，镜像只是缓存
 读：  同步内存读（沿用 getWatchlist() 等原 API，UI 代码零改动）
 写：  ① 内存立即更新 + notify（保持同步语义）
       ② localStorage 镜像（离线可读）
-      ③ 异步 POST /api/stock-panel/state/<table> ─▶ domain.table(t).put(k,v)
-降级：host 返回 503（storage 域不可用）→ 只写 localStorage，状态带标注「本地存储」
+      ③ syncTable(表, 值)：与上次指纹**差量**比对
+         → POST {table, records?, deletes?}      ─▶ domain.table(t).put/delete
+降级：路由 503 / 无 storageDomain / 网络错 → 只写 localStorage；
+      底栏显示「持久化：本地」+ 悬浮给出原因（`hostStateInfo()`）
 ```
 
-- **首次迁移**：域为空 + localStorage 有数据 → 一次性上传，置 `global.migratedFromLocalStorage=true`。
-- **已知限制**：`domain/changed` 只在本进程内；多标签页/多设备以 host 为权威但无实时推送，
-  采用 30s 拉一次元数据（记录数/更新时间）比对，冲突时以 host 覆盖本地并在 UI 提示。
+- **差量同步**：按表维护 `记录键 → JSON 指纹`；只推新增/变化/删除。事件流（上限 500 条）
+  每 30s 有一次捕获，全量重推等于每轮 500 个请求 —— 差量后通常只有几条。
+  推送失败会把指纹回滚，下一轮重试仍带上这批差异。
+- **写入形状**：`state-tables.ts` 的 `shape`（`array` = 逐条拆记录；`keyed` = 本就是键值表，
+  如 AI 结论存档），记录键由 `keyOfRecord()` 从记录自身推导（复用各 store 的自然键）。
+- **首次迁移**：域为空 + 本地有数据 → 上传并置 `global.migratedFromLocalStorage=true`。
+- **仍在 localStorage**：UI 偏好与信息条列配置（「这台机器的界面状态」，不属于跨日资产）。
+- **已知限制**：`domain/changed` 只在本进程内；多标签页/多设备以 host 为权威但**无实时推送**
+  （同机多标签各自持有内存态，最后写入者胜）。跨标签一致性留待后续（可选：SSE 推 `domain/changed`）。
 - **收益**：数据随 DSH 家目录（`$DSH_HOME/storages`）存活，清缓存/换设备不失忆；
   为「复盘校准」「自挖概念命名缓存」这类跨日资产提供可靠底座。
+- **离线门禁**：`scripts/smoke-host-state.mjs`（host 半：路由 / spec 契约 / 读写闭环 / 降级）
+  与 `smoke-client-view.mjs` 的 `[3b]`（客户端降级路径）都已进 CI。
 
 ---
 
@@ -254,21 +269,23 @@ const domain = await ctx.storageDomain.open(spec)   // 调用方负责 close（c
 | `window.__STOCK_PANEL__`（version / viewRegistered / transport / endpoints / listTools / callTool / watchlist） | `src/client.ts` |
 | `GET /api/stock-panel/ai` | AI 可用性与解析出的路由 |
 | host 日志 | `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`、AI 可用性行 |
-| 冒烟脚本 | `scripts/smoke-{client-view,ai-contract,embedded}.mjs` |
-| ⏳ 待补 | 状态带显示 **build rev**（用于判断浏览器是否跑着旧产物）；数据链路/缓存命中/存储可用性诊断面板（ROADMAP B5） |
+| 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract,embedded}.mjs`（前三个离线、已进 CI） |
+| ⏳ 待补 | 数据链路 / 缓存命中 / HIST 快照 / 存储可用性 **诊断面板**（ROADMAP B5-③）；底栏已显示版本+构建 id |
 
 ---
 
 ## 9. 已知架构债（对应 ROADMAP 编号）
 
-| # | 债 | 影响 | 编号 |
+| # | 债 | 状态 | 编号 |
 | --- | --- | --- | --- |
-| 1 | ladder 无缓存 + 3 处重算 | ≈90% 请求量，行情源压力 | B3 |
-| 2 | 双缓存（`cache.ts` 与 `market.ts`）+ `fetchAllA(true)` 混用 | 广度/温度计可能显示 20s 前的数据 | B5 |
-| 3 | 收起栏不停轮询、后台标签页不停轮询 | 无谓请求 | B3 |
-| 4 | `cache.ts` 的 `refreshInterval` 变更不生效（deps 缺项） | 运行时改频率无效 | B3 |
-| 5 | AI 请求不可中断（signal 未透传） | 快速重跑白烧额度 | B6 |
-| 6 | HTTP-only 端点残留在 embedded 部署（关键价位静默 404） | 功能静默失效 | B2 |
-| 7 | 存储无抽象、无重置/导出 | 数据易失、迁移困难 | A1 |
-| 8 | 样式双轨（7 个新文件用 `--dc-*`，28 个旧文件 1,000+ 处硬编码色 + 64 条暗色重映射） | 主题一致性/体积 | A5 |
+| 1 | ladder 无缓存 + 3 处重算 | ✅ 已修（30s 共享缓存 + in-flight 去重） | B3 |
+| 2 | 双缓存（`cache.ts` 与 `market.ts`） | ✅ 已修（`swrFetch` 收口，全仓唯一数据缓存） | B5 |
+| 3 | 收起栏 / 后台标签页不停轮询 | ✅ 已修（`document.hidden` 跳过 + 左栏收起 `enabled:false`） | B3 |
+| 4 | `cache.ts` 的 `refreshInterval` 变更不生效 | ✅ 已修（deps 补项） | B3 |
+| 5 | AI 请求不可中断（signal 未透传） | ✅ 已修（三处包装透传 signal） | B6 |
+| 6 | HTTP-only 端点残留在 embedded 部署（关键价位） | 🟡 已**显式提示不可用**并给出替代做法（模型价位线）；真正的 TS 端价位计算仍未做 | B2 |
+| 7 | 存储无抽象、无重置/导出 | 🟡 已迁 host 领域（A1）；**导出/导入/重置**仍待做 | A1 |
+| 8 | 样式双轨（7 个新文件用 `--dc-*`，28 个旧文件 1,000+ 处硬编码色 + 64 条暗色重映射） | ⏳ 未动 | A5 |
+| 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | ⏳ 未动（离线冒烟已从 2 个增至 3 个） | B4 |
+| 10 | client.js 体积 814KB / 护栏 840KB（单模块不可拆分） | ⏳ 需减重至 ≤700KB | B2 |
 | 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | 死代码与 hook 依赖错误隐形 | B4 |

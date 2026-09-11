@@ -64,10 +64,30 @@
   3 个直连 `setInterval` 加守卫；修 `cache.ts` 的 `refreshInterval` 变更永不生效（deps 缺项）。
 - 修 `fmtPct` 口径错（指数显示 `上证-117.66%`：小数/百分数两种口径混用）——统一走 `pctText()`；
 - `stock-data.ts` `toArray` 对已解析数组二次 `JSON.parse` 导致整层静默空返回（已修）；
-- 新增离线冒烟：`smoke-client-view.mjs`（视图注册契约）、`smoke-ai-contract.mjs`（AI 契约）；
-- CI 接入以上两个冒烟 + 体积护栏口径更新为 820KB；
+- 新增离线冒烟：`smoke-client-view.mjs`（视图注册契约 + 持久化降级）、`smoke-ai-contract.mjs`（AI 契约）、
+  `smoke-host-state.mjs`（host 半：三条路由 / 持久化领域 spec 契约 / 读写闭环 / 降级，26 项断言）；
+- CI 接入以上三个冒烟（host 半此前**零离线覆盖**）；体积护栏经登记后 820 → 840KB（见脚本头部体积账）；
 - **B1 基线纪律**：本批 64 文件此前长期未提交（含 CI 引用的两个冒烟脚本），
   2026-09-12 一次性固化；版本统一 1.4.0（唯一来源 `package.json`）。
+
+### A1 — host 侧持久化（全量迁移 + localStorage 降级）
+- 新增 `stock_panel` 领域（DSH 存储子系统，json 后端 → `$DSH_HOME/storages`），8 张表：
+  `watchlist / review / dayrun / positions / tradelog / verdicts / events / viewed`；
+- host 半新增 `GET/POST /api/stock-panel/state`（`src/host/state.ts`）：全量快照、单条/批量写入、
+  批量删除、迁移标记；失败如实返回不可用原因（**不静默降级**）；
+- 客户端（`src/lib/host-state.ts`）：启动拉一次快照 → 覆盖 localStorage 镜像 → 通知各 store 重载
+  （`onHostHydrated`）；写入按**指纹差量**推送（事件流 500 条也不全量重发）；不可用时保持纯本地；
+- 8 张表清单是单一来源（`src/lib/state-tables.ts`，host/client 共用），并给出各表的自然记录键；
+- 新增 `src/lib/viewed-store.ts`（「看过的个股」，A4 左栏「个股」分组的数据源），
+  在 `selection.setSelection` 单点埋点；
+- 底栏新增 `持久化：host / 本地` 状态（不可用时悬浮给出原因）+ 诊断句柄
+  `window.__STOCK_PANEL__.hostState()`；
+- 契约取舍（实测）：领域名不能有连字符（`UNIT_NAME_RE`）→ 用 `stock_panel`；**不 import
+  `@deepseek-ai/dsh-storage-domain`**（公开 npm 只有 0.0.1-rc.1，宿主是 0.1.2-rc.1）→ 手搓 spec +
+  极简 `parse/safeParse` schema，零依赖；`storageDomain` 不列进 inject（可选增强，同 llm 立场）；
+- B5-② 缓存收口：`cache.ts` 新增命令式 `swrFetch`，`market.fetchAllA` 删掉私有缓存改走同一 SWR store
+  （此前同一份全 A 快照有两套缓存、两套新鲜度）；
+- 清理：删除死文件 `src/lib/queryKeys.ts`（零引用，且 react-query 并非依赖）。
 
 ---
 

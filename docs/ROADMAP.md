@@ -34,22 +34,44 @@
 
 ## 2. 轨道 A —— 产品闭环
 
-### A1 · host 侧持久化（全量迁移 + localStorage 降级）⏳ **决策：全量**
+### A1 · host 侧持久化（全量迁移 + localStorage 降级）✅ **已完成（2026-09-12）**
 
 **问题**：14 个 localStorage 键、3 种命名空间、无导出/重置、清缓存即失忆、跨设备不同步；
 「复盘存档 × 昨日池」这类**跨日资产**恰恰是最不能丢的。
 
-**内容**：用 DSH 存储子系统落地 `stock-panel` 领域（`ctx.storageDomain.open(defineDomain(...))`，
-json 后端落 `$DSH_HOME/storages`），表：`watchlist / review / dayrun / positions / tradelog /
-viewed（个股栏）/ verdicts / events`；host 半新增同源读写路由（`GET /api/stock-panel/state`、
-`POST /api/stock-panel/state/<table>`）；前端 store API 不变（同步内存读 + 异步落盘 + localStorage 镜像）；
-首次启动一次性把 localStorage 数据上传。设计与版本策略见 `docs/ARCHITECTURE.md` §5.2。
+**内容**：用 DSH 存储子系统落地 `stock_panel` 领域（json 后端落 `$DSH_HOME/storages`），
+表：`watchlist / review / dayrun / positions / tradelog / verdicts / events / viewed（个股栏）`；
+host 半新增同源读写路由（`GET/POST /api/stock-panel/state`）；前端 store API 不变
+（同步内存读 + 异步增量落盘 + localStorage 镜像）；首次启动一次性把 localStorage 上传。
 
-**验收锚点**：① 清空浏览器 localStorage 后刷新，自选/复盘/持仓/看过的个股全部还在；
-② host 域不可用时自动降级为本地存储并在界面标注；③ 老数据一次性迁移成功（域里能看到记录数）；
-④ 领域版本演进演练：加一个 optional 字段后旧记录仍能打开（不被 `invalid-record` 拒载）。
+**落地（实测确认的契约细节）**：
+- 领域名 `stock_panel`（`UNIT_NAME_RE = ^[a-z][a-z0-9_]*$`，**不能有连字符**）、版本固定 `1`、
+  `layout: per-record`（事件流追加型）、`invalidRecords: 'backup-and-skip'`（单条脏记录不阻塞整域）；
+- **不 import `@deepseek-ai/dsh-storage-domain`**：公开 npm 只有 `0.0.1-rc.1` 而宿主是 `0.1.2-rc.1`；
+  该包运行期只用到 `descriptorOf` + `valueSchema.parse` + `global.schema.parse/initial`，
+  故**手搓 spec + 极简 schema**（零依赖，不与宿主 zod 副本耦合）；
+- `storageDomain` **刻意不列进 inject**（可选增强，同 llm 立场）：宿主没挂存储子系统时
+  只降级为 localStorage，不拖累 TDX 桥接与对话工具；
+- 客户端：`initHostState()` 在 `client.ts` 的 apply 里拉一次全量快照 → 写 localStorage 镜像
+  → 通知各 store 重载（`onHostHydrated`）；写入走**指纹差量**（只推新增/变化/删除，
+  事件流 500 条也不会每轮全量重发）；
+- 新增离线门禁 `scripts/smoke-host-state.mjs`（26 项断言：路由注册 / 领域 spec 契约 /
+  读写闭环 / 未声明表被拒 / 无存储子系统时降级），已进 CI。
+
+**验收锚点**：① 清空浏览器 localStorage 后刷新，自选/复盘/持仓/看过的个股全部还在
+（需真机 GUI 复验）；② host 域不可用时自动降级为本地存储并在底栏标注（`持久化：本地` + 悬浮原因）；
+③ 老数据一次性首迁（域里能看到记录数）；④ 领域版本演进演练：记录校验刻意宽松，
+加字段不会让旧记录被 `invalid-record` 拒载。
 
 **规模**：M
+
+### A1.1 · 「看过的个股」store ✅（A4 的数据源，UI 待 A4）
+
+`src/lib/viewed-store.ts`（表 `viewed`）：最近看过的标的（新→旧、去重、上限 30、带查看次数），
+在 `selection.ts` 的 `setSelection` 单点埋点（左栏/搜索/任意列表点行都汇到这里）。
+A4 只需把它渲染成左栏分组 + 点击渲染个股信息。
+
+**规模**：S
 
 ### A2 · 特色板块：自挖概念 + 命名 ⏳ **决策：host 半原生复刻（零外部进程）**
 
@@ -208,13 +230,17 @@ screener / chips / ai-contract`（这些正是方法论判定，必须可回归�
 补显示与「构建≠运行」提示）；② 全 A 快照缓存收口为一处（删掉 `fetchAllA(force)` 的双轨）；
 ③ 诊断面板（数据链路 / 缓存命中 / HIST 快照状态 / 存储可用性 / AI 可用性）。
 
-**落地（2026-09-12，部分）**：① ✅ 采纳**比"构建时间"更强的做法**——构建 id = src 内容哈希
-（`scripts/build-id.mjs`，确定性，因此 `build-client --check` 仍可逐字节比对）；host 新增
-`GET /api/stock-panel/build` 暴露后端 id；底栏显示 `v1.4.0 · <id>`，两份 id 不一致时给出
-「有新构建 · 点此刷新」按钮。②③ ⏳ 待做。
+**落地（2026-09-12）**：① ✅ 采纳**比"构建时间"更强的做法**——构建 id = src 内容哈希
+（`scripts/build-id.mjs`，确定性，因此 `build-client --check` 仍可逐字节比对；并修掉一个真 bug：
+`SKIP_DIRS` 原按目录名全局匹配，导致 `src/lib/**` 不进哈希、id 对 `src/lib` 改动无反应）；
+host 新增 `GET /api/stock-panel/build` 暴露后端 id；底栏显示 `v1.4.0 · <id>`，
+两份 id 不一致时给出「有新构建 · 点此刷新」按钮。
+② ✅ 全 A 快照缓存**收口为一处**：`cache.ts` 新增命令式 `swrFetch(key, fetcher, {ttl})`，
+`market.fetchAllA(force)` 删掉私有的 `allACache/allAFetching`，改走同一个 SWR store
+（此前 UI 在不同页面可能读到相差 20s 的两份数据）。③ ⏳ 诊断面板待做。
 
 **验收锚点**：✅ 改完代码只 build 不刷新时，界面能提示「当前运行的是旧构建」；
-⏳ 全 A 数据在任何页面读到的 `at` 一致；⏳ 诊断面板能一眼看出 5 项子系统的健康度。
+✅ 全 A 数据只有一个缓存（`swr:mkt:allA`）；⏳ 诊断面板能一眼看出 5 项子系统的健康度。
 
 **规模**：M
 
@@ -247,16 +273,19 @@ runScoutRank` 全部接受并透传 `signal`，`use-ai` 在切换标的/卸载�
 | **V1.7** | A4（左栏自选+个股 / 工具单页 / 外盘弱化）+ A3（复盘校准页） | B2（减重 100KB+） | 「导航收口版」 |
 | **V1.8** | A5（token 迁移收尾） | B4（ESLint + 单测 + 产物校验） | 「质量网版」 |
 
-> **V1.5 进度（2026-09-12）**：**B1 ✅ · B5-① ✅ · B6 ✅ · B3 部分 ✅**（ladder 共享缓存 + 可见性暂停 +
-> `cache.ts` deps 修复）——剩余 **A1 host 持久化（本版主体，进行中）** 与 B5-②③、B3-③⑤。
-> 代码批次 `4c768e4`（v1.2/v1.3/v1.4 合并发布 + 上述 B 项），文档批次紧随其后。
+> **V1.5 进度（2026-09-12）**：**B1 ✅ · B5-①② ✅ · B6 ✅ · B3 部分 ✅（ladder 共享缓存 + 可见性暂停 +
+> `cache.ts` deps 修复）· A1 ✅**——剩余 B5-③（诊断面板）、B3-③⑤（指数轮询收口、请求预算度量脚本）。
+> 代码批次 `4c768e4`（v1.2/v1.3/v1.4 合并发布）+ `494fb54`（构建 id 修复），A1 批次见其提交。
+> ⚠️ **体积逼近护栏**：client.js 814.0KB / 护栏 840KB（A1 后已按脚本规则登记一次上调）；
+> **B2 减重的优先级因此上调**（目标 ≤700KB）。
 
 ### 本周三件事（按性价比排序）
 
 1. ✅ **B1 提交基线**——已完成（`4c768e4` + 文档批次）：回滚点建立，CI 门禁自此真正生效；
 2. ✅ **B3-① ladder 共享缓存**——已完成：三个调用方共用 30s 快照，实测口径下约 90% 的调用量被消掉；
 3. ✅ **B6 两个静默失效**——已完成：关键价位显式提示不可用；AI 请求可取消。
-4. ⏭ 下一步：**A1 host 持久化全量迁移**（V1.5 主体，设计见 `docs/ARCHITECTURE.md` §5.2）。
+4. ✅ **A1 host 持久化全量迁移**——已完成（8 张表 + 同源路由 + 增量同步 + 降级 + 离线门禁）；
+   ⏭ 下一步：**B2 减重**（体积已到 97%）或 **B5-③ 诊断面板**，随后进入 V1.6 的 A2a（自挖概念参数校准）。
 
 ---
 

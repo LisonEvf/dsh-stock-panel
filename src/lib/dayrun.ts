@@ -11,6 +11,7 @@
 
 import type { Situation } from './situation'
 import type { Verdict } from './auction-analysis'
+import { onHostHydrated, syncTable } from './host-state'
 
 /** Q1 持续性证据方向（WATCH-METHODOLOGY §5 Q1）。 */
 export type Q1Value = 'strengthen' | 'weaken' | 'flat'
@@ -60,6 +61,8 @@ function load(): DayRun[] {
 
 function persist(): void {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(runs)) } catch { /* 隐私模式等忽略 */ }
+  // A1：host 域同步（增量；不可用时自动 no-op）。
+  syncTable('dayrun', runs)
 }
 
 function notify(): void {
@@ -149,3 +152,9 @@ export function today(): string {
   const dd = String(d.getDate()).padStart(2, '0')
   return `${d.getFullYear()}-${m}-${dd}`
 }
+
+// A1：host 域数据落地后，用权威版本重载并通知 UI。
+onHostHydrated(() => {
+  runs = load()
+  notify()
+})

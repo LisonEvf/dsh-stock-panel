@@ -21,6 +21,7 @@ import {
   type UnusualRow,
 } from './stock-data'
 import { marketIdToTag, type MarketTag } from './symbol'
+import { swrFetch } from './cache'
 
 // ===== 指数清单（代码已实测，无数据服务的自动跳过） =====
 
@@ -94,34 +95,31 @@ export async function fetchIndexQuotes(): Promise<IndexQuote[]> {
     .filter((x): x is IndexQuote => !!x && x.ok)
 }
 
-// ===== 全 A 列表（共享缓存） =====
+// ===== 全 A 列表（**共用 cache.ts 的唯一缓存**，B5-②收口） =====
 
-let allACache: { at: number; rows: AShareRow[] } | null = null
-let allAFetching: Promise<AShareRow[]> | null = null
-const ALL_A_TTL = 20_000 // 20s
+/** 全 A 快照的缓存 key（与状态带/各页面的 useSwr 同一个 key）。 */
+const ALL_A_KEY = 'swr:mkt:allA'
+/** 新鲜期：20s（行情快照；页面级 refreshInterval 通常 30s，> TTL 所以仍会真刷新）。 */
+const ALL_A_TTL = 20_000
 
-/** 全 A 行情列表（模块级缓存；force 忽略 TTL 强制刷新）。 */
+/** 真正取一次全 A（无缓存逻辑，只做取数 + 适配）。 */
+async function loadAllARows(): Promise<AShareRow[]> {
+  const raw = await fetchBoardMembers('A', 6000, 'CHANGE_PCT', 'DESC')
+  const rows: AShareRow[] = []
+  for (const r of raw) {
+    const row = toAShareRow(r)
+    if (row) rows.push(row)
+  }
+  return rows
+}
+
+/**
+ * 全 A 行情列表（**唯一缓存**：`cache.ts` 的 SWR store）。
+ *
+ * @param force 忽略新鲜期强制刷新（用户手动刷新时用）
+ */
 export async function fetchAllA(force = false): Promise<AShareRow[]> {
-  if (!force && allACache && Date.now() - allACache.at < ALL_A_TTL) {
-    return allACache.rows
-  }
-  if (!allAFetching) {
-    allAFetching = (async () => {
-      try {
-        const raw = await fetchBoardMembers('A', 6000, 'CHANGE_PCT', 'DESC')
-        const rows: AShareRow[] = []
-        for (const r of raw) {
-          const row = toAShareRow(r)
-          if (row) rows.push(row)
-        }
-        allACache = { at: Date.now(), rows }
-        return rows
-      } finally {
-        allAFetching = null
-      }
-    })()
-  }
-  return allAFetching
+  return swrFetch(ALL_A_KEY, loadAllARows, { ttl: force ? 0 : ALL_A_TTL })
 }
 
 // ===== 市场广度 / 分布 =====

@@ -7,6 +7,7 @@
 
 import { useEffect, useReducer } from 'react'
 import { parseSymbol, toSymbol, type MarketTag } from './symbol'
+import { onHostHydrated, syncTable } from './host-state'
 
 export interface WatchItem {
   market: MarketTag
@@ -40,6 +41,8 @@ function persist(): void {
   } catch {
     /* 隐私模式等场景忽略 */
   }
+  // A1：localStorage 是镜像，host 域是权威 —— 增量同步（不可用时自动 no-op）。
+  syncTable('watchlist', items)
 }
 
 function notify(): void {
@@ -110,6 +113,12 @@ export function subscribeWatchlist(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
 }
+
+// A1：host 域的数据落地到 localStorage 后，用权威版本重载并通知 UI。
+onHostHydrated(() => {
+  items = load()
+  notify()
+})
 
 /** React hook：返回 { items, isWatched, add, remove, clear, toggle, symbol }。 */
 export function useWatchlist() {

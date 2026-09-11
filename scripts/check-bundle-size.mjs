@@ -4,13 +4,18 @@
  *
  * 说明：lib/client.js 为未压缩产物（保留可调试性，wrapper 不做 minify）；
  * 内联的 CSS 字符串已在构建期压缩（scripts/build-client.mjs 的 minifyCss）。
- * 阈值默认 820KB（env CLIENT_MAX_KB 可覆盖）。
+ * 阈值默认 840KB（env CLIENT_MAX_KB 可覆盖）。
  *
- * 体积账（2026-09-08 实测）：
- *   665KB  1.1.x 基线（窄列版：10 个页面全内联）
- *   ≈687KB 1.2.0（官方 conversation.view 化）
- *   ≈757KB 1.3.0（宽视图重排：三段式骨架 + 盯盘工作区 + AI 双通道 + 跟随 DSH 主题）
- *         其中 CSS 字符串 45.6KB（压缩前 ≈69KB，minifyCss 已回收 23KB）
+ * 体积账：
+ *   665KB   1.1.x 基线（窄列版：10 个页面全内联）
+ *   ≈687KB  1.2.0（官方 conversation.view 化）
+ *   ≈757KB  1.3.0（宽视图重排：三段式骨架 + 盯盘工作区 + AI 双通道 + 跟随 DSH 主题）
+ *           其中 CSS 字符串 45.6KB（压缩前 ≈69KB，minifyCss 已回收 23KB）
+ *   796.7KB 1.4.0 合并发布（+ 构建可见性 / ladder 共享缓存 / B6 修复）
+ *   814.0KB 1.4.0+A1（host 侧持久化：host-state 客户端接入 + 8 张表映射 + viewed store
+ *           + 底栏持久化状态）→ **阈值 820 → 840KB**（登记在案；余量 26KB）
+ *           ⚠️ 之后进入 B2「减重」：目标回到 ≤700KB（退役旧页面 / 删 token 过渡层 /
+ *           清死代码），并在那时决定「是否为了体积放弃未压缩可调试性」。
  *
  * 为什么不能靠"拆分"瘦身：插件契约要求 client bundle 是**单模块**（flat module
  * graph，见 README §技术要点），esbuild 无法 code splitting —— 视图不能动态 import。
@@ -27,7 +32,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const file = join(resolve(__dirname, '..'), 'lib', 'client.js')
-const maxKb = Number(process.env.CLIENT_MAX_KB ?? 820)
+const maxKb = Number(process.env.CLIENT_MAX_KB ?? 840)
 
 if (!existsSync(file)) {
   console.error('[check-bundle] 缺 lib/client.js —— 请先 pnpm build')

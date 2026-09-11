@@ -19,6 +19,7 @@
 import { getOwnPropertySafe, registerEmbeddedTdxBridge, type HostCtx } from './host-util'
 import { registerStockTools } from './host-tools'
 import { registerBuildInfoRoute } from './host/build-info'
+import { closeStateDomain, initStateDomain, registerStateBridge, type StateFacility } from './host/state'
 import { disposeTdxClient } from './host/tdx-data'
 import { aiAvailability, registerAiBridge, resolveAiRuntime, type AiRuntime } from './host-ai'
 
@@ -66,7 +67,14 @@ export function apply(ctx: HostCtx): (() => void) | void {
     registerEmbeddedTdxBridge(ws as NonNullable<HostCtx['webServer']>)
     // 构建信息（版本 + 构建 id）：浏览器据此检出「跑着旧构建」。
     registerBuildInfoRoute(ws as NonNullable<HostCtx['webServer']>)
+    // host 侧持久化（A1）：GET/POST /api/stock-panel/state。
+    registerStateBridge(ws as NonNullable<HostCtx['webServer']>)
   }
+
+  // host 侧持久化：`storageDomain` **刻意不列进 inject**——它是可选增强（同 llm 的立场）：
+  // 宿主没挂存储子系统时只降级为 localStorage，不该拖累 TDX 桥接与对话工具的加载。
+  const storageDomain = getOwnPropertySafe(ctx, 'storageDomain') as StateFacility | undefined
+  initStateDomain(storageDomain ?? null)
 
   // 对话行情工具（chat 联动，零 FastAPI）：当前对话助手可直接调用取数分析。
   // ctx.tools 经 inject 声明就绪；仍做安全兜底，失败不影响桥接。
@@ -86,10 +94,10 @@ export function apply(ctx: HostCtx): (() => void) | void {
     }
   }
 
-  // 卸载（fiber dispose / 进程退出 / 插件被移除）：释放内置 TDX 长连接。
-  // 宿主文件已无任何改动需要回滚。
+  // 卸载（fiber dispose / 进程退出 / 插件被移除）：释放内置 TDX 长连接 + 关闭持久化域。
   return () => {
     disposeTdxClient().catch(() => undefined)
+    closeStateDomain().catch(() => undefined)
   }
 }
 
@@ -108,5 +116,16 @@ export { callEmbeddedTool, tdxEmbeddedDiagnostics, disposeTdxClient } from './ho
 export { runAiTask, aiAvailability, resolveAiRuntime, registerAiBridge } from './host-ai'
 // 构建信息导出（诊断/脚本复用）。
 export { hostBuildInfo, registerBuildInfoRoute } from './host/build-info'
+// host 侧持久化导出（诊断/脚本复用）。
+export {
+  closeStateDomain,
+  initStateDomain,
+  markMigrated,
+  registerStateBridge,
+  stateDelete,
+  statePut,
+  stateSnapshot,
+  stateStatus,
+} from './host/state'
 // AI 契约（prompt 组装 / 容错解析 / 上下文裁剪）导出：供 scripts/smoke-ai-contract.mjs 离线回归。
 export { buildAiPrompt, parseAiResult, extractJsonObject, contextBytes, shrinkContext } from './lib/ai-contract'
