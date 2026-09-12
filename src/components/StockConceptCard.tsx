@@ -43,6 +43,12 @@ function corrColor(corr: number): string {
 export function StockConceptCard({ market, code, onOpenStock }: Props) {
   const [concept, setConcept] = useState<StockConcept | null>(null)
   const [avail, setAvail] = useState<NamingAvailability | null>(null)
+  /**
+   * 命名路由探不到（一般为 404）：最常见的原因是 **host 半还是重启前的旧进程** ——
+   * 命名桥接是 host 半注册的路由，浏览器刷新不会让它出现。这种情况必须说清"要重启"，
+   * 而不是让用户点一下按钮再看到一个 404 报错。
+   */
+  const [namingRouteMissing, setNamingRouteMissing] = useState(false)
   const [outcome, setOutcome] = useState<NamingOutcome | null>(null)
   const [busy, setBusy] = useState(false)
   const [namingBusy, setNamingBusy] = useState(false)
@@ -60,6 +66,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
       // 能力/参数只探一次（参数由 host 半给出：界面不各自硬编码，否则两端口径会漂）
       const info = await fetchNamingAvailability().catch(() => null)
       setAvail(info)
+      setNamingRouteMissing(info === null)
       setConcept(await fetchStockConcept(market as 'SH' | 'SZ', code, info?.defaults))
     } catch (e) {
       setErr((e as Error).message || '自挖概念取数失败')
@@ -195,14 +202,16 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
           <div className="mt-1 flex items-center gap-1 border-t border-violet-100 pt-1">
             <button
               type="button"
-              disabled={concept.classId === null || namingBusy || avail?.available === false}
+              disabled={concept.classId === null || namingBusy || namingRouteMissing || avail?.available === false}
               onClick={() => void doNaming(false)}
               title={
                 concept.classId === null
                   ? '孤立票没有"班"可命名'
-                  : avail?.available === false
-                    ? `模型不可用：${avail.reason ?? '未知'}`
-                    : '让模型根据成员票的当日素材归纳共同主题（护栏会核对每条引文）'
+                  : namingRouteMissing
+                    ? '命名桥接是 host 半注册的路由：请重启 dsh web（浏览器刷新不够）'
+                    : avail?.available === false
+                      ? `模型不可用：${avail.reason ?? '未知'}`
+                      : '让模型根据成员票的当日素材归纳共同主题（护栏会核对每条引文）'
               }
               className="dc-btn dc-btn--accent dc-btn--icon flex items-center gap-1 px-1.5 py-0.5 text-[10px] disabled:opacity-40"
             >
@@ -220,7 +229,10 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                 重算
               </button>
             )}
-            {avail !== null && !avail.available && (
+            {namingRouteMissing && (
+              <span className="text-[9px] text-amber-600">命名桥接未注册：请重启 dsh web（host 半是进程内加载的）</span>
+            )}
+            {!namingRouteMissing && avail !== null && !avail.available && (
               <span className="text-[9px] text-amber-600">模型不可用：{avail.reason}</span>
             )}
             {avail?.available === true && named === null && (

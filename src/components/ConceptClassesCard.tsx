@@ -101,6 +101,8 @@ export function ConceptClassesCard({ onOpenStock }: Props) {
   const [payload, setPayload] = useState<ClassesPayload | null>(null)
   const [params, setParams] = useState<NamingParams>(NAMING_PARAMS_FALLBACK)
   const [avail, setAvail] = useState<{ available: boolean; reason?: string; provider?: string; model?: string } | null>(null)
+  /** 命名路由探不到（host 半未重启）—— 与"模型不可用"必须分开说，否则用户会去查模型配置。 */
+  const [namingRouteMissing, setNamingRouteMissing] = useState(false)
   const [outcome, setOutcome] = useState<{ classId: number; data: NamingOutcome } | null>(null)
   const [busy, setBusy] = useState(false)
   const [namingId, setNamingId] = useState<number | null>(null)
@@ -112,6 +114,7 @@ export function ConceptClassesCard({ onOpenStock }: Props) {
     try {
       const info = await fetchNamingAvailability().catch(() => null)
       setAvail(info)
+      setNamingRouteMissing(info === null)
       const p = info?.defaults ?? NAMING_PARAMS_FALLBACK
       setParams(p)
       setPayload(await loadClasses(p))
@@ -167,6 +170,13 @@ export function ConceptClassesCard({ onOpenStock }: Props) {
 
       {err !== '' && <div className="rounded bg-red-50 px-2 py-1 text-[11px] text-red-500">{err}</div>}
 
+      {namingRouteMissing && (
+        <div className="rounded border border-amber-100 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
+          命名桥接未注册（GET /api/stock-panel/naming 不可达）：host 半是**进程内加载**的，
+          <span className="font-medium">请重启 dsh web</span>。共动聚类本身不需要它，下面的类列表照常可看。
+        </div>
+      )}
+
       {payload !== null && !payload.ok && (
         <div className="rounded border border-amber-100 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">
           引擎当前不可用：{payload.notes.join('；') || '未知原因'}
@@ -210,12 +220,14 @@ export function ConceptClassesCard({ onOpenStock }: Props) {
                   </span>
                   <button
                     type="button"
-                    disabled={namingId !== null || avail?.available === false}
+                    disabled={namingId !== null || namingRouteMissing || avail?.available === false}
                     onClick={() => void doNaming(c.classId, outcome?.classId === c.classId)}
                     title={
-                      avail?.available === false
-                        ? `模型不可用：${avail.reason ?? '未知'}`
-                        : '让模型根据成员票的当日素材归纳共同主题（护栏逐条核对引文）'
+                      namingRouteMissing
+                        ? '命名桥接是 host 半注册的路由：请重启 dsh web（浏览器刷新不够）'
+                        : avail?.available === false
+                          ? `模型不可用：${avail.reason ?? '未知'}`
+                          : '让模型根据成员票的当日素材归纳共同主题（护栏逐条核对引文）'
                     }
                     className="dc-btn dc-btn--accent dc-btn--icon ml-auto flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] disabled:opacity-40"
                   >
