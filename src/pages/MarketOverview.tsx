@@ -49,22 +49,46 @@ function pctColor(v: number): string {
 interface Props {
   onOpenStock: (s: OpenStock) => void
   onOpenIndex: (m: MarketTag, code: string, name: string) => void
+  /** 是否轮询（合并页按"滚动到可视区才轮询"传 false/true）。默认 true = 独立页行为。 */
+  enabled?: boolean
+  /**
+   * 统一节拍递增值（合并页的唯一节拍器）。变化一次 → 本区块强制验证一次。
+   * 传了它就把 `refreshInterval` 交给节拍器，避免同一份指数数据被两个定时器各拉一遍。
+   */
+  tick?: number
+  /** 自轮询间隔覆盖（0 = 不自己起定时器，只由 tick / 手动驱动）。 */
+  pollMs?: number
 }
 
-export function MarketOverview({ onOpenStock, onOpenIndex }: Props) {
+export function MarketOverview({ onOpenStock, onOpenIndex, enabled = true, tick = 0, pollMs = REFRESH_MS }: Props) {
   // 三个独立数据源，各自缓存 + 后台轮询（互不阻塞，部分失败各自呈现）。
+  // 合并页（MarketPage）会传 enabled=false 停止轮询、pollMs=0 交出自己的定时器。
   const indicesSwr = useSwr(swrKey.indices(), () => fetchIndexQuotes(), {
     ttl: 6_000,
-    refreshInterval: REFRESH_MS,
+    refreshInterval: pollMs,
+    enabled,
   })
   const allASwr = useSwr(swrKey.allA(), () => fetchAllA(), {
     ttl: 6_000,
-    refreshInterval: REFRESH_MS,
+    refreshInterval: pollMs,
+    enabled,
   })
   const unusualSwr = useSwr(swrKey.unusualAll(), () => fetchUnusualAll(40), {
     ttl: 6_000,
-    refreshInterval: REFRESH_MS,
+    refreshInterval: pollMs,
+    enabled,
   })
+
+  // 统一节拍：tick 变化 → 三个源各强制验证一次（tick=0 表示没有外部节拍器，保持自带行为）
+  const refreshIndices = indicesSwr.refresh
+  const refreshAllA = allASwr.refresh
+  const refreshUnusual = unusualSwr.refresh
+  useEffect(() => {
+    if (tick === 0 || !enabled) return
+    refreshIndices()
+    refreshAllA()
+    refreshUnusual()
+  }, [tick, enabled, refreshIndices, refreshAllA, refreshUnusual])
 
   const indices = indicesSwr.data ?? []
   // useMemo 收口：`?? []` 每帧都是新数组，直接进依赖会让下游 memo 每帧重算（lint 抓到）。

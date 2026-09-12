@@ -24,9 +24,15 @@ function pctColor(v: number): string {
 
 interface Props {
   initial?: { market: MarketTag; code: string; name: string } | null
+  /** 是否轮询（合并页按"滚动到可视区才轮询"传 false/true）。 */
+  enabled?: boolean
+  /** 统一节拍递增值（合并页传递；变化一次 → 强制验证一次）。 */
+  tick?: number
+  /** 自轮询间隔覆盖（0 = 交给外部节拍器）。 */
+  pollMs?: number
 }
 
-export function IndicesPage({ initial }: Props) {
+export function IndicesPage({ initial, enabled = true, tick = 0, pollMs = 15_000 }: Props) {
   const [selected, setSelected] = useState<{ market: MarketTag; code: string; name: string } | null>(
     initial ?? null,
   )
@@ -34,8 +40,21 @@ export function IndicesPage({ initial }: Props) {
   // SWR 缓存：命中旧数据立即渲染（秒开），每 15s 后台验证；失败下线重试，避免以假乱真。
   const quotesSwr = useSwr(swrKey.indices(), () => fetchIndexQuotes(), {
     ttl: 6_000,
-    refreshInterval: 15_000,
+    refreshInterval: pollMs,
+    enabled,
   })
+
+  // 外部指定标的（总览里的指数芯片点击）→ 跟随切换
+  useEffect(() => {
+    if (initial) setSelected(initial)
+  }, [initial])
+
+  // 统一节拍
+  const refreshQuotes = quotesSwr.refresh
+  useEffect(() => {
+    if (tick === 0 || !enabled) return
+    refreshQuotes()
+  }, [tick, enabled, refreshQuotes])
   // useMemo 收口：`?? []` 每帧都是新数组，直接进依赖会让下游 effect/memo 反复重跑（lint 抓到）。
   const quotes = useMemo(() => quotesSwr.data ?? [], [quotesSwr.data])
   const error = quotesSwr.error

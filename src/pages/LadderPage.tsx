@@ -22,9 +22,15 @@ function pctColor(v: number): string {
 
 interface Props {
   onOpenStock: (s: OpenStock) => void
+  /** 是否轮询（合并页按"滚动到可视区才轮询"传 false/true）。默认 true = 独立页行为。 */
+  enabled?: boolean
+  /** 统一节拍递增值（合并页传递；变化一次 → 触发一次 `load(false)`，仍受 30s 缓存约束）。 */
+  tick?: number
+  /** 自轮询间隔覆盖（0 = 交给外部节拍器）。 */
+  pollMs?: number
 }
 
-export function LadderPage({ onOpenStock }: Props) {
+export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REFRESH_MS }: Props) {
   const [snap, setSnap] = useState<LadderSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -52,17 +58,28 @@ export function LadderPage({ onOpenStock }: Props) {
     }
   }, [])
 
+  // 首次进入（或从合并页滚动到可视区）才取数；enabled=false 时不起定时器（也不取数）
   useEffect(() => {
+    if (!enabled) return
     void load()
+    if (pollMs <= 0) return
     const timer = window.setInterval(() => {
       if (document.hidden) return
       void load()
-    }, REFRESH_MS)
-    return () => {
-      window.clearInterval(timer)
-      abortRef.current?.abort()
-    }
-  }, [load])
+    }, pollMs)
+    return () => window.clearInterval(timer)
+  }, [load, enabled, pollMs])
+
+  // 统一节拍：tick 变化 → 走一次 load(false)（命中 30s 共享缓存时不产生真实开销）
+  useEffect(() => {
+    if (tick === 0 || !enabled) return
+    void load()
+  }, [tick, enabled, load])
+
+  // 卸载时中止在途请求（合并页里区块离开视野不卸载，但整页切走/关闭工具时会）
+  useEffect(() => () => {
+    abortRef.current?.abort()
+  }, [])
 
   const known = useMemo(() => snap?.limitUp.filter((s) => s.streakKnown) ?? [], [snap])
   const unknown = useMemo(() => snap?.limitUp.filter((s) => !s.streakKnown) ?? [], [snap])

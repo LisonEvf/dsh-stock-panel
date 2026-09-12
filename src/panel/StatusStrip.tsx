@@ -141,9 +141,10 @@ export function StatusStrip({ onOpenSearch, onAskAi, aiBusy = false, stage, onPi
                 key={`${q.market}${q.code}`}
                 type="button"
                 className="dc-index-cell"
-                title={`${q.name} 成交额 ${fmtBigNum(q.amount)}（点击打开指数工具）`}
+                title={`${q.name} 成交额 ${fmtBigNum(q.amount)}（点击打开「行情」页的指数区块）`}
                 onClick={() => {
-                  setTool('indices')
+                  // A4 合并后指数与总览/涨停梯队同页：这里打开「行情」（旧 id 'indices' 仍会被 toolIdOf 映射）
+                  setTool('market')
                   setSelection({ market: q.market, code: q.code, name: q.name })
                 }}
               >

@@ -55,9 +55,12 @@ export interface ToolEntry {
 }
 
 export const TOOL_VIEWS: ToolEntry[] = [
-  { id: 'overview', label: '市场总览', hint: '广度 / 涨跌分布 / 榜单 / 异动', group: '市场' },
-  { id: 'indices', label: '指数', hint: '9 大指数日K与分时', group: '市场' },
-  { id: 'ladder', label: '涨停梯队', hint: '连板梯队 + 板块热度 TOP', group: '市场' },
+  {
+    id: 'market',
+    label: '行情',
+    hint: '市场总览 + 指数 + 涨停梯队（一页看完；滚到哪块才轮询哪块）',
+    group: '市场',
+  },
   {
     id: 'concept',
     label: '自挖板块',
@@ -229,7 +232,7 @@ function loadUi(): UiState {
     const view = isPrimaryView(p.view) ? p.view : DEFAULT_UI.view
     const klineDays = typeof p.klineDays === 'number' && p.klineDays >= 20 && p.klineDays <= 1000 ? p.klineDays : DEFAULT_UI.klineDays
     const leftGroup: LeftGroup = leftGroupOf(p.leftGroup)
-    const tool = typeof p.tool === 'string' && TOOL_VIEWS.some((t) => t.id === p.tool) ? p.tool : null
+    const tool = toolIdOf(p.tool)
     return {
       view,
       sub,
@@ -291,10 +294,33 @@ export function setSubView(view: PrimaryView, sub: string): UiState {
   return updateUi({ sub: { ...ui.sub, [view]: sub } })
 }
 
+/**
+ * 工具页的**历史 id 归一**。
+ *
+ * 背景：A4 之后「市场总览 / 指数 / 涨停梯队」合并成了单页 `market`。旧版本把它们存成
+ * 三个独立 id 落盘（`stock-panel:ui:v3`），老用户在升级后如果还带着旧值，会落到
+ * `setTool` 的校验分支被无声清空 → 表现为"工具页打不开"。所以旧 id 一律就地映射到 `market`，
+ * 不需要升键版本（与 `leftGroupOf` 收敛旧分组值同一手法）。
+ */
+export const LEGACY_TOOL_IDS: Record<string, string> = {
+  overview: 'market',
+  indices: 'market',
+  ladder: 'market',
+}
+
+/** 旧工具 id → 现行 id（未命中原样返回）。 */
+export function toolIdOf(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const mapped = LEGACY_TOOL_IDS[raw] ?? raw
+  return TOOL_VIEWS.some((t) => t.id === mapped) ? mapped : null
+}
+
 /** 打开工具抽屉（主区交给工具页面，阶段/看盘状态不丢）。 */
 export function setTool(toolId: string | null): UiState {
-  if (toolId !== null && !TOOL_VIEWS.some((t) => t.id === toolId)) return ui
-  return updateUi({ tool: toolId })
+  if (toolId === null) return updateUi({ tool: null })
+  const id = toolIdOf(toolId)
+  if (id === null) return ui
+  return updateUi({ tool: id })
 }
 
 /** 关闭工具抽屉，回到当前阶段内容。 */

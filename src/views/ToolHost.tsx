@@ -14,9 +14,7 @@
  * 外盘（`secondary`）按决策**弱化**：排在最后、标题标注「次要」、默认不展开。
  */
 import { X, ChevronRight } from 'lucide-react'
-import { MarketOverview } from '@/pages/MarketOverview'
-import { IndicesPage } from '@/pages/IndicesPage'
-import { LadderPage } from '@/pages/LadderPage'
+import { MarketPage } from '@/pages/MarketPage'
 import { GlobalPage } from '@/pages/GlobalPage'
 import { ScoutPage } from '@/pages/ScoutPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
@@ -26,7 +24,6 @@ import { ConceptClassesCard } from '@/components/ConceptClassesCard'
 import {
   closeTool,
   openStockAndWatch,
-  setSelection,
   setTool,
   TOOL_VIEWS,
   useSelection,
@@ -36,17 +33,9 @@ import {
 /** 渲染某个工具区块（只有当前展开的那个会被调用）。 */
 function renderTool(id: string, sel: ReturnType<typeof useSelection>) {
   switch (id) {
-    case 'overview':
-      return (
-        <MarketOverview
-          onOpenStock={openStockAndWatch}
-          onOpenIndex={(market, code, name) => setSelection({ market, code, name })}
-        />
-      )
-    case 'indices':
-      return <IndicesPage initial={null} />
-    case 'ladder':
-      return <LadderPage onOpenStock={openStockAndWatch} />
+    case 'market':
+      // A4 合并页（市场总览 + 指数 + 涨停梯队）：页内三块各自"滚到才轮询"，见 MarketPage 头注释
+      return <MarketPage onOpenStock={openStockAndWatch} />
     case 'concept':
       // A2b 自挖板块：只有展开时才挂载（标题常驻、内容按需 —— 请求预算约束见文件头）
       return (
