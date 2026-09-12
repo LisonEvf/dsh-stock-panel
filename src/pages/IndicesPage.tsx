@@ -30,9 +30,13 @@ interface Props {
   tick?: number
   /** 自轮询间隔覆盖（0 = 交给外部节拍器）。 */
   pollMs?: number
+  /** 嵌入聚合面板：交出整页布局与页头（块外壳负责标题/时间/刷新）。 */
+  embedded?: boolean
+  /** 数据时间戳回传（聚合页显示本块刷新时间）。 */
+  onUpdatedAt?: (at: number) => void
 }
 
-export function IndicesPage({ initial, enabled = true, tick = 0, pollMs = 15_000 }: Props) {
+export function IndicesPage({ initial, enabled = true, tick = 0, pollMs = 15_000, embedded = false, onUpdatedAt }: Props) {
   const [selected, setSelected] = useState<{ market: MarketTag; code: string; name: string } | null>(
     initial ?? null,
   )
@@ -86,19 +90,26 @@ export function IndicesPage({ initial, enabled = true, tick = 0, pollMs = 15_000
     return cells
   }, [active])
 
+  // 聚合页需要在块标题上显示本块刷新时间
+  useEffect(() => {
+    if (quotesSwr.updatedAt !== undefined && onUpdatedAt) onUpdatedAt(quotesSwr.updatedAt)
+  }, [quotesSwr.updatedAt, onUpdatedAt])
+
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex h-full min-h-0 flex-col overflow-y-auto px-2.5 pb-3">
-        {/* 吸顶头部 */}
-        <div className="ds-sticky-head -mx-2.5 mb-1.5 flex shrink-0 items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
-          <span className="text-[13px] font-semibold text-slate-800">指数</span>
-          <button
-            onClick={() => quotesSwr.refresh()}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-          >
-            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
+    <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'flex h-full flex-col overflow-hidden'}>
+      <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-y-auto px-2 pb-2' : 'flex h-full min-h-0 flex-col overflow-y-auto px-2.5 pb-3'}>
+        {/* 吸顶头部（嵌入聚合面板时由块外壳提供） */}
+        {!embedded && (
+          <div className="ds-sticky-head -mx-2.5 mb-1.5 flex shrink-0 items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
+            <span className="text-[13px] font-semibold text-slate-800">指数</span>
+            <button
+              onClick={() => quotesSwr.refresh()}
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        )}
 
         {error && <div className="mb-1.5 rounded bg-red-50 px-2 py-1 text-[11px] text-red-500">{error}</div>}
 

@@ -58,9 +58,27 @@ interface Props {
   tick?: number
   /** 自轮询间隔覆盖（0 = 不自己起定时器，只由 tick / 手动驱动）。 */
   pollMs?: number
+  /**
+   * 嵌入模式（行情聚合面板）：**交出整页布局与页头** —— 外层不再 `h-full overflow-y-auto`、
+   * 不再渲染自己的标题/刷新条（块外壳负责这些），由聚合页统一排版。
+   */
+  embedded?: boolean
+  /** 数据时间戳回传（聚合页在块标题上显示"本块刷新时间"）。 */
+  onUpdatedAt?: (at: number) => void
+  /** 是否显示 9 大指数条（聚合面板里另有一整块「指数」，故传 false 去重）。 */
+  showIndexStrip?: boolean
 }
 
-export function MarketOverview({ onOpenStock, onOpenIndex, enabled = true, tick = 0, pollMs = REFRESH_MS }: Props) {
+export function MarketOverview({
+  onOpenStock,
+  onOpenIndex,
+  enabled = true,
+  tick = 0,
+  pollMs = REFRESH_MS,
+  embedded = false,
+  onUpdatedAt,
+  showIndexStrip = true,
+}: Props) {
   // 三个独立数据源，各自缓存 + 后台轮询（互不阻塞，部分失败各自呈现）。
   // 合并页（MarketPage）会传 enabled=false 停止轮询、pollMs=0 交出自己的定时器。
   const indicesSwr = useSwr(swrKey.indices(), () => fetchIndexQuotes(), {
@@ -122,6 +140,11 @@ export function MarketOverview({ onOpenStock, onOpenIndex, enabled = true, tick 
 
   const refreshing = indicesSwr.isLoading || allASwr.isLoading || unusualSwr.isLoading
 
+  // 聚合页需要在块标题上显示本块刷新时间（嵌入模式下自己不显示页头）
+  useEffect(() => {
+    if (updatedAt !== null && onUpdatedAt) onUpdatedAt(updatedAt)
+  }, [updatedAt, onUpdatedAt])
+
   // 汇总错误（三个数据源都失败/部分失败时呈现，并保留重试）。
   const errors = [indicesSwr.error, allASwr.error, unusualSwr.error].filter(
     (e): e is string => Boolean(e),
@@ -138,9 +161,11 @@ export function MarketOverview({ onOpenStock, onOpenIndex, enabled = true, tick 
   const maxDist = Math.max(1, ...dist.map((d) => d.count))
 
   return (
-    <div className="h-full overflow-y-auto px-2.5 pb-3">
-      {/* 头部：标题 + 刷新（吸顶）；刷新走后台强制重新验证 */}
-      <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
+    // 嵌入聚合面板时交出整页布局（不自己滚动、不自己吸顶）
+    <div className={embedded ? 'px-2 pb-2' : 'h-full overflow-y-auto px-2.5 pb-3'}>
+      {/* 头部：标题 + 刷新（吸顶）；刷新走后台强制重新验证。嵌入模式下由块外壳提供 */}
+      {!embedded && (
+        <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
         <span className="text-[13px] font-semibold text-slate-800">市场总览</span>
         <div className="flex items-center gap-2">
           {updatedAt && (
@@ -160,7 +185,8 @@ export function MarketOverview({ onOpenStock, onOpenIndex, enabled = true, tick 
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
-      </div>
+        </div>
+      )}
 
       {errorText && (
         <div className="mb-1.5 flex items-start gap-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-500">
@@ -190,8 +216,12 @@ export function MarketOverview({ onOpenStock, onOpenIndex, enabled = true, tick 
         </div>
       )}
 
-      {/* 指数条（纵向单列通栏） */}
-      {indices.length > 0 && (
+      {/*
+        指数条（纵向单列通栏）。
+        聚合面板里**不显示**：右侧/旁边的「指数」块已经把 9 大指数摊开（含图），
+        这里再列一遍既重复又占掉本块宝贵的纵向空间 —— 实测在窄列里它会把榜单挤下去。
+      */}
+      {showIndexStrip && indices.length > 0 && (
         <div className="mb-1.5 overflow-hidden rounded-md border border-slate-100">
           {indices.map((q, i) => (
             <button

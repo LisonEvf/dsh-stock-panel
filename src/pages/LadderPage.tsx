@@ -28,9 +28,13 @@ interface Props {
   tick?: number
   /** 自轮询间隔覆盖（0 = 交给外部节拍器）。 */
   pollMs?: number
+  /** 嵌入聚合面板：交出整页布局与页头（块外壳负责标题/时间/刷新）。 */
+  embedded?: boolean
+  /** 数据时间戳回传（聚合页显示本块刷新时间）。 */
+  onUpdatedAt?: (at: number) => void
 }
 
-export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REFRESH_MS }: Props) {
+export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REFRESH_MS, embedded = false, onUpdatedAt }: Props) {
   const [snap, setSnap] = useState<LadderSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -100,31 +104,38 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
   const openStock = (market: MarketTag, code: string, name: string) =>
     onOpenStock({ market, code, name })
 
+  // 聚合页需要在块标题上显示本块刷新时间（梯队用自己的 fetchedAt，比"取数成功时刻"更贴切）
+  useEffect(() => {
+    if (snap !== null && onUpdatedAt) onUpdatedAt(snap.fetchedAt)
+  }, [snap, onUpdatedAt])
+
   return (
-    <div className="h-full overflow-y-auto px-2.5 pb-3">
-      <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
-        <span className="flex items-center gap-1 text-[13px] font-semibold text-slate-800">
-          <Flame className="h-3.5 w-3.5 text-red-500" />
-          涨停梯队
-        </span>
-        <div className="flex items-center gap-2">
-          {snap && (
-            <span className="text-[10px] text-slate-300">
-              {new Date(snap.fetchedAt).toLocaleTimeString('zh-CN', { hour12: false })}
-            </span>
-          )}
-          <button
-            onClick={() => {
-              setLoading(true)
-              void load(true)
-            }}
-            className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-500"
-            title="刷新"
-          >
-            <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+    <div className={embedded ? 'px-2 pb-2' : 'h-full overflow-y-auto px-2.5 pb-3'}>
+      {!embedded && (
+        <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
+          <span className="flex items-center gap-1 text-[13px] font-semibold text-slate-800">
+            <Flame className="h-3.5 w-3.5 text-red-500" />
+            涨停梯队
+          </span>
+          <div className="flex items-center gap-2">
+            {snap && (
+              <span className="text-[10px] text-slate-300">
+                {new Date(snap.fetchedAt).toLocaleTimeString('zh-CN', { hour12: false })}
+              </span>
+            )}
+            <button
+              onClick={() => {
+                setLoading(true)
+                void load(true)
+              }}
+              className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-500"
+              title="刷新"
+            >
+              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {error && <div className="mb-1.5 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-500">{error}</div>}
 
