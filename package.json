@@ -50,11 +50,14 @@
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
     "esbuild": "^0.24.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
     "tailwindcss-animate": "^1.0.7",
     "tsdown": "0.13.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.70.0"
   },
   "scripts": {
     "build": "tsdown -c tsdown.config.ts && node scripts/build-client.mjs && node scripts/postbuild-dts.mjs",
@@ -63,6 +66,9 @@
     "smoke:view": "node scripts/smoke-client-view.mjs",
     "smoke:ai": "node scripts/smoke-ai-contract.mjs",
     "smoke:host": "node scripts/smoke-host-state.mjs",
+    "lint": "eslint src scripts --max-warnings 30",
+    "lint:fix": "eslint src scripts --fix",
+    "test": "node scripts/unit.mjs",
     "verify:live": "node scripts/verify-live.mjs",
     "verify:domain": "node scripts/verify-state-domain.mjs",
     "report:bundle": "node scripts/bundle-report.mjs --minify",

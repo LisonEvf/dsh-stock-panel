@@ -72,7 +72,7 @@ export function AuctionRadar({ onOpenStock, watchlist }: Props) {
             if (!q) return null
             let points: AuctionPoint[] = []
             try {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+               
               const data = (await callToolJson('auction', { market: item.market, code: item.code })) as any
               points = Array.isArray(data)
                 ? (data as AuctionPoint[])

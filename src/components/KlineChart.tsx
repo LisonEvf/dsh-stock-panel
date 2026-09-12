@@ -262,7 +262,7 @@ export function KlineChart({ symbol, height = 480, className, rows, showMA = fal
   // 声明在图表创建 effect **之后**，保证首帧 candleRef 已就绪。
   useEffect(() => {
     syncPriceLines()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [priceLineKey, height])
 
   // 数据渲染：受控 rows（优先）；未提供 rows 时退回组件内自取（兼容复用方）。

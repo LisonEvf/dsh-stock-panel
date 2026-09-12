@@ -261,21 +261,37 @@ CSS 里 64 条暗色主题重映射作为过渡层。
 
 **规模**：M
 
-### B4 · 质量网（lint + 单测 + 产物校验）
+### B4 · 质量网（lint + 单测 + 产物校验）🟡 **主体已完成（2026-09-12）**
 
-**现状**：**无 ESLint、无测试框架**（lockfile 0 命中）；`tsc` 只检查 `src`，
-且 `noUnusedLocals/noUnusedParameters: false` → 死代码与 hook 依赖错误对编译器隐形；
-3 处 `eslint-disable` 处于**失效状态**；`build-client --check` 因 `/lib/` 被 gitignore 而无法比对基线。
+**现状（起点）**：**无 ESLint、无测试框架**（lockfile 0 命中）；`tsc` 只检查 `src`，
+且 `noUnusedLocals/noUnusedParameters: false` → 死代码与 hook 依赖错误对编译器隐形。
 
-**内容**：① ESLint + `eslint-plugin-react-hooks`（能直接抓出 B3 里那类 deps 错误）；
-② `node:test` 覆盖纯函数：`ladder / indicators / regime / situation / strength / review-metrics /
-screener / chips / ai-contract`（这些正是方法论判定，必须可回归）；
-③ `build-client --check` 落 hash 基线文件（而非依赖被 ignore 的 `lib/`）。
+**落地**：
+1. **ESLint（flat config，规则刻意克制）**：`eslint src scripts` → **0 error / 30 warning**；
+   启用 `react-hooks/rules-of-hooks`（error）+ `exhaustive-deps`（warn）——正是抓出 B3 那类
+   deps 真 bug 的规则；TS 侧只开 `no-unused-vars`（warn，`_` 前缀可忽略）+ 若干低噪音规则。
+   **不套"全量 recommended"**：28 个旧页面会产出上千条噪音，然后被整片 disable —— 那等于没 lint。
+2. **单测（零新增依赖）**：用 Node 内置 `node:test` + 已有的 esbuild 打包 TS 测试
+   （`scripts/unit.mjs`，`pnpm test`）——不引入 vitest/jest。
+   首批覆盖方法论地基：`indicators`（涨跌停分档 / 涨停价 / 一字板 / 连板统计）、
+   `regime`（`BAND_CAP` 仓位总闸档位 / 退潮压温强制规则 / 过热检测 / 单调性）。
+3. **门禁接线**：CI 增 `eslint --max-warnings 30`（**棘轮：只降不升**）与 `node scripts/unit.mjs`；
+   `linterOptions.reportUnusedDisableDirectives` 打开（失效的 disable 注释会被点名）。
+4. **单测立刻抓到两个真问题**（这是它存在的意义）：
+   - `regime` 的 drivers 截断到 3 条时会把**强制压温的原因**挤掉 → 界面只剩数字、看不出为什么；
+     已改为「点名具体触发条件（晋级率<25% / 炸板率>50%）并优先保留」；
+   - 确认了"全 0 输入温度仍 >0"（炸板率低会加分）——记录为**行为契约**：空数据必须由 UI 侧判空兜住。
 
-**验收锚点**：CI 增 lint + 单测步骤且全绿；`eslint-disable` 或修复或删除（不允许失效注释）；
-新增方法论阈值必须附带一个单测。
+**仍未做**：① 30 条 warning 的清零（多为旧的未使用 import，属死代码）；
+② 测试面扩到 `strength / situation / review-metrics / screener / chips`；
+③ 测试文件目前不在 `tsc` 的 include 内（断言靠运行保证）；
+④ `build-client --check` 的 hash 基线文件（现状是与磁盘产物比对，能挡住手改生成物）。
 
-**规模**：L
+**验收锚点**：✅ CI 增 lint + 单测步骤且全绿；✅ 无失效 `eslint-disable`
+（现仅 1 处 `KlineChart` 的 `exhaustive-deps`，且被 `reportUnusedDisableDirectives` 确认仍需要）；
+✅ 新增方法论阈值必须附带单测（温度计档位与强制规则已锁）。
+
+**规模**：L（主体 S-M 已完成，剩余为扩面与清零）
 
 ### B5 · 运行态一致性与可观测
 

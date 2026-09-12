@@ -117,10 +117,28 @@
   诊断字段改为**如实**记录「是否真的声明成功 / 回调是否触发」（原先无条件打标记，会误导排查）。
   新增回归用例 `[8]`（服务**只**挂在 scoped ctx 上也必须可用 —— 模拟真实 cordis 语义）、
   `[9]`（不可用时必须交代取证字段）。
+- **B4 质量网（主体）**：仓库此前**没有 ESLint、没有测试框架**，`tsc` 又因
+  `noUnusedLocals:false` 对死代码与 hook deps 错误隐形。本次：
+  · ESLint（flat config，规则刻意克制）→ **0 error / 30 warning**，CI 用
+    `--max-warnings 30` 做**棘轮**（只降不升）；开启 `reportUnusedDisableDirectives` 揪失效注释；
+  · 单测零新增依赖：Node 内置 `node:test` + 既有 esbuild 打包 TS 测试（`scripts/unit.mjs`），
+    首批锁住方法论地基 —— `indicators`（涨跌停分档/涨停价/一字板/连板）与
+    `regime`（`BAND_CAP` 仓位总闸、退潮压温强制规则、过热检测、单调性）；
+  · CI 增 lint 与单测两步。
+  **单测立刻抓到两个真问题**：① `regime` 的 drivers 截断到 3 条时会把「强制压温的原因」挤掉
+  （界面只剩数字、看不出为什么）→ 改为点名具体触发条件并优先保留；
+  ② 确认「全 0 输入温度仍 >0」（炸板率低会加分）→ 记为行为契约：空数据必须由 UI 判空兜住。
+  踩坑：ESLint flat config 里**「只含 ignores 的对象」才是全局忽略**，把 ignores 与
+  `linterOptions` 混写会退化成文件过滤 —— vendor 的 `opentdx.js` 因此被 lint 并因其自带的
+  `@typescript-eslint/*` disable 注释直接报 3 个 error。
 - **新增实机验收工具** `scripts/verify-live.mjs`（`pnpm verify:live`）：对运行中的 dsh web
   做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）
   ② 持久化可用性 + 8 表 + 服务来源 ③ 写→读→删闭环（真域真介质，含清理）④ AI/行情信息项。
   它把「重启后到底好了没」从人肉 DevTools 变成一条命令，并能区分「旧 host 半」与真失败。
+- **A1 首迁可靠性**：真机验收中出现「`migratedFromLocalStorage=true` 但 8 张表记录数全 0」
+  （标记写了、数据没落地 —— 首迁上传在途被页面刷新取消）。改为「先 `flushState()` 确认全部
+  上传成功 → 才写首迁标记」，失败时进 `failedTables` 并自动重试（回页面 / 5 秒后），
+  诊断面板新增「待同步表数」（0 = 全部落地）让这类静默不一致可见。
 - **B2 体积：默认 minify + sourcemap（用户决策）**：client.js 822.5 → **530.8 KB（−35.7%）**，
   护栏 840 → **600 KB**（余量从 2% 回到 11.5%）。
   先量后减：新增 `scripts/bundle-report.mjs`（esbuild metafile 成分报告）——实测大头是

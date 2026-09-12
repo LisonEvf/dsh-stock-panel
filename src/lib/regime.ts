@@ -62,6 +62,15 @@ export const BAND_CAP: Record<RegimeBand, number> = {
  */
 export function computeRegime(i: RegimeInputs, caps: typeof BAND_CAP = BAND_CAP): Regime {
   const drivers: string[] = []
+  /**
+   * **强制规则**触发的原因（压温 / 过热）。
+   *
+   * 为什么单列：drivers 最终只保留 3 条，而"温度被强制压低/抬高"是最该让人看见的信息——
+   * 单元测试（`tests/regime.test.ts`）抓到过：涨得再热的市场里一旦触发退潮压温，
+   * 「退潮/分歧压温」会被「涨停≥80 家」这类普通项挤掉，界面就只剩下数字、看不出为什么。
+   * 因此这些原因优先保留。
+   */
+  const forced: string[] = []
   let score = 0
 
   // 涨停家数（0-100：0 家=0 分，≥80 家=100 分）
@@ -102,14 +111,18 @@ export function computeRegime(i: RegimeInputs, caps: typeof BAND_CAP = BAND_CAP)
   // 特别规则：退潮/分歧强制压温
   if (i.promoteRate < 0.25 || i.brokenRate > 0.5) {
     score = Math.min(45, score)
-    if (!(drivers.includes('晋级率<25%'))) drivers.push('退潮/分歧压温')
+    // 点名**具体**触发条件（哪个指标把温度压下去的），而不是只给泛化结论：
+    // 「退潮/分歧压温」不提原因，用户没法判断该看什么。两个条件都不满足时不会有这条分支。
+    if (i.promoteRate < 0.25) forced.push('晋级率<25%')
+    if (i.brokenRate > 0.5) forced.push('炸板率>50%')
+    if (forced.length === 0) forced.push('退潮/分歧压温')
   }
 
   // 过热检测：高位缩量滞涨
   let overheat = false
   if (i.maxStreak >= 5 && i.upRatio > 0.6 && (i.amountYiPct ?? 0) < 0.3) {
     overheat = true
-    drivers.push('高位缩量加速')
+    forced.push('高位缩量加速')
   }
 
   score = Math.max(0, Math.min(100, score))
@@ -120,9 +133,11 @@ export function computeRegime(i: RegimeInputs, caps: typeof BAND_CAP = BAND_CAP)
     : score >= 20 ? 'cold'
     : 'ice'
 
-  // drivers 去重并截断 ≤3
+  // drivers = 强制原因优先，其次普通项；去重并截断 ≤3
   const seen = new Set<string>()
-  const uniq = drivers.filter((d) => { if (seen.has(d)) return false; seen.add(d); return true }).slice(0, 3)
+  const uniq = [...forced, ...drivers]
+    .filter((d) => { if (seen.has(d)) return false; seen.add(d); return true })
+    .slice(0, 3)
 
   return { temperature: Math.round(score), band, drivers: uniq }
 }

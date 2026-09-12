@@ -21,6 +21,10 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Type check（全量，0 错误门禁）
         run: npx tsc --noEmit
+      - name: Lint（0 error；warning 棘轮 30 = 只降不升）
+        run: npx eslint src scripts --max-warnings 30
+      - name: Unit tests（node:test + esbuild 打包，离线）
+        run: node scripts/unit.mjs
       - name: Bundle size guard
         run: node scripts/check-bundle-size.mjs
       - name: Client view registration smoke（官方 conversation.view 契约）
