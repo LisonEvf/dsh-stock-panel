@@ -27,7 +27,6 @@ import {
   ensureSearchIndex,
   type AShareRow,
   type DistBucket,
-  type IndexQuote,
   type UnusualItem,
 } from '@/lib/market'
 import { useSwr, swrKey } from '@/lib/cache'
@@ -68,7 +67,8 @@ export function MarketOverview({ onOpenStock, onOpenIndex }: Props) {
   })
 
   const indices = indicesSwr.data ?? []
-  const rows = allASwr.data ?? []
+  // useMemo 收口：`?? []` 每帧都是新数组，直接进依赖会让下游 memo 每帧重算（lint 抓到）。
+  const rows = useMemo(() => allASwr.data ?? [], [allASwr.data])
   const unusual = unusualSwr.data ?? []
 
   // 预热本地搜索索引（行情页已拉全 A，搜索零成本；懒加载不阻塞首屏）。

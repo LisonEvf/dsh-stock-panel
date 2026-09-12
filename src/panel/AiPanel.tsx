@@ -12,7 +12,7 @@
  */
 import { useState } from 'react'
 import { Sparkles, MessageSquareText, RefreshCw, X, AlertTriangle, Send } from 'lucide-react'
-import type { AiAvailability, AiRunner } from './use-ai'
+import type { AiRunner } from './use-ai'
 import type { StockVerdict } from '@/lib/ai-contract'
 import { fmtPrice } from '@/lib/format'
 import { todayKey } from '@/lib/ai'

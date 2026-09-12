@@ -152,8 +152,8 @@ Browser(invokeTool / useSwr)
 pnpm build                                  # host + client + dts（client 默认 minify + sourcemap）
 node scripts/build-client.mjs --check       # 生成物与源码一致性（防手改生成物）
 npx tsc --noEmit                            # 全量类型门禁（0 错误）
-pnpm lint                                   # ESLint（0 error；warning 棘轮 30 = 只降不升）
-pnpm test                                   # 单元测试（node:test + esbuild 打包，离线）
+pnpm lint                                   # ESLint（0 error / 0 warning；棘轮 0 = 只降不升）
+pnpm test                                   # 单元测试 7 文件 / 65 条（node:test + esbuild 打包，离线）
 node scripts/check-bundle-size.mjs          # client.js 体积护栏 600KB（当前 534KB，余量 66KB）
 node scripts/bundle-report.mjs --minify     # 体积成分报告（三类汇总 + 单文件 top25 + 压缩口径）
 node scripts/smoke-client-view.mjs          # 视图注册契约 + 持久化降级冒烟（离线，CI 已接）
@@ -162,12 +162,13 @@ node scripts/smoke-ai-contract.mjs          # AI 契约冒烟（离线假模型�
 node scripts/smoke-embedded.mjs             # 内置 TDX 19 工具冒烟（需真机行情）
 pnpm verify:live                            # 对**运行中**的 dsh web 做端到端验收（重启后用）
 ```
-```
 
-CI（`.github/workflows/ci.yml`）：install(→prepare build) → `tsc --noEmit` → `eslint --max-warnings 30`
+CI（`.github/workflows/ci.yml`）：install(→prepare build) → `tsc --noEmit` → `eslint --max-warnings 0`
 → `node scripts/unit.mjs` → 体积护栏 → 三个离线冒烟。**单元测试用 Node 内置 `node:test`**
-（`scripts/unit.mjs` 以 esbuild 打包 TS 测试，不引入测试框架）；尚未做的是：30 条 lint warning 清零、
-测试面扩到 `strength/situation/review-metrics/screener/chips`（见 `docs/ROADMAP.md` B4）。
+（`scripts/unit.mjs` 以 esbuild 打包 TS 测试，不引入测试框架），覆盖方法论地基与复盘实算口径：
+`indicators / regime / strength / situation / review-metrics / screener / chips`。
+lint warning 已全部清零并把 `--max-warnings` 从 30 收紧到 **0**（棘轮只降不升，改回 30 等于把门禁关掉）。
+尚未做的是：测试文件不在 `tsc` 的 include 内（见 `docs/ROADMAP.md` B4 的「仍未做」）。
 
 运行时自检（浏览器控制台）：
 

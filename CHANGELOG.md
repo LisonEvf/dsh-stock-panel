@@ -117,17 +117,25 @@
   诊断字段改为**如实**记录「是否真的声明成功 / 回调是否触发」（原先无条件打标记，会误导排查）。
   新增回归用例 `[8]`（服务**只**挂在 scoped ctx 上也必须可用 —— 模拟真实 cordis 语义）、
   `[9]`（不可用时必须交代取证字段）。
-- **B4 质量网（主体）**：仓库此前**没有 ESLint、没有测试框架**，`tsc` 又因
+- **B4 质量网**：仓库此前**没有 ESLint、没有测试框架**，`tsc` 又因
   `noUnusedLocals:false` 对死代码与 hook deps 错误隐形。本次：
-  · ESLint（flat config，规则刻意克制）→ **0 error / 30 warning**，CI 用
-    `--max-warnings 30` 做**棘轮**（只降不升）；开启 `reportUnusedDisableDirectives` 揪失效注释；
+  · ESLint（flat config，规则刻意克制）→ **0 error / 0 warning**（初批 30 条 warning 已全部清零），
+    CI 用 `--max-warnings 0` 做**棘轮**（只降不升，改回 30 等于把门禁关掉）；开启
+    `reportUnusedDisableDirectives` 揪失效注释；
   · 单测零新增依赖：Node 内置 `node:test` + 既有 esbuild 打包 TS 测试（`scripts/unit.mjs`），
-    首批锁住方法论地基 —— `indicators`（涨跌停分档/涨停价/一字板/连板）与
-    `regime`（`BAND_CAP` 仓位总闸、退潮压温强制规则、过热检测、单调性）；
+    **7 个文件 / 65 条** —— `indicators`（涨跌停分档/涨停价/一字板/连板）、
+    `regime`（`BAND_CAP` 仓位总闸、退潮压温强制规则、过热检测、单调性）、
+    `strength`（五类判定 + 阈值边界 + 低位首板筛选）、`situation`（局势优先级瀑布）、
+    `review-metrics`（实算口径 null vs 0、分母与样本、亏钱效应样本）、
+    `screener`（条件边界/板块前缀/ST/MA 信号窗口）、`chips`（形状与口径不变量/300% 换手窗口/逐笔降级）；
   · CI 增 lint 与单测两步。
-  **单测立刻抓到两个真问题**：① `regime` 的 drivers 截断到 3 条时会把「强制压温的原因」挤掉
+  **单测抓到 5 个真问题**：① `regime` 的 drivers 截断到 3 条时会把「强制压温的原因」挤掉
   （界面只剩数字、看不出为什么）→ 改为点名具体触发条件并优先保留；
-  ② 确认「全 0 输入温度仍 >0」（炸板率低会加分）→ 记为行为契约：空数据必须由 UI 判空兜住。
+  ② 确认「全 0 输入温度仍 >0」（炸板率低会加分）→ 记为行为契约：空数据必须由 UI 判空兜住；
+  ③ **`classifyStrength` 的量比阈值从未参与判断**（写成 `&& t.volRatioStrong`，对数字取真值恒真）——
+  缩量一字板被判「真强」、无量阴跌被判「放量滞涨」，已改为真正的 `r.volRatio >= t.*`；
+  ④ `chips` 空输入抛的是 TypeError 而非约定的「日K数据不足以计算筹码」（`rows[0]` 未定义），
+  调用方按 message 判断会完全失效；⑤ `screenRows(rows, cond, 0)` 返回 1 条（先 push 再判长度）。
   踩坑：ESLint flat config 里**「只含 ignores 的对象」才是全局忽略**，把 ignores 与
   `linterOptions` 混写会退化成文件过滤 —— vendor 的 `opentdx.js` 因此被 lint 并因其自带的
   `@typescript-eslint/*` disable 注释直接报 3 个 error。

@@ -36,7 +36,8 @@ export function IndicesPage({ initial }: Props) {
     ttl: 6_000,
     refreshInterval: 15_000,
   })
-  const quotes = quotesSwr.data ?? []
+  // useMemo 收口：`?? []` 每帧都是新数组，直接进依赖会让下游 effect/memo 反复重跑（lint 抓到）。
+  const quotes = useMemo(() => quotesSwr.data ?? [], [quotesSwr.data])
   const error = quotesSwr.error
   const refreshing = quotesSwr.isLoading
   const settled = quotesSwr.status !== 'loading' && quotesSwr.status !== 'idle'

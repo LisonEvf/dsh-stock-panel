@@ -9,7 +9,8 @@
 //     · TS：未使用变量（warn，且允许 `_` 前缀）、未使用表达式、`any` 提示（warn，不阻断）；
 //     · 基础：no-empty（允许空 catch，代码里大量 `catch { /* ignore */ }` 是刻意的）、
 //       no-constant-condition 等低噪音规则。
-//   规则一律"宁少勿滥"：CI 里 `--max-warnings` 只卡 error（warning 可见但不阻断）。
+//   规则一律"宁少勿滥"：warning 全部清零后，`--max-warnings 0` 已收紧为硬门禁
+//   （棘轮只降不升：30 → 0，见 package.json 与 .github/workflows/ci.yml）。
 import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 

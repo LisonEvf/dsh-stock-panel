@@ -12,7 +12,7 @@
 //
 // 依赖：esbuild（devDependency，提供 JS API + 平台二进制）。
 
-import { readFileSync, writeFileSync, copyFileSync, unlinkSync, mkdirSync } from 'node:fs'
+import { readFileSync, copyFileSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { computeBuildId, pluginVersion } from './build-id.mjs'

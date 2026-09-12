@@ -69,7 +69,7 @@ export function StockDetailPage({ open, onBack }: Props) {
   const [error, setError] = useState('')
   const [reports, setReports] = useState<AiStockReport[]>([])
   const cancelledRef = useRef(false)
-  const { items: watchlist, toggle: toggleWatch, isWatched } = useWatchlist()
+  const { toggle: toggleWatch, isWatched } = useWatchlist()
 
   // M9：图表卡状态（模式 / 区间 / MA 开关 / 区间取数忙）
   const [chartMode, setChartMode] = useState<'day' | 'min'>('day')

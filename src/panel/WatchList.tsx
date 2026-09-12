@@ -43,16 +43,18 @@ interface Row {
 
 /** 订阅自选变更（模块级 store，与 UI 状态解耦）。 */
 function useWatchItems(): WatchItem[] {
-  const [tick, bump] = useReducer((x: number) => x + 1, 0)
+  const [, bump] = useReducer((x: number) => x + 1, 0)
   useEffect(() => subscribeWatchlist(bump), [])
-  return useMemo(() => getWatchlist(), [tick])
+  // 不用 useMemo 缓存：`getWatchlist()` 只是 ≤60 项的 slice，而"以 tick 为依赖缓存"
+  // 在 lint 看来是无效依赖（tick 未参与计算）—— 直接返回更简单也更诚实。
+  return getWatchlist()
 }
 
 /** 订阅「看过的个股」变更。 */
 function useViewedItems(): ViewedStock[] {
-  const [tick, bump] = useReducer((x: number) => x + 1, 0)
+  const [, bump] = useReducer((x: number) => x + 1, 0)
   useEffect(() => subscribeViewed(bump), [])
-  return useMemo(() => getViewed(), [tick])
+  return getViewed()
 }
 
 /** 「多久以前看的」——个股栏要的是"最近"，不是精确时间。 */

@@ -42,7 +42,6 @@ import {
   selectLowBoardCandidates,
   strongKindColor,
   strongKindLabel,
-  type LowBoardCandidate,
   type StrengthRow,
   type StrongKind,
 } from '@/lib/strength'
@@ -513,8 +512,13 @@ export function ReviewPage({ onOpenStock }: Props) {
     setPlanRaw(res.text ?? '')
   }, [aiPlan, day, breadth, regime, ladder, expectations, breakEvents, limitDownEvents])
 
-  /** 把 AI 条目加进本地草稿（只加有明确标的的；满 5 条或已存在则不动）。 */
-  const addFromAiPlan = (item: ReviewPlanItem) => {
+  /**
+   * 把 AI 条目加进本地草稿（只加有明确标的的；满 5 条或已存在则不动）。
+   *
+   * 用 useCallback 而不是普通函数：它被下面的 planRows useMemo 捕获，
+   * 普通函数每次渲染都换身份 → 要么 lint 报缺依赖，要么让 memo 白做。
+   */
+  const addFromAiPlan = useCallback((item: ReviewPlanItem) => {
     if (item.symbol === undefined) return
     if (expectations.length >= 5) return
     if (expectations.some((e) => e.symbol === item.symbol)) return
@@ -539,7 +543,7 @@ export function ReviewPage({ onOpenStock }: Props) {
         reason: `[AI ${item.score}] ${item.reason}`,
       },
     ])
-  }
+  }, [expectations, ladder])
 
   /** 把 AI 排序结果转成列表行。 */
   const planRows: AiRankRow[] = useMemo(() => {
@@ -570,7 +574,7 @@ export function ReviewPage({ onOpenStock }: Props) {
           ) : undefined,
       }
     })
-  }, [plan, expectations, ladder])
+  }, [plan, expectations, addFromAiPlan])
 
   /** 存档：装配当日 ReviewSnapshot 并写入 review-store。 */
   const save = () => {

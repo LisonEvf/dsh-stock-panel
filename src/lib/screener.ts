@@ -60,9 +60,16 @@ export function matchScreen(row: AShareRow, c: ScreenCond): boolean {
   return true
 }
 
-/** 快照筛选（保持入参顺序，上限 limit）。 */
+/**
+ * 快照筛选（保持入参顺序，上限 limit）。
+ *
+ * `limit <= 0` 明确表示"不要结果"：原来的写法是"先 push 再判断长度"，
+ * 于是 limit=0 会返回 1 条（B4 单测在边界上抓到）。这里补上闸门，
+ * 对 limit≥1 的行为完全不变。
+ */
 export function screenRows(rows: AShareRow[], c: ScreenCond, limit = 200): AShareRow[] {
   const out: AShareRow[] = []
+  if (limit <= 0) return out
   for (const r of rows) {
     if (!matchScreen(r, c)) continue
     out.push(r)

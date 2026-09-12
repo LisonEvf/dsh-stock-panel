@@ -30,8 +30,6 @@ interface Props {
   band: RegimeBand | null
 }
 
-const UP = '#c74040'
-const DOWN = '#2d9b65'
 const SIGNS: { v: SignalKind; l: string }[] = [
   { v: 'trueStrong', l: '真强打板' },
   { v: 'weak2strong', l: '弱转强低吸' },

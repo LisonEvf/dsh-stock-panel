@@ -329,6 +329,5 @@ registerStateBridge(ws)                           // GET/POST /api/stock-panel/s
 | 6 | HTTP-only 端点残留在 embedded 部署（关键价位） | 🟡 已**显式提示不可用**并给出替代做法（模型价位线）；真正的 TS 端价位计算仍未做 | B2 |
 | 7 | 存储无抽象、无重置/导出 | 🟡 已迁 host 领域（A1）；**导出/导入/重置**仍待做 | A1 |
 | 8 | 样式双轨（7 个新文件用 `--dc-*`，28 个旧文件 1,000+ 处硬编码色 + 64 条暗色重映射） | ⏳ 未动 | A5 |
-| 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | ⏳ 未动（离线冒烟已从 2 个增至 3 个） | B4 |
-| 10 | client.js 体积 814KB / 护栏 840KB（单模块不可拆分） | ⏳ 需减重至 ≤700KB | B2 |
-| 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | 死代码与 hook 依赖错误隐形 | B4 |
+| 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | ✅ 已修（ESLint **0 error / 0 warning** + 棘轮 `--max-warnings 0`；单测 7 文件 / 65 条＋离线冒烟 3 个）。**残留**：测试文件不在 `tsc` 的 include 内，断言靠运行保证 | B4 |
+| 10 | client.js 体积 814KB / 护栏 840KB（单模块不可拆分） | ✅ 已修（默认 minify + sourcemap → 530.8KB，护栏 600KB；现行 **534.3KB ≈89%**）。**残留**：`lightweight-charts` 占 26%，进一步减重需换图库 | B2 |

@@ -19,8 +19,8 @@ import { callToolJson } from '@/lib/stock-data'
 import { detectBoardPulse, type HeatBoard, type BoardPulse } from '@/lib/board-pulse'
 import { judgeSituation, situationLabel, situationColor, type Situation } from '@/lib/situation'
 import { computeRegime, type Regime, bandLabel, bandColor } from '@/lib/regime'
-import { loadLadder, type LadderSnapshot } from '@/lib/ladder'
-import { fetchAllA, computeBreadth, type AShareRow } from '@/lib/market'
+import { loadLadder } from '@/lib/ladder'
+import { fetchAllA, computeBreadth } from '@/lib/market'
 import { getLatestPlan, getReview, subscribeReview, today } from '@/lib/review-store'
 import { getDayRun, subscribeDayRun } from '@/lib/dayrun'
 import { getPositions, subscribePositions } from '@/lib/positions'
@@ -30,7 +30,6 @@ import { PositionDesk } from '@/components/PositionDesk'
 import { SessionMission } from '@/components/SessionMission'
 import { ExpectVerdictPanel } from '@/components/ExpectVerdictPanel'
 import { QAnswers } from '@/components/QAnswers'
-import type { MarketTag } from '@/lib/symbol'
 import type { OpenStock } from '@/panel/PanelApp'
 
 interface Props {
@@ -50,11 +49,23 @@ export function WarPage({ onOpenStock }: Props) {
   const [msg, setMsg] = useState('')
   const busyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
+  /**
+   * 上一时段（server_info 取不到时的回退值）。
+   *
+   * 为什么用 ref 而不是直接读 `phase`：`load` 内部会 `setPhase`，若把 `phase` 写进
+   * 它的依赖数组，每次取时段都会换掉 `load` 的身份 → 依赖 `load` 的定时轮询会被重建。
+   * 这里只需要"看一眼当前值"，不需要它触发重算。
+   */
+  const phaseRef = useRef<SessionPhase>('closed')
   // 当日任务进度变更（dayrun 判定/Q 卡、持仓、复盘存档）→ 触发任务条重算
   const [, force] = useReducer((x: number) => x + 1, 0)
 
   // 自选订阅（竞价观察池；变更时静默更新，不打断盘中轮询）
   useEffect(() => subscribeWatchlist(() => setWatchlist(getWatchlist())), [])
+  // 时段快照给 load 用（见 phaseRef 注释）
+  useEffect(() => {
+    phaseRef.current = phase
+  }, [phase])
   // N8：任务进度订阅（判定写回 / Q 卡答案 / 持仓变化 / 今日复盘存档）
   useEffect(() => subscribeDayRun(force), [])
   useEffect(() => subscribePositions(force), [])
@@ -91,10 +102,11 @@ export function WarPage({ onOpenStock }: Props) {
     abortRef.current = ac
     try {
       // 会话时段：server_info 驱动（失败则维持当前 phase，不影响主体加载）
-      let curPhase = phase
+      let curPhase = phaseRef.current
       try {
         const info = await callToolJson('server_info', {})
         curPhase = buildClock(info ?? null).phase
+        phaseRef.current = curPhase
         if (!ac.signal.aborted) setPhase(curPhase)
       } catch { /* 忽略：沿用上一时段 */ }
 

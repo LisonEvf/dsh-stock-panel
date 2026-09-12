@@ -66,7 +66,7 @@
     "smoke:view": "node scripts/smoke-client-view.mjs",
     "smoke:ai": "node scripts/smoke-ai-contract.mjs",
     "smoke:host": "node scripts/smoke-host-state.mjs",
-    "lint": "eslint src scripts --max-warnings 30",
+    "lint": "eslint src scripts --max-warnings 0",
     "lint:fix": "eslint src scripts --fix",
     "test": "node scripts/unit.mjs",
     "verify:live": "node scripts/verify-live.mjs",

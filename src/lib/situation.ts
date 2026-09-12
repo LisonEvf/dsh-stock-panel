@@ -80,7 +80,9 @@ export function situationColor(s: Situation): string {
  * 优先级：recession > highLowSwitch > newDirection > weightLift > innerDivergence > normal
  */
 export function judgeSituation(input: SituationInput): Situation {
-  const { regime, oldLeaderAtLimit, oldLeaderBroken, lowNewLimitUp, indexPct, upRatio } = input
+  // 注意：局势归类**不看温度档位**（input.regime）—— 它由跌停/晋级率/炸板率/事件/脉冲等直接判，
+  // 温度计只负责"总仓位闸门"。因此这里不取 regime（此前解构了却没用，属误导性代码）。
+  const { oldLeaderAtLimit, oldLeaderBroken, lowNewLimitUp, indexPct, upRatio } = input
 
   // 退潮：跌停增多 + 晋级率骤降 + 炸板率飙升
   if (input.limitDown >= 10 && input.promoteRate < 0.25 && input.brokenRate > 0.5) {

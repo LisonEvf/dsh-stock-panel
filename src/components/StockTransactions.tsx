@@ -53,7 +53,8 @@ export function StockTransactions({ market, code }: Props) {
     ttl: 60_000,
     enabled: open,
   })
-  const raw = txSwr.data ?? []
+  // useMemo 收口：`?? []` 每帧都是新数组，直接进依赖会让下游 memo 每帧重算（lint 抓到）。
+  const raw = useMemo(() => txSwr.data ?? [], [txSwr.data])
   const rows = useMemo(() => toDisplay(raw), [raw])
   const loading = txSwr.status === 'loading'
   const error = txSwr.error

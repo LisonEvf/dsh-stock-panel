@@ -11,7 +11,6 @@
  */
 
 import { fetchBoardMembers, type QuoteRow } from './stock-data'
-import { marketIdToTag, type MarketTag } from './symbol'
 import { runPool } from './pool'
 
 export interface BoardPulse {

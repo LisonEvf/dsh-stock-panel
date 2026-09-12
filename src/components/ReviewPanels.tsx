@@ -25,7 +25,6 @@ import type { OpenStock } from '@/panel/PanelApp'
 
 const UP = '#c74040'
 const DOWN = '#2d9b65'
-const AMBER = '#e85910'
 
 /** 风向标类型（六步法第 6 步语义）+ 说明。 */
 export const WIND_TAGS: { v: WindFlagTag; l: string; desc: string }[] = [

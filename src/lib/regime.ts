@@ -59,8 +59,11 @@ export const BAND_CAP: Record<RegimeBand, number> = {
  *   - promoteRate<0.25 或 brokenRate>0.5 ⇒ 温度强制 ≤ 45（退潮/分歧）
  *   - maxStreak>=5 且缩量加速（upRatio 高但 amount 降）⇒ 触发 overheat 标记
  * drivers 记录拉高/压低项（≤3），供人工复核。
+ *
+ * 注：不再接受 `caps` 入参 —— 档位上限是**展示/仓位闸门**（`BAND_CAP`，见 `sizing.ts`）
+ * 的事，温度计只负责算温度。留一个没人用的入参只会让人以为温度受它影响。
  */
-export function computeRegime(i: RegimeInputs, caps: typeof BAND_CAP = BAND_CAP): Regime {
+export function computeRegime(i: RegimeInputs): Regime {
   const drivers: string[] = []
   /**
    * **强制规则**触发的原因（压温 / 过热）。

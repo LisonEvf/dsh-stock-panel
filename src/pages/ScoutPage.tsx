@@ -61,17 +61,6 @@ export function ScoutPage({ onOpenStock }: { onOpenStock: (s: OpenStock) => void
     }
   }, [])
 
-  /** 应用预设（cond 覆盖为预设值并立即筛选）。 */
-  const applyPreset = useCallback((key: string) => {
-    const p = PRESETS.find((x) => x.key === key)
-    if (!p) return
-    setPresetKey(key)
-    setCond(p.cond)
-    setSignalKind(null)
-    setSigHits(new Set())
-    void run(p.cond)
-  }, [])
-
   const run = useCallback(async (c: ScreenCond = cond) => {
     if (busy) return
     setBusy(true)
@@ -96,6 +85,21 @@ export function ScoutPage({ onOpenStock }: { onOpenStock: (s: OpenStock) => void
       if (aliveRef.current) setBusy(false)
     }
   }, [cond, busy])
+
+  /**
+   * 应用预设：cond 覆盖为预设值并立即用**显式 cond** 筛选。
+   * 必须定义在 run 之后 —— 这里显式传 p.cond 而不是依赖 cond 状态，
+   * 否则 setCond 尚未落地时会用旧条件筛出错的结果。
+   */
+  const applyPreset = useCallback((key: string) => {
+    const p = PRESETS.find((x) => x.key === key)
+    if (!p) return
+    setPresetKey(key)
+    setCond(p.cond)
+    setSignalKind(null)
+    setSigHits(new Set())
+    void run(p.cond)
+  }, [run])
 
   const setNum = (field: keyof ScreenCond) => (e: ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value

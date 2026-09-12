@@ -117,6 +117,10 @@ function core(
   maxCumTurnover: number,
 ): { acc: number[]; lo: number; step: number; binCount: number; windowDays: number; cum: number; complete: boolean } {
   const n = rows.length
+  // 空数组必须走**同一句**错误信息：`end` 会被夹到 0，随后的 `rows[0]` 是 undefined，
+  // 直接抛 TypeError（"Cannot read properties of undefined"）—— 调用方按 message 判断
+  // 就完全失效（B4 单测在空输入上抓到）。
+  if (n === 0) throw new Error('日K数据不足以计算筹码')
   const end = Math.max(0, Math.min(n - 1, endIndex))
 
   // 1) 窗口：最新→旧，累计换手 300% 截断

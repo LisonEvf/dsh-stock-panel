@@ -74,14 +74,19 @@ export const DEFAULT_STRENGTH_THRESHOLDS: StrengthThresholds = {
 /**
  * 判定单只标的的强度类别（WATCH-METHODOLOGY §4.2 三件套：
  * 同层级相对强度差分 + 量价 + 结构）。
+ *
+ * ⚠️ 修复记录（B4 单测抓到）：前两条判断此前写成 `&& t.volRatioWeak` / `&& t.volRatioStrong`
+ * —— 那是**对数字取真值**，阈值本身恒为真（默认 2 / 1.2），等于"量比"根本没参与判断：
+ * 缩量一字板也会被叫「真强」。现在改成真正的比较 `r.volRatio >= t.*`。
+ * 这会让一部分原先被判成真强的标的落到 flat —— 那是修对了，不是回归。
  */
 export function classifyStrength(r: StrengthRow, t: StrengthThresholds = DEFAULT_STRENGTH_THRESHOLDS): StrongKind {
   // 高位放量滞涨（连板高位 + 量比放大 + 当日收跌）→ 转弱预警
-  if (!r.atLimit && r.cum5 > t.cum5High && t.volRatioWeak && r.pct_today < 0) return 'weakening'
+  if (!r.atLimit && r.cum5 > t.cum5High && r.volRatio >= t.volRatioWeak && r.pct_today < 0) return 'weakening'
   // 封板但动能衰减（Δ3<0）→ 惯性假强：昨日强者的余温
   if (r.atLimit && r.delta3 < 0) return 'inertia'
   // 封板 + 放量 + 动能增强 → 真强
-  if (r.atLimit && t.volRatioStrong && r.delta3 >= 0) return 'trueStrong'
+  if (r.atLimit && r.volRatio >= t.volRatioStrong && r.delta3 >= 0) return 'trueStrong'
   // 未涨停但动能快速转正 + 放量 → 弱转强候选
   if (!r.atLimit && r.delta3 > 0 && r.volRatio >= t.volRatioWeak2Strong) return 'weak2strong'
   return 'flat'
@@ -152,11 +157,9 @@ export async function computeStrength(
       const avg5 = vols.slice(0, -1).reduce((a, b) => a + b, 0) / Math.max(1, vols.length - 1)
       volRatio = avg5 > 0 ? lastVol / avg5 : 0
     }
-    // 是否涨停：末根 close 触及涨停价
-    const last = kl[kl.length - 1]
-    const prev = kl[kl.length - 2]
-    const atLimit = Math.abs(last.close - prev.close * 1.1) < 0.05 * prev.close ||
-      (prev.close > 0 && Math.abs(last.close - prev.close * (last.open > 0 ? 1 : 1)) < 1e-9)
+    // 是否涨停：按代码规则算出的涨跌停幅度判定（下面 atLimitFinal）；
+    // 这里删掉过一段更早的临时判定（含 `last.open > 0 ? 1 : 1` 这种恒真三元），它从未被使用，
+    // 连带它引用的 last/prev 也一并删掉（保留会让死代码继续看起来"有人用"）。
     // 简单判定：当日涨幅≈10%/20%/30%（按代码规则）视为涨停
     const { limitUpPct } = await import('./indicators')
     const limPct = limitUpPct(code, name)

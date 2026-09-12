@@ -9,12 +9,11 @@
  * 后台验证失败会自动下线过期数据并重试一次，避免把过期分时当实时行情展示。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createChart,
   ColorType,
   LineStyle,
-  type IChartApi,
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { fetchAuctionSeries, fetchTickRows } from '@/lib/stock-data'
@@ -43,8 +42,9 @@ export function StockIntraday({ market, code, baseDate, prevClose, height = 300 
   const auctionSwr = useSwr(swrKey.auction(market, code), () => fetchAuctionSeries(market, code), {
     ttl: 60_000,
   })
-  const ticks = ticksSwr.data ?? []
-  const auction = auctionSwr.data ?? []
+  // useMemo 收口：`?? []` 每帧都是新数组，直接进依赖会让下游 effect/memo 反复重跑（lint 抓到）。
+  const ticks = useMemo(() => ticksSwr.data ?? [], [ticksSwr.data])
+  const auction = useMemo(() => auctionSwr.data ?? [], [auctionSwr.data])
 
   useEffect(() => {
     const el = containerRef.current

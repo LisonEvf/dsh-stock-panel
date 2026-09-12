@@ -261,37 +261,47 @@ CSS 里 64 条暗色主题重映射作为过渡层。
 
 **规模**：M
 
-### B4 · 质量网（lint + 单测 + 产物校验）🟡 **主体已完成（2026-09-12）**
+### B4 · 质量网（lint + 单测 + 产物校验）🟢 **已完成（2026-09-12）**
 
 **现状（起点）**：**无 ESLint、无测试框架**（lockfile 0 命中）；`tsc` 只检查 `src`，
 且 `noUnusedLocals/noUnusedParameters: false` → 死代码与 hook 依赖错误对编译器隐形。
 
 **落地**：
-1. **ESLint（flat config，规则刻意克制）**：`eslint src scripts` → **0 error / 30 warning**；
+1. **ESLint（flat config，规则刻意克制）**：`eslint src scripts` → **0 error / 0 warning**
+   （棘轮：`--max-warnings` 由 30 收紧到 **0**，本文件与 `package.json` / `ci.yml` / `README` 均已同步）；
    启用 `react-hooks/rules-of-hooks`（error）+ `exhaustive-deps`（warn）——正是抓出 B3 那类
    deps 真 bug 的规则；TS 侧只开 `no-unused-vars`（warn，`_` 前缀可忽略）+ 若干低噪音规则。
    **不套"全量 recommended"**：28 个旧页面会产出上千条噪音，然后被整片 disable —— 那等于没 lint。
 2. **单测（零新增依赖）**：用 Node 内置 `node:test` + 已有的 esbuild 打包 TS 测试
    （`scripts/unit.mjs`，`pnpm test`）——不引入 vitest/jest。
-   首批覆盖方法论地基：`indicators`（涨跌停分档 / 涨停价 / 一字板 / 连板统计）、
-   `regime`（`BAND_CAP` 仓位总闸档位 / 退潮压温强制规则 / 过热检测 / 单调性）。
-3. **门禁接线**：CI 增 `eslint --max-warnings 30`（**棘轮：只降不升**）与 `node scripts/unit.mjs`；
+   **7 个测试文件 / 65 条**：`indicators`（涨跌停分档 / 涨停价 / 一字板 / 连板统计）、
+   `regime`（`BAND_CAP` 仓位总闸档位 / 退潮压温强制规则 / 过热检测 / 单调性）、
+   `strength`（五类判定 + 阈值边界 + 低位首板筛选）、`situation`（局势优先级瀑布 + 不看温度档位）、
+   `review-metrics`（实算口径：null vs 0、分母与样本、亏钱效应样本）、
+   `screener`（条件边界 / 板块前缀 / ST / MA 信号窗口）、`chips`（形状与口径不变量 / 300% 换手窗口 / 逐笔降级）。
+3. **门禁接线**：CI 增 `eslint --max-warnings 0`（**棘轮：只降不升**）与 `node scripts/unit.mjs`；
    `linterOptions.reportUnusedDisableDirectives` 打开（失效的 disable 注释会被点名）。
-4. **单测立刻抓到两个真问题**（这是它存在的意义）：
+4. **单测抓到 5 个真问题**（这是它存在的意义）：
    - `regime` 的 drivers 截断到 3 条时会把**强制压温的原因**挤掉 → 界面只剩数字、看不出为什么；
      已改为「点名具体触发条件（晋级率<25% / 炸板率>50%）并优先保留」；
-   - 确认了"全 0 输入温度仍 >0"（炸板率低会加分）——记录为**行为契约**：空数据必须由 UI 侧判空兜住。
+   - 确认了"全 0 输入温度仍 >0"（炸板率低会加分）——记录为**行为契约**：空数据必须由 UI 侧判空兜住；
+   - **`classifyStrength` 的量比阈值从未参与判断**：写成 `&& t.volRatioStrong`（对数字取真值，恒真），
+     于是缩量一字板也被判「真强」、无量阴跌也被判「放量滞涨」。已改为 `r.volRatio >= t.*`
+     （判真强/转弱会变少 —— 那是修对了）；
+   - **`chips` 空输入抛的是 TypeError**（`rows[0]` 未定义）而不是约定的「日K数据不足以计算筹码」，
+     调用方按 message 判断会完全失效；已在 `core()` 入口补闸门；
+   - **`screenRows(rows, cond, 0)` 返回 1 条**（先 push 再判长度）；已补 `limit<=0 → []` 闸门。
 
-**仍未做**：① 30 条 warning 的清零（多为旧的未使用 import，属死代码）；
-② 测试面扩到 `strength / situation / review-metrics / screener / chips`；
-③ 测试文件目前不在 `tsc` 的 include 内（断言靠运行保证）；
-④ `build-client --check` 的 hash 基线文件（现状是与磁盘产物比对，能挡住手改生成物）。
+**仍未做**：① 测试文件目前不在 `tsc` 的 include 内（断言靠运行保证，类型错误由 esbuild 暴露）；
+② `build-client --check` 的 hash 基线文件（现状是与磁盘产物比对，能挡住手改生成物）；
+③ `screenRows` 目前**只有测试在用**（ScoutPage 自己写了一份同逻辑的 200 条循环）——要么合并、要么删掉导出。
 
 **验收锚点**：✅ CI 增 lint + 单测步骤且全绿；✅ 无失效 `eslint-disable`
 （现仅 1 处 `KlineChart` 的 `exhaustive-deps`，且被 `reportUnusedDisableDirectives` 确认仍需要）；
-✅ 新增方法论阈值必须附带单测（温度计档位与强制规则已锁）。
+✅ 新增方法论阈值必须附带单测（温度计档位与强制规则已锁）；
+✅ R4 实算指标（晋级率/首板溢价/炸板率）必须锁死「无证据 → null」与分母口径。
 
-**规模**：L（主体 S-M 已完成，剩余为扩面与清零）
+**规模**：L ✅
 
 ### B5 · 运行态一致性与可观测
 
@@ -350,13 +360,15 @@ runScoutRank` 全部接受并透传 `signal`，`use-ai` 在切换标的/卸载�
 | **V1.5** | A1（host 持久化全量迁移） | **B1（基线提交/版本统一）· B5（构建 rev 显示）· B6（静默失效）** | 「地基版」：先把可回滚点与数据资产立住 |
 | **V1.6** | A2a（参数校准报告）→ A2b（命名板块） | B3（请求预算） | 「特色板块版」：自挖概念 + 命名 |
 | **V1.7** | A4（左栏自选+个股 / 工具单页 / 外盘弱化）+ A3（复盘校准页） | B2（减重 100KB+） | 「导航收口版」 |
-| **V1.8** | A5（token 迁移收尾） | B4（ESLint + 单测 + 产物校验） | 「质量网版」 |
+| **V1.8** | A5（token 迁移收尾） | **B4（ESLint + 单测 + 产物校验）✅ 已提前完成** | 「质量网版」 |
 
 > **V1.5 进度（2026-09-12）**：**B1 ✅ · B5-①② ✅ · B6 ✅ · B3 部分 ✅（ladder 共享缓存 + 可见性暂停 +
 > `cache.ts` deps 修复）· A1 ✅**——剩余 B5-③（诊断面板）、B3-③⑤（指数轮询收口、请求预算度量脚本）。
 > 代码批次 `4c768e4`（v1.2/v1.3/v1.4 合并发布）+ `494fb54`（构建 id 修复），A1 批次见其提交。
-> ⚠️ **体积逼近护栏**：client.js 814.0KB / 护栏 840KB（A1 后已按脚本规则登记一次上调）；
-> **B2 减重的优先级因此上调**（目标 ≤700KB）。
+> **B4 ✅（提前于 V1.8 完成）**：lint 归零并把棘轮收到 `--max-warnings 0`；单测 7 文件 / 65 条
+> 覆盖方法论地基与复盘实算口径，并抓到 5 个真问题（含 `classifyStrength` 量比阈值恒真）。
+> 📌 **体积（现行值）**：client.js **534.3 KB / 护栏 600 KB**（≈89%）。
+> 历史值 814.0KB / 840KB 是**减重前**的口径，仅作对比，勿再引用（B2 减重已完成）。
 
 ### 本周三件事（按性价比排序）
 
