@@ -39,6 +39,11 @@ export const AI_CALL_ROUTE = '/api/stock-panel/ai'
 export const BUILD_INFO_ROUTE = '/api/stock-panel/build'
 /** host 侧持久化路由（同源，host 半注册）：GET 全量快照 / POST 单条或批量写入。 */
 export const STATE_ROUTE = '/api/stock-panel/state'
+/**
+ * 自挖类命名路由（同源，host 半注册；A2b）：GET 能力与口径 / POST 给一个类命名。
+ * 命名是**可选增强**：不可用时如实返回原因，不静默降级。
+ */
+export const NAMING_ROUTE = '/api/stock-panel/naming'
 
 export type TdxTransportMode = 'embedded' | 'http'
 

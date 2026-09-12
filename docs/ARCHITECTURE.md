@@ -18,8 +18,11 @@
 │   │                        ④ registerAiBridge → POST /api/stock-panel/ai（可选增强）
 │   │                        ⑤ registerStateBridge → GET/POST /api/stock-panel/state（可选增强，A1）
 │   │                        ⑥ registerBuildInfoRoute → GET /api/stock-panel/build
+│   │                        ⑦ registerNamingBridge → GET/POST /api/stock-panel/naming（可选增强，A2b）
 │   ├── src/host/tdx-data.ts 内置 node-tdx 服务：连接管理 + serial 串行队列 + 19 工具分发
 │   ├── src/host/hist-data.ts 内置 HIST 自挖概念引擎（惰性单例，快照 TTL 3600s）
+│   ├── src/host/naming/     自挖类命名（A2b，移植 cluster-namer）：guard/prompt/parse/fingerprint/
+│   │                        materials/collect/run/route —— 纯函数 + 依赖注入，可离线跑全链路
 │   ├── src/host-ai.ts       一键问模型：官方 ctx.llm + agentDefaultModel + 自愈重试
 │   ├── src/host-tools.ts    对话工具定义（**8 个**：行情 4 + HIST 4；raw ToolDefinition）
 │   ├── src/host/state.ts    host 侧持久化（DSH 存储子系统 stock_panel 领域 + /api/stock-panel/state）
@@ -45,9 +48,9 @@
 
 | 产物 | 大小 | 护栏 / 说明 |
 | --- | --- | --- |
-| `lib/client.js` | 543,488 B（**530.8 KB**） | **600 KB**（`CLIENT_MAX_KB` 可覆盖），余量 69 KB = 11.5% |
+| `lib/client.js` | 571,411 B（**558.0 KB**） | **600 KB**（`CLIENT_MAX_KB` 可覆盖），余量 42 KB = 7.0%（A2b 两个 UI 卡 +24 KB） |
 | `lib/client.js.map` | 1.65 MB | 不随 npm 包发布（`files` 未列）；宿主 client-modules 会读取它做 sourcemap |
-| `lib/index.js` | 182,113 B（177.8 KB） | 无护栏（ROADMAP B2 待补） |
+| `lib/index.js` | 232,618 B（227.2 KB） | 无护栏（ROADMAP B2 待补；A2b 命名模块 +50 KB） |
 | `lib/index.js.map` | 489,372 B | 不随包发布 |
 
 成分（`node scripts/bundle-report.mjs`，未压缩口径 822.5 KB）：`lightweight-charts` 216.8 KB(26%)
@@ -83,14 +86,20 @@ invokeTool(name,args)  ──POST──▶ /api/stock-panel/call
    池：全 A 成交额榜前 pool_n（默认 200）→ QFQ 日线 → 60 日残差收益 → Pearson 相关
    → 聚类（有 scipy 走 hclust，纯 JS 路径自动降级阈值图）
    输出：classes[]（class_id/size/mean_intra_corr/members）+ isolated[]
-② 命名（v1.5 移植 cluster-namer 口径）
-   素材：成员的涨停/异动（unusual/market_monitor）+ 所属板块（belong_board）
+② 命名（✅ A2b 已完成：`src/host/naming/` + GET/POST /api/stock-panel/naming）
+   素材：成员的涨停/异动（unusual/market_monitor）+ 所属板块（belong_board）+ 日K推导的封板状态
    约束：素材**只用于解释，不进聚类输入**（否则退化回「按官方花名册分组」）
-   模型：host 半复用 ctx.llm（与 AI 双通道共用路由与预算）
-   护栏：证据必须可反查（引文比对 + 时间窗 + 覆盖度）→ 不达标即降级
-   verdict 三态：named / no_common / insufficient(+降级成因)
-③ 呈现（待定）
-   候选落点：工具单页「概念」区块（主）· 复盘②主线识别（引用）· 看盘个股卡（所属共动类）
+   ⚠️ 时间性：异动/监控是**当日实时列表**（无历史）→ 仅当 as_of = 当前交易日才采；
+      板块归属是当前快照（照用但标注）；封板状态由日K推导（可回放）
+   模型：host 半复用 ctx.llm（与 AI 双通道共用路由；缺 LLM 只置灰命名，不影响行情）
+   护栏：证据必须可反查（引文比对 + 时间窗 + 覆盖度 + 可计算证据分）→ 不达标即降级
+   verdict 三态：named / no_common / insufficient(+降级成因分层)
+   缓存：进程内 key=asOf:classId:fingerprint（指纹含模型/窗口/源集合/提示词版本/阈值）
+③ 呈现（✅ A2b 已完成）
+   个股卡 `StockConceptCard`（**主视角**：所属类 + 同类伙伴 + 最近共动邻居）挂在个股详细页；
+   类列表 `ConceptClassesCard` 是工具单页的「自挖板块」区块（次要视角，含弱链过滤说明与孤立票）；
+   结论展示共用 `NamingResultPanel`（三态 + 证据分 + 逐条引文 + 采集口径偏差）。
+   **不做**：与官方行业的重合度对照（v0 边界；官方关系三分类留下一版）。
 ```
 
 **前置门槛（✅ A2a 已完成，2026-09-12）**：默认参数输出退化（`min_corr=0.45` 切出一个 ~141 只的
@@ -134,13 +143,16 @@ invokeTool(name,args)  ──POST──▶ /api/stock-panel/call
 ## 4. 视图与导航（A4 后）✅
 
 - **一级导航**：复盘 / 作战 / 看盘（`PRIMARY_VIEWS`）。工具不再是"抽屉"，而是**一张单页**
-  （`views/ToolHost.tsx`，8 个区块的标题常驻、**只挂载当前展开的区块**）。
+  （`views/ToolHost.tsx`，9 个区块的标题常驻、**只挂载当前展开的区块**）。
 - **左栏两组**：**自选**（手工观察池）+ **个股**（最近看过，`viewed-store` 自动积累，上限 30）。
   涨停/异动分组已下线（涨停走「涨停梯队」工具区块、异动并入市场总览）。
 - **点行 = 看它**：`openStockAndWatch()`（设标的 + 切到看盘）→ 主区立刻是这只票的个股信息
-  （报价头 / 日K⇄分时 / 资金·逐笔·竞价 / 右栏 AI）。
+  （报价头 / 日K⇄分时 / 自挖板块 / 资金·逐笔·竞价 / 右栏 AI）。
 - **看盘二级页签**：工作台（个股信息主面）/ 明细（旧全功能页，含筹码/信息条）/ 自选盘（表格）。
   「工作台 ⇄ 明细」的收口仍是待做项（ROADMAP A4 剩余）。
+- **A2b 落点（已定）**：自挖板块的主视角是**个股卡**（个股详细页内），类列表是工具单页的
+  「自挖板块」区块（`TOOL_VIEWS` 里紧跟涨停梯队）。之所以反过来：校准后绝大多数票是孤立票，
+  「类列表」信息量薄，而"这只票今天跟谁一起动"才直接可用。
 - **持久化要求**：视图被卸载（切到「对话」）后回来必须保持标的/视图/工具位置——因此所有 UI 状态
   都在 `selection.ts` 落盘（`stock-panel:ui:v3`，旧 `limit`/`unusual` 分组值会被 `leftGroupOf()`
   就地收敛到「自选」，无需升键版本）；「个股」历史列表在 `viewed-store`（表 `viewed`）。
@@ -309,9 +321,10 @@ registerStateBridge(ws)                           // GET/POST /api/stock-panel/s
 | --- | --- |
 | `window.__STOCK_PANEL__`（version / viewRegistered / transport / endpoints / listTools / callTool / watchlist） | `src/client.ts` |
 | `GET /api/stock-panel/ai` | AI 可用性与解析出的路由 |
-| host 日志 | `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`、AI 可用性行 |
-| 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract}.mjs`（离线、已进 CI）+ `scripts/smoke-embedded.mjs`（需真机行情） |
-| **实机验收** | `node scripts/verify-live.mjs [baseUrl]`：对**运行中**的 dsh web 做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）② 持久化 `available` + 8 表 + 服务来源 ③ 往 `viewed` 写 canary → 读回 → 删除（真域真介质的写读删闭环）④ AI/行情信息项。host 半是进程内加载的，改完必须重启；client 半只需硬刷新 |
+| `GET /api/stock-panel/naming` | 命名能力与**口径**：模型路由 / 提示词版本 / 默认参数（window·min_corr·pool_n）/ 护栏阈值 / 采集预算 / 缓存条数 / 当前交易日 |
+| host 日志 | `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`、AI 可用性行、`命名桥接已注册：/api/stock-panel/naming` |
+| 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract,naming}.mjs`（离线、已进 CI）+ `scripts/smoke-embedded.mjs`（需真机行情） |
+| **实机验收** | `node scripts/verify-live.mjs [baseUrl]`：对**运行中**的 dsh web 做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）② 持久化 `available` + 8 表 + 服务来源 ③ 往 `viewed` 写 canary → 读回 → 删除（真域真介质的写读删闭环）④ 自挖板块：GET 口径 + 挑一个非弱链类**真的命名一次**（打印结论/证据分/降级成因/采集说明）⑤ AI·行情信息项。host 半是进程内加载的，改完必须重启；client 半只需硬刷新 |
 | **真实存储栈校验** | `node scripts/verify-state-domain.mjs`：用宿主安装的 cordis + dsh-storage + storage-json + storage-domain **真跑一遍**手搓 spec（16 项断言：open 接受 / 8 表 / 键编码必要性 / 落盘持久性 / version 语义 / compatibleVersions 逃生口）。不进 CI（CI 无 DSH 安装），改契约后必跑 |
 | ⏳ 待补 | 无（B5-③ 诊断面板已实现：`src/panel/DiagnosticsPanel.tsx`，底栏 🩺 按钮 —— 构建一致性 / 持久化 / 数据链路 / 缓存底账 / AI 与 HIST，五类状态一处可查） |
 
@@ -329,5 +342,6 @@ registerStateBridge(ws)                           // GET/POST /api/stock-panel/s
 | 6 | HTTP-only 端点残留在 embedded 部署（关键价位） | 🟡 已**显式提示不可用**并给出替代做法（模型价位线）；真正的 TS 端价位计算仍未做 | B2 |
 | 7 | 存储无抽象、无重置/导出 | 🟡 已迁 host 领域（A1）；**导出/导入/重置**仍待做 | A1 |
 | 8 | 样式双轨（7 个新文件用 `--dc-*`，28 个旧文件 1,000+ 处硬编码色 + 64 条暗色重映射） | ⏳ 未动 | A5 |
-| 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | ✅ 已修（ESLint **0 error / 0 warning** + 棘轮 `--max-warnings 0`；单测 7 文件 / 65 条＋离线冒烟 3 个）。**残留**：测试文件不在 `tsc` 的 include 内，断言靠运行保证 | B4 |
-| 10 | client.js 体积 814KB / 护栏 840KB（单模块不可拆分） | ✅ 已修（默认 minify + sourcemap → 530.8KB，护栏 600KB；现行 **534.3KB ≈89%**）。**残留**：`lightweight-charts` 占 26%，进一步减重需换图库 | B2 |
+| 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | ✅ 已修（ESLint **0 error / 0 warning** + 棘轮 `--max-warnings 0`；单测 9 文件 / 106 条＋离线冒烟 4 个）。**残留**：测试文件不在 `tsc` 的 include 内，断言靠运行保证 | B4 |
+| 10 | client.js 体积 814KB / 护栏 840KB（单模块不可拆分） | ✅ 已修（默认 minify + sourcemap → 530.8KB，护栏 600KB）。**残留**：A2b 后为 **558.0KB ≈93%**（余量 42KB）；`lightweight-charts` 占 26%，再减重需换图库 | B2 |
+| 11 | 命名缓存只在 host 进程内存（重启即失效，不跨进程） | 🟡 有意为之：跨进程要新增存储表 + 版本迁移；等真实使用反馈再决定。命中缓存不产生第二次 LLM 调用（已测） | A2b |

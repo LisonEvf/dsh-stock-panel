@@ -26,8 +26,10 @@ import {
   noteStateInjectFired,
   registerStateBridge,
 } from './host/state'
-import { disposeTdxClient } from './host/tdx-data'
-import { aiAvailability, registerAiBridge, resolveAiRuntime, type AiRuntime } from './host-ai'
+import { disposeTdxClient, callEmbeddedTool } from './host/tdx-data'
+import { aiAvailability, registerAiBridge, resolveAiRuntime, resolveModelRoute, type AiRuntime } from './host-ai'
+import { registerNamingBridge } from './host/naming/route'
+import type { NamingRuntime } from './host/naming/run'
 
 /** 本插件注册的会话视图身份（与 src/client.ts 的 VIEW_* 常量保持一致）。 */
 export const VIEW_SLOT = 'conversation.view'
@@ -116,6 +118,12 @@ export function apply(ctx: HostCtx): (() => void) | void {
     }
   }
 
+  // 自挖类命名（A2b）：host 半移植 cluster-namer 口径，用同一份 ctx.llm 直调。
+  // 与 AI 直调同立场：llm 缺省只是「命名」不可用，不影响行情与个股视角。
+  if (ws) {
+    registerNamingBridge(ws as NonNullable<HostCtx['webServer']>, () => namingRuntimeOf(ctx))
+  }
+
   // 卸载（fiber dispose / 进程退出 / 插件被移除）：释放内置 TDX 长连接 + 关闭持久化域。
   return () => {
     disposeTdxClient().catch(() => undefined)
@@ -123,8 +131,40 @@ export function apply(ctx: HostCtx): (() => void) | void {
   }
 }
 
-/** 暴露给 browser 半的 host 服务实现（供后续服务端代理场景使用）。 */
-export const hostService = {
+/**
+ * 命名运行时（A2b）：复用 AI 直调的模型解析，另外提供
+ *   ① 工具调用 = 内置 TDX（进程内，无远端依赖）；
+ *   ② `ensureToday` = 用 `server_info.today` 取当前交易日（决定实时源能否代表 as_of）。
+ * `server_info` 结果按 60s 缓存：命名按钮是人工动作，不需要每次打一次数据层。
+ */
+let todayCache: { value: string; at: number } | null = null
+async function currentTradingDay(): Promise<string | undefined> {
+  if (todayCache !== null && Date.now() - todayCache.at < 60_000) return todayCache.value
+  try {
+    const info = (await callEmbeddedTool('server_info', {})) as { today?: unknown } | null
+    const t = info?.today
+    if (typeof t === 'string' && t.length >= 10) {
+      todayCache = { value: t.slice(0, 10), at: Date.now() }
+      return todayCache.value
+    }
+  } catch {
+    /* 取不到就返回 undefined：采集层会保守地不采实时源，并说明原因 */
+  }
+  return todayCache?.value
+}
+
+function namingRuntimeOf(ctx: HostCtx): NamingRuntime {
+  const ai = resolveAiRuntime(ctx)
+  const route = resolveModelRoute(ai)
+  return {
+    callTool: (name, args) => callEmbeddedTool(name, args),
+    llm: ai.llm as NamingRuntime['llm'],
+    route: route ?? undefined,
+    ensureToday: currentTradingDay,
+  }
+}
+
+/** 暴露给 browser 半的 host 服务实现（供后续服务端代理场景使用）。 */export const hostService = {
   name: '@lisonevf/dsh-stock-panel',
   viewSlot: VIEW_SLOT,
   viewId: VIEW_ID,
@@ -136,6 +176,16 @@ export { callEmbeddedTool, tdxEmbeddedDiagnostics, disposeTdxClient } from './ho
 
 // AI 直调导出（诊断/脚本复用）。
 export { runAiTask, aiAvailability, resolveAiRuntime, registerAiBridge } from './host-ai'
+// 自挖类命名（A2b）导出：脚本/冒烟复用同一实现（依赖注入，可离线跑）。
+export {
+  DEFAULT_NAMING_PARAMS,
+  clearNamingCache,
+  nameClass,
+  namingAvailability,
+  namingCacheStats,
+} from './host/naming/run'
+export { registerNamingBridge } from './host/naming/route'
+export { DEFAULT_NAMING_GUARD } from './host/naming/types'
 // 构建信息导出（诊断/脚本复用）。
 export { hostBuildInfo, registerBuildInfoRoute } from './host/build-info'
 // host 侧持久化导出（诊断/脚本复用）。

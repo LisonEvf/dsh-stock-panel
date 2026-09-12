@@ -58,6 +58,12 @@ export const TOOL_VIEWS: ToolEntry[] = [
   { id: 'overview', label: '市场总览', hint: '广度 / 涨跌分布 / 榜单 / 异动', group: '市场' },
   { id: 'indices', label: '指数', hint: '9 大指数日K与分时', group: '市场' },
   { id: 'ladder', label: '涨停梯队', hint: '连板梯队 + 板块热度 TOP', group: '市场' },
+  {
+    id: 'concept',
+    label: '自挖板块',
+    hint: '无监督共动聚类：市场今天把哪些票当成同一个班（可通过模型命名，护栏逐条核对引文）',
+    group: '市场',
+  },
   { id: 'scout', label: '选股筛选', hint: '快照筛选 + MA 信号 + AI 排序', group: '研究' },
   { id: 'watchlist', label: '自选盘', hint: '自选表格（加删/清空）', group: '自选与监控' },
   { id: 'alerts', label: '监控规则', hint: '价格/涨跌幅/关键词规则与命中', group: '自选与监控' },

@@ -146,7 +146,55 @@ if (stateTables === null) {
   assert(final.body?.tables?.viewed?.[key] === undefined, '删除后快照里不再有 canary（不留脏数据）')
 }
 
-console.log('\n[4] 附带信息（不影响退出码）')
+console.log('\n[4] 自挖板块命名桥接（A2b：口径 + 全链路一次真实命名）')
+{
+  const naming = await getJson('/api/stock-panel/naming')
+  assert(naming.status === 200, `GET /api/stock-panel/naming → HTTP ${naming.status}`)
+  const info = naming.body ?? {}
+  assert(info.defaults?.window === 90 && info.defaults?.minCorr === 0.6, '默认参数 = 校准推荐值（90 / 0.6 / 200）')
+  assert(typeof info.promptVersion === 'string' && info.promptVersion.length > 0, `提示词版本：${info.promptVersion}`)
+  console.log(
+    `  ℹ️ 命名能力：available=${info.available}${info.available ? `（${info.provider}/${info.model}）` : `｜${info.reason ?? ''}`} · 今日=${info.today ?? '未知'}`,
+  )
+
+  // 真实链路：取当日类列表 → 挑第一个非弱链类 → 让模型命名（这会真的调一次数据层与模型）
+  const classes = await postJson('/api/stock-panel/call', {
+    tool: 'hist_concept_classes',
+    args: { window: 90, min_corr: 0.6, pool_n: 200, top_members: 3 },
+  })
+  const payload = classes.body?.json ?? classes.body
+  const usable = (payload?.classes ?? []).filter((c) => c.weak_chain !== true)
+  console.log(`  ℹ️ 引擎：as_of=${payload?.as_of ?? '—'} · 类 ${payload?.classes?.length ?? 0} 个（可用 ${usable.length}） · 孤立 ${payload?.isolated_n ?? '—'}`)
+  if (usable.length === 0) {
+    console.log('  ℹ️ 当前没有可采信的类（可能非交易日 / 快照未就绪）——跳过真实命名')
+  } else {
+    const target = usable[0]
+    const named = await postJson('/api/stock-panel/naming', { classId: target.class_id, asOf: payload?.as_of }, 120_000)
+    const out = named.body ?? {}
+    assert(named.status === 200, `POST 命名 类#${target.class_id} → HTTP ${named.status}`)
+    if (out.ok === true) {
+      const r = out.result ?? {}
+      assert(
+        r.fingerprint !== undefined && String(r.fingerprint).length === 16,
+        `结果带口径指纹（${String(r.fingerprint).slice(0, 16)}）`,
+      )
+      assert(r.evidenceCount === 0 || r.evidence.every((e) => e.quote && e.ts && e.source), '每条证据都有出处（可反查）')
+      if (r.verdict === 'named') assert(typeof r.theme === 'string' && r.theme.length > 0, `结论：named「${r.theme}」`)
+      else assert(r.theme === null, `结论：${r.verdict}（降级成因 ${r.degradedReason}）→ 不带主题名`)
+      console.log(
+        `  ℹ️ 类#${target.class_id}（${target.size} 只 ${(target.top ?? []).slice(0, 3).join('/')}）→ ${r.verdict}` +
+          `${r.theme ? `「${r.theme}」` : ''} · 证据分 ${r.evidenceScore} · 证据 ${r.evidenceCount}/${r.materialCount} 条` +
+          `${r.degradedReason !== 'none' ? ` · 成因 ${r.degradedReason}` : ''}`,
+      )
+      if (out.collectNotes?.length) for (const n of out.collectNotes) console.log(`     · ${n}`)
+      if (r.missingSources?.length) console.log(`     · 缺失源：${r.missingSources.join('、')}`)
+    } else {
+      console.log(`  ℹ️ 被拒（${out.reason}）：${out.note}`)
+    }
+  }
+}
+
+console.log('\n[5] 附带信息（不影响退出码）')
 const ai = await getJson('/api/stock-panel/ai')
 console.log(`  ℹ️ AI：HTTP ${ai.status} ${JSON.stringify(ai.body)?.slice(0, 160) ?? ai.error}`)
 const call = await postJson('/api/stock-panel/call', { tool: 'server_info', args: {} })

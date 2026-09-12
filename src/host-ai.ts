@@ -388,8 +388,8 @@ export function registerAiBridge(webServer: WebServerLike, getRuntime: () => AiR
   }
 }
 
-/** 读取并解析请求体（含体积上限保护）。 */
-async function readJsonBody(req: unknown): Promise<unknown> {
+/** 读取并解析请求体（含体积上限保护）。供 AI 桥接与命名桥接（A2b）共用。 */
+export async function readJsonBody(req: unknown): Promise<unknown> {
   const chunks: Uint8Array[] = []
   let size = 0
   const maxBytes = 512 * 1024

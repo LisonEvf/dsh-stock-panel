@@ -114,23 +114,32 @@ Browser(invokeTool / useSwr)
   裁剪结果在 `meta.shrunk` 回传并由 UI **显式提示**（不静默截断）。
 - **不覆盖你的草稿**：AI 结果永远是只读参考区，必须逐条「+」采纳；已在清单的条目标注而不重复插入。
 
-## 特色板块：自挖概念 + 命名（v1.5 规划）
+## 特色板块：自挖概念 + 命名（A2 ✅）
 
 `WATCH-METHODOLOGY` 的「主线识别」目前依赖 `belong_board` 的**官方花名册**，而市场常常先出现
-「花名册还没有、但money已经当成一个班」的票。本插件内置的 **HIST 自挖概念引擎**
+「花名册还没有、但钱已经当成一个班」的票。本插件内置的 **HIST 自挖概念引擎**
 （`src/host/hist-data.ts` → node-tdx `HistEngine`：QFQ 日线残差共动 → 无监督聚类）就是为这个盲区准备的能力：
 
 | 阶段 | 谁负责 | 现状 |
 | --- | --- | --- |
-| A **发现**：这些票今天共动了吗 | node-tdx `HistEngine`（内置，零外部进程） | ✅ 已内置（4 个工具），**尚无 UI** |
-| B **命名**：它们为什么一起动、叫什么 | 移植 `cluster-namer` 的「涨停/异动素材 + LLM 归纳 + 护栏」到 host 半（复用 `ctx.llm`） | ⏳ v1.5 开发（`docs/ROADMAP.md` A2） |
+| A **发现**：这些票今天共动了吗 | node-tdx `HistEngine`（内置，零外部进程） | ✅ 已内置（4 个工具） |
+| B **命名**：它们为什么一起动、叫什么 | `src/host/naming/*`（移植 `cluster-namer`：素材 + LLM + 护栏，复用 `ctx.llm`） | ✅ 已落地（GET/POST `/api/stock-panel/naming`） |
+| C **呈现** | 个股卡（主视角，个股详细页）+「自挖板块」工具区块（类列表） | ✅ 已上线 |
+
+**参数**：推荐默认 `pool_n=200 · window=90 · min_corr=0.6`，且**无条件过滤弱链类**
+（校准证据见 `docs/CONCEPT-CALIBRATION.md`；界面会把 as_of 与三个参数显示出来，不标 = 不可复现）。
 
 命名口径照搬 cluster-namer 的三条硬规矩：**消息/旧标签只用于解释、不进聚类输入**；
-**证据必须可反查**（引文比对 + 时间窗 + 覆盖度门控）；**拒绝命名是一等公民**
-（`no_common` / `insufficient` 带降级成因，不硬凑共性）。
-**前置条件**：引擎默认参数当前输出退化（实测 `as_of=2026-09-11`：7 类中 1 个 141 只弱链、
-类内相关仅 0.027，另 6 类只有 2–3 只，200 只池中 42 只孤立），须先做**参数校准 + 弱链过滤 +
-跨日稳定性**再上 UI。
+**证据必须可反查**（逐字引文 + 时间窗 + 覆盖度 + 可计算证据分门控）；**拒绝命名是一等公民**
+（`no_common` / `insufficient` 带**分层降级成因**，不硬凑共性；弱链类直接拒绝命名且不调模型）。
+
+⚠️ **一个必须知道的口径差异**：本站数据层的三类素材时间性不同 —— 异动/主力监控是**当日实时列表
+（无历史接口）**、板块归属是**当前快照**、封板状态由日K推导（**可回放**）。因此当 as_of 不是当前
+交易日时，插件**不采实时源**并在结果里写明「不做历史回放」；板块归属照用但标注来源。
+把今天的异动贴到三天前的类上等于凭空造证据 —— 护栏的第一条就是防这个。
+
+**离线可回归**：`pnpm test`（41 条命名相关断言，注入假工具/假模型跑全链路）+
+`pnpm smoke:naming`（对构建产物验路由/口径/护栏/缓存）。实机：`pnpm verify:live` 第 ④ 段会真的命名一次。
 
 ## 存储
 
@@ -153,20 +162,22 @@ pnpm build                                  # host + client + dts（client 默�
 node scripts/build-client.mjs --check       # 生成物与源码一致性（防手改生成物）
 npx tsc --noEmit                            # 全量类型门禁（0 错误）
 pnpm lint                                   # ESLint（0 error / 0 warning；棘轮 0 = 只降不升）
-pnpm test                                   # 单元测试 7 文件 / 65 条（node:test + esbuild 打包，离线）
-node scripts/check-bundle-size.mjs          # client.js 体积护栏 600KB（当前 534KB，余量 66KB）
+pnpm test                                   # 单元测试 9 文件 / 106 条（node:test + esbuild 打包，离线）
+node scripts/check-bundle-size.mjs          # client.js 体积护栏 600KB（当前 558KB，余量 42KB）
 node scripts/bundle-report.mjs --minify     # 体积成分报告（三类汇总 + 单文件 top25 + 压缩口径）
 node scripts/smoke-client-view.mjs          # 视图注册契约 + 持久化降级冒烟（离线，CI 已接）
 node scripts/smoke-host-state.mjs           # host 半：路由/持久化域/降级（离线，CI 已接）
 node scripts/smoke-ai-contract.mjs          # AI 契约冒烟（离线假模型，CI 已接）
+node scripts/smoke-naming.mjs               # 自挖板块命名：路由/口径/护栏/缓存（离线假工具+假模型，CI 已接）
 node scripts/smoke-embedded.mjs             # 内置 TDX 19 工具冒烟（需真机行情）
-pnpm verify:live                            # 对**运行中**的 dsh web 做端到端验收（重启后用）
+pnpm verify:live                            # 对**运行中**的 dsh web 做端到端验收（重启后用；含真实命名一次）
 ```
 
 CI（`.github/workflows/ci.yml`）：install(→prepare build) → `tsc --noEmit` → `eslint --max-warnings 0`
-→ `node scripts/unit.mjs` → 体积护栏 → 三个离线冒烟。**单元测试用 Node 内置 `node:test`**
+→ `node scripts/unit.mjs` → 体积护栏 → 四个离线冒烟。**单元测试用 Node 内置 `node:test`**
 （`scripts/unit.mjs` 以 esbuild 打包 TS 测试，不引入测试框架），覆盖方法论地基与复盘实算口径：
-`indicators / regime / strength / situation / review-metrics / screener / chips`。
+`indicators / regime / strength / situation / review-metrics / screener / chips`，以及 A2b 命名
+（`naming-guard` 护栏 25 条 / `naming-pipeline` 全链路 16 条，注入假工具与假模型）。
 lint warning 已全部清零并把 `--max-warnings` 从 30 收紧到 **0**（棘轮只降不升，改回 30 等于把门禁关掉）。
 尚未做的是：测试文件不在 `tsc` 的 include 内（见 `docs/ROADMAP.md` B4 的「仍未做」）。
 

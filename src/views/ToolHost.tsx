@@ -22,6 +22,7 @@ import { ScoutPage } from '@/pages/ScoutPage'
 import { WatchlistPage } from '@/pages/WatchlistPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { StockDetailPage } from '@/pages/StockDetailPage'
+import { ConceptClassesCard } from '@/components/ConceptClassesCard'
 import {
   closeTool,
   openStockAndWatch,
@@ -46,6 +47,13 @@ function renderTool(id: string, sel: ReturnType<typeof useSelection>) {
       return <IndicesPage initial={null} />
     case 'ladder':
       return <LadderPage onOpenStock={openStockAndWatch} />
+    case 'concept':
+      // A2b 自挖板块：只有展开时才挂载（标题常驻、内容按需 —— 请求预算约束见文件头）
+      return (
+        <ConceptClassesCard
+          onOpenStock={(market, code, name) => openStockAndWatch({ market, code, name })}
+        />
+      )
     case 'scout':
       return <ScoutPage onOpenStock={openStockAndWatch} />
     case 'watchlist':

@@ -33,3 +33,5 @@ jobs:
         run: node scripts/smoke-ai-contract.mjs
       - name: Host half smoke（路由 / 持久化域 / 降级，离线）
         run: node scripts/smoke-host-state.mjs
+      - name: Naming bridge smoke（A2b：路由 / 口径 / 护栏 / 缓存，假工具+假模型）
+        run: node scripts/smoke-naming.mjs

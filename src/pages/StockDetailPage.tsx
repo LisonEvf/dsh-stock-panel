@@ -10,6 +10,7 @@ import { AiAnalysisHost } from '@/components/AiAnalysisHost'
 import { AiReportCard } from '@/components/AiReportCard'
 import { StockAuctionReview } from '@/components/StockAuctionReview'
 import { StockCapitalFlow } from '@/components/StockCapitalFlow'
+import { StockConceptCard } from '@/components/StockConceptCard'
 import type { ColumnConfig, LevelType, StockLevels } from '@/lib/stock-info-fields'
 import { BUILTIN_INFO_FIELDS, loadInfoFields, saveInfoFields } from '@/lib/stock-info-fields'
 import { fmtPrice } from '@/lib/format'
@@ -434,6 +435,18 @@ export function StockDetailPage({ open, onBack }: Props) {
             <StockAuctionReview key={state.symbol} market={symParts.market} code={symParts.code} />
             <StockCapitalFlow key={state.symbol} market={symParts.market} code={symParts.code} />
             <StockTransactions key={state.symbol} market={symParts.market} code={symParts.code} />
+          </div>
+        )}
+
+        {/* A2b：自挖板块（个股视角，主视角）——「市场今天把这只票和谁当成一个班」 */}
+        {symParts && (
+          <div className="mt-2.5">
+            <StockConceptCard
+              key={state.symbol}
+              market={symParts.market}
+              code={symParts.code}
+              onOpenStock={(m, c) => handleSelect(`${m}${c}`)}
+            />
           </div>
         )}
 
