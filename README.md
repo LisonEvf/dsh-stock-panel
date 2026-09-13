@@ -46,6 +46,8 @@ dsh plugin --profile web add .
 
 之后**重启 `dsh web`** 并**硬刷新浏览器**（Ctrl+Shift+R）——会话页出现「**A股工作台**」视图标签页。
 不需要手工登记 settings、不需要跑脚本、**也不改动宿主任何文件**。
+> registry 上 `0.3.5` 及以前是**旧形态**（1.0.0 ~ 1.4.0 从未发过 registry），请装 **1.5.0 及以后**：
+> `dsh plugin --profile web add @lisonevf/dsh-stock-panel@1.5.0`。
 
 | 环节 | 机制 |
 | --- | --- |
@@ -287,7 +289,7 @@ frontend-dsh/
 | `docs/ROADMAP.md` | **待做**：两条轨道（产品闭环 / 工程地基）、验收锚点、交易日复验清单 |
 | `docs/UX-PLAN.md` | 体验优化：四条根因（R1–R4）、视觉方案（V1–V7）、交互方案（I1–I8）与三批落地记录 |
 | `docs/CONCEPT-CALIBRATION.md` | 自挖概念参数校准与可用性判定 |
-| `CHANGELOG.md` | 已交付版本史（0.1 → 1.4 + 未发布批次） |
+| `CHANGELOG.md` | 已交付版本史（0.1 → 1.5）+ 定版流程 |
 | `USER-GUIDE.md` | 按交易日时间轴的使用流程与边界场景行为 |
 | `PRODUCT-DESIGN.md` | 流程与功能设计（**§6e 唯一现行**；§6c/§6d 部分有效；§1–§6b 为历史蓝图） |
 | `WATCH-METHODOLOGY.md` | 方法论（量价博弈 · 时空 · T+1 · 凯利仓位）—— 设计的蓝本 |
