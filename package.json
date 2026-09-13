@@ -1,11 +1,11 @@
 {
   "name": "@lisonevf/dsh-stock-panel",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": false,
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"
   },
-  "description": "A股量化工作台 — DSH Web 插件（官方 conversation.view 视图标签页：宽视图沉浸式盯盘台 + AI 一键研判）",
+  "description": "A股盯盘执行台 — DSH Web 插件（官方 conversation.view 视图标签「A股工作台」：复盘/作战/行情/自挖板块 + AI 一键研判）",
   "type": "module",
   "main": "./lib/index.js",
   "dsh": {

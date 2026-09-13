@@ -27,7 +27,8 @@
 | 验收手段可信度 | **C → B+**（部分已修） | `verify:live` 的响应信封已改正（真实命名会真的跑起来）；「可用类为 0 只算 ℹ️ 不算失败」的语义仍待你定夺 |
 | 文档一致性 | **B** | 主要数字（工具数/体积/表数/单测文件数）与实际一致；「离线冒烟」与实际出网不符 |
 
-**剩余放行条件（只有 1 条）**：**⏳ 重启 `dsh web`** → 运行实例从 build `2155f186` 升到当前源码（重跑 `pnpm verify:live`，`[1]` 应转绿，源码 buildId 为 `122b9bab`）。**这一步必须由你执行**（重启会中断当前会话）。另需发布前决定：是否把 registry 从 0.3.5 提到 1.4.0（含 141 个未提交改动的提交与打 tag）。
+**剩余放行条件（只有 1 条）**：**⏳ 重启 `dsh web`** → 运行实例从 build `2155f186` 升到当前源码（重跑 `pnpm verify:live`，`[1]` 应转绿）。**这一步必须由你执行**（重启会中断当前会话）。
+> **发布批次补记（2026-09-13）**：发布前的那两项决定都已执行 —— 141 个未提交改动分两批提交（`b485505` / `c7f061a`）、补 tag `v1.5.0`、registry 从 0.3.5 提到 **1.5.0**（不是 1.4.0：1.4.0 的改动与本批合并按 minor 发）。验收时的"运行实例落后"由**另起实例**（端口 3099，`buildId` 与源码一致）复验通过，未重启你在用的 3080。
 ## 二、验收矩阵（28 项）
 ### A. 构建与静态检查
 
@@ -79,7 +80,7 @@
 | --- | --- | --- | --- |
 | E1 | `npm pack` 产物内容 | ⚠️ 7 个文件（缺 `lib/index-*.d.ts` 与 `*.js.map`） → ✅ **修复后 10 个文件** | `acceptance/20-npm-pack.json` → `26-pack-consumer-tsc-fixed.log` |
 | E2 | 消费者 `tsc` 能解析发布包类型 | ❌ **TS2307** → ✅ **修复后 bundler / node16 双模式 exit 0** | `acceptance/21-pack-consumer-tsc.log` → `26-*.log` |
-| E3 | registry 已发布版本 | ⚠️ 最新 **0.3.5**（仓库已是 1.4.0，且无 git tag） | 见 §八 命令 |
+| E3 | registry 已发布版本 | ⚠️ 验收时最新 **0.3.5**（仓库已是 1.4.0，且无 git tag） → ✅ **已发布 `1.5.0`**（GitHub Packages）+ `v1.5.0` tag | `npm view @lisonevf/dsh-stock-panel versions` |
 ## 三、阻塞项（P0/P1）
 ### P0-1 ✅ 已修复：`pnpm smoke:naming` 曾必红（两条断言互斥，无任何配置能同时满足）
 
@@ -99,9 +100,10 @@
 - **结论**：`scripts/verify-live.mjs:174` 用 `classes.body?.json ?? classes.body`，而桥接路由响应是 `{ok, data}`（`src/host-util.ts`）⟹ `payload.classes` 为空 ⟹ 打印「ℹ️ 当前没有可采信的类…」**并 exit 0**。实测对照（同一次运行、同一 URL）：`body.json ?? body` → classes 0；`body.data ?? body` → `as_of=2026-09-11`、**类 9（可用 9）**。该行由 `f00f40c`（A2b-②）引入、而 `{ok,data}` 信封自 `403ac38` 起就是此形状——**"真实命名"从写下的第一天起就没真正跑过**，而它正是上线前最该看的环节。
 - **已修复**：`scripts/verify-live.mjs:174` → `const payload = classes.body?.data ?? classes.body`；`[4]` 现在真的跑起来：`as_of=2026-09-11 · 类 9 个（可用 9）` → `POST 命名 类#1 → HTTP 200` → `口径指纹 16c22b2c9eefb17c` → `每条证据都有出处` → 非交易日如实降级 `insufficient/source_skipped`（`acceptance/43-verify-live-after-fix.log`）。
 - **剩余（待你定夺）**：「可用类为 0」目前仍只记 ℹ️ 并 exit 0；建议改成失败（用交易日历排除非交易日），否则同类"假绿"还能以别的形式复发。
-### P1-2 ⚠️ 未收口：发布滞后与版本不可追溯
+### P1-2 ✅ 已收口（1.5.0 发布批次）：发布滞后与版本不可追溯
 
-- registry（GitHub Packages）最新已发布版本 = **0.3.5**，仓库 `package.json` = **1.4.0** ⟹ README 里"registry 发布版"安装路径拿到的是**完全不同的旧形态**；仓库**没有任何 git tag**；工作区 **141 个文件未提交**（含 CHANGELOG 的"[未发布]"段落）⟹ 1.4.0 至今没有回滚点。证据命令见 §八。
+- **原结论**：registry（GitHub Packages）最新已发布版本 = **0.3.5**，仓库 `package.json` = **1.4.0** ⟹ README 里"registry 发布版"安装路径拿到的是**完全不同的旧形态**；仓库**没有任何 git tag**；工作区 **141 个文件未提交**（含 CHANGELOG 的"[未发布]"段落）⟹ 1.4.0 至今没有回滚点。证据命令见 §八。
+- **已处理（2026-09-13）**：① 工作区两批全量提交（文档+截图 `b485505`、代码批次 `c7f061a`），`git status` 干净；② CHANGELOG 的 5 条 `[未发布]` 全部定版为 `## [1.5.0] 2026-09-13` 下的 `###` 小节；③ 打 tag **`v1.5.0`**（仓库首个 tag，此前一个都没有）；④ `pnpm publish` → registry 上出现 **1.5.0**。定版流程写进 `CHANGELOG.md` 头部。
 ## 四、次要问题（P2）
 
 | # | 问题 | 证据 / 说明 |
