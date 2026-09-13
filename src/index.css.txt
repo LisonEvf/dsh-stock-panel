@@ -43,22 +43,54 @@
   --dc-border-strong: var(--dsw-alias-border-l2, #cbd5e1);
   --dc-text: var(--dsw-alias-label-primary, #0f172a);
   --dc-text-2: var(--dsw-alias-label-secondary, #475569);
-  --dc-text-3: var(--dsw-alias-label-tertiary, #64748b);
-  --dc-dim: var(--dsw-alias-label-caption, #94a3b8);
+  /* 次要文字（11px 标签 / 表格次级列）：宿主 tertiary 在**亮色**下是 #81858c，
+     白底只有 3.70:1（10–11px 文字不达 AA）。朝 primary 混 22% 后约 4.9:1；
+     暗色下 primary 近白，混完更亮，对比度同样提升。 */
+  --dc-muted: color-mix(in srgb, var(--dsw-alias-label-tertiary, #64748b) 78%, var(--dsw-alias-label-primary, #0f172a));
+  --dc-text-3: var(--dc-muted);
+  /* 脚注/次要字（10px 那一档）：宿主 caption 在亮色下只有 ~2.1:1，
+     所以朝 primary 混到 62%（仍是灰、但读得清）。 */
+  --dc-dim: color-mix(in srgb, var(--dsw-alias-label-tertiary, #94a3b8) 62%, var(--dsw-alias-label-primary, #0f172a));
+  /* 进度槽/分隔这类"中性底"：宿主亮色的 layer-1/2/3 全是 #ffffff（层级塌陷），
+     用纯 layer 色会与容器 1.00:1 完全看不见。改成"朝前景色混 20%"的半透明底：
+     亮色下 ≈ #cfd1d6（标准进度槽灰，1.3:1）、暗色下 ≈ #4d4d4f（2.0:1），明暗都成立。 */
+  --dc-track: color-mix(in srgb, var(--dc-text) 20%, transparent);
   --dc-hover: var(--dsw-alias-interactive-bg-hover, rgba(15, 23, 42, 0.045));
   --dc-active: var(--dsw-alias-interactive-bg-active, rgba(15, 23, 42, 0.08));
   --dc-accent: var(--dsw-alias-brand-primary, #10b981);
   --dc-accent-fill: var(--dsw-alias-button-primary-fill, #10b981);
   --dc-accent-hover: var(--dsw-alias-button-primary-hover, #059669);
   --dc-accent-text: var(--dsw-alias-label-primary-foreground, #ffffff);
-  --dc-warn: var(--dsw-alias-state-warn-primary, #d97706);
+  /* 状态色**当文字用**时，宿主的原值在亮色底上不达 AA（实测：warn #d97706 = 3.19:1、
+     success #16a34a = 3.30:1、brand #10b981 = 2.54:1）。统一朝 label-primary 混一档，
+     亮色变深、暗色变亮，两个主题都达标；`--dc-accent` 仍保留原值供**填充**使用
+     （按钮底/进度条，不是"文字 on 面板"的场景）。`--dc-info` 是"文字版"的强调色。 */
+  --dc-warn: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #d97706) 72%, var(--dsw-alias-label-primary, #0f172a));
   --dc-danger: var(--dsw-alias-state-error-primary, #dc2626);
-  --dc-success: var(--dsw-alias-state-success-primary, #16a34a);
-  /* A 股语义色：红涨绿跌 */
+  --dc-success: color-mix(in srgb, var(--dsw-alias-state-success-primary, #16a34a) 74%, var(--dsw-alias-label-primary, #0f172a));
+  --dc-info: color-mix(in srgb, var(--dsw-alias-state-success-primary, #10b981) 74%, var(--dsw-alias-label-primary, #0f172a));
+  /* A 股语义色：红涨绿跌。**唯一来源** —— 组件别再写字面量：
+   * DOM 内联样式用 'var(--dc-up)'（自动跟随主题），canvas/图表用 lib/theme-colors 的 themeColor()。
+   * 亮色绿原为 #2d9b65（白底 3.51:1，不达 AA）→ 压深到 #1f7a4d（≈5:1）；暗色另行提亮。 */
   --dc-up: #c74040;
-  --dc-down: #2d9b65;
-  --dc-flat: var(--dsw-alias-label-tertiary, #64748b);
+  --dc-down: #1f7a4d;
+  /* 中性数字（0.00% / 平盘）：用次要文字色而不是最淡的 caption，否则 10px 下读不出。 */
+  --dc-flat: var(--dc-muted);
+  /* 语义色的低透明度底（标签/徽标底），用 color-mix 从语义色派生，不写死 alpha 十六进制 */
+  --dc-up-soft: color-mix(in srgb, var(--dc-up) 12%, transparent);
+  --dc-down-soft: color-mix(in srgb, var(--dc-down) 12%, transparent);
   --dc-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* 圆角三档（与 tailwind.config.js 的 rounded-dc-sm|md|lg 同一套数值 4/6/8）。
+   * 收敛前：CSS 里散着 2/3/4/5/6/8px 六种圆角，同一屏能同时看到三种 —— 这是"手写样式"最明显的痕迹。
+   * 约定：tag/mark 用 xs(4)，控件（按钮/输入/标签）用 sm(6)，容器（卡片/浮层/Toast）用 md(8)。 */
+  --dc-r-xs: 4px;
+  --dc-r-sm: 6px;
+  --dc-r-md: 8px;
+  /* 层级阴影：亮色下 --dc-layer-2(#f8fafc) 与页面底(#ffffff) 几乎同色，容器"浮"不起来，
+   * 全靠 1px 描边撐着（实测卡片与背景只差 1 个色阶）。优先吃宿主的 shadow token，取不到才用兜底值。 */
+  --dc-shadow-1: var(--dsw-shadow-lv1, 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.03));
+  --dc-shadow-2: var(--dsw-shadow-lv2, 0 8px 24px rgba(15, 23, 42, 0.12));
 
   height: 100%;
   min-height: 0;
@@ -68,12 +100,50 @@
   color: var(--dc-text);
   font-size: 12px;
   line-height: 1.45;
+  /* 表格数字全局打开：金融面板里价格/涨跌幅/量比成列出现，比例数字会导致列与列之间"参差"，
+   * 且数据刷新时整行宽度抖动。tnum 只改数字字形宽度，对中文与字重无影响。
+   * 等宽字体的 .dc-num 仍然保留（那是"要一眼看出这是机器数"的另一层语义）。 */
+  font-variant-numeric: tabular-nums;
+
+  /* ── 类型尺度（comfortable 档；2026-09-12 版面评审后收口）────────────────────
+   * 为什么要有 token：此前字号只能就地写 `text-[9px]`，全仓普查
+   *   8px 94 处 / 9px 137 处 / 10px 157 处 / 11px 73 处 —— **≤10px 占 85%**，
+   *   而中文在该尺寸下（9px 字高≈9px）基本不可读；也没有任何机制阻止继续变小（甚至出现过 7px）。
+   * 现在只有四档，且**最小 11px**：
+   *   decision 14 —— 一屏里"据此做决定"的数（现价/涨跌/温度/关键价位）
+   *   data     12 —— 主数据（涨幅、量比、成交额、列表正文）
+   *   note     11 —— 注脚（口径/时间戳/来源/代码）
+   *   micro    11 —— 徽标角标（与 note 同尺寸，靠颜色与底色拉层级，不靠缩字号）
+   * 更次要的信息请进 `title`，不要继续缩字号（那是"看不见的信息"，等于没写）。
+   * 密度档位：当前只做 comfortable（用户在 2048×927 上单屏使用；见 README 版面基线）。 */
+  --dc-fs-decision: 14px;
+  --dc-fs-data: 12px;
+  --dc-fs-note: 11px;
+  --dc-fs-micro: 11px;
+}
+
+/* 类型尺度工具类：组件只准用这四档（或 tailwind 语义档 text-xs/sm/lg）。
+ * 与 tailwind 的 `text-[Npx]` 等价（只设 font-size），替换后行为一致、但可被契约检查约束。 */
+.dc-t-decision {
+  font-size: var(--dc-fs-decision);
+}
+.dc-t-data {
+  font-size: var(--dc-fs-data);
+}
+.dc-t-note {
+  font-size: var(--dc-fs-note);
+}
+.dc-t-micro {
+  font-size: var(--dc-fs-micro);
 }
 
 /* 暗色下 A 股语义色提亮一档（暗底 #c74040 会发闷） */
 body[data-ds-dark-theme] .dsh-stock {
   --dc-up: #e26060;
   --dc-down: #45b57c;
+  /* 暗色下投影基本看不见（底本来就深），层级改由"提亮描边"承担 —— 否则卡片会糊成一片。 */
+  --dc-shadow-1: none;
+  --dc-shadow-2: var(--dsw-shadow-lv2, 0 8px 24px rgba(0, 0, 0, 0.5));
 }
 
 /* ─────────────────────────── 2. 骨架 ─────────────────────────── */
@@ -88,17 +158,39 @@ body[data-ds-dark-theme] .dsh-stock {
   position: relative;
 }
 
-/* 状态带：常驻，任何视图都不变 */
+/* 状态带：常驻，任何视图都不变。
+ *
+ * 布局用 **grid 而不是 flex**（B1，实测驱动）：
+ *   flex 版本只有"指数条"那一段可伸缩，右簇 flex:none 不能收缩，一旦内容变多
+ *   （快照从"加载中"变成真实数据）右侧就被整体推出可视区、被 overflow 静默裁掉——
+ *   实测真机：`↑643 ↓4870 涨停…` 只露出前 6 个字符，问模型/⌘K/收栏全部看不见。
+ *   grid 的 `minmax(0, 1fr)` 轨道是"剩余空间"，可缩到 0，**永远不会把后面的轨道挤出去**：
+ *   列依次为 [阶段][|][导航][|][指数条(可伸缩)][右簇]，右簇永远拿到自己的宽度。
+ *   子节点数恒定 6（缺内容的场合也渲染空 div），列与子节点一一对应。 */
 .dc-strip {
   flex: none;
-  display: flex;
+  display: grid;
+  /* [阶段][|][导航][|][指数条(可伸缩)][右簇] —— 子节点数恒定 6 */
+  grid-template-columns: auto auto auto auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  height: 38px;
+  /* 间距 10px（原 12）：状态带是最挤的一条，宽度留给内容；高度 44px（原 38）：
+     12px 导航 + 2×6px 命中区 = 24px（WCAG 2.2 SC 2.5.8），44px 让它在视觉上也站得住。 */
+  gap: 10px;
+  height: 44px;
   padding: 0 10px;
   border-bottom: 1px solid var(--dc-border);
-  background: var(--dc-layer-1);
+  /* 工具外框用极浅一档的底（亮色下 #f8fafc）：状态带是"面板的框架"而不是"内容"，
+   * 与主体同白时两者糊成一片，只剩一条 1px 线在提示边界（实测）。 */
+  background: var(--dc-layer-2);
   overflow: hidden;
+  min-width: 0;
+}
+
+/* 状态带宿主：包一层只为拿到测量节点（半渲染自检看它下面有没有 .dc-strip） */
+.dc-strip-host {
+  flex: none;
+  display: block;
+  min-width: 0;
 }
 
 .dc-strip-seg {
@@ -116,10 +208,87 @@ body[data-ds-dark-theme] .dsh-stock {
   font-weight: 600;
 }
 
+/* 可伸缩段（指数条）：grid 第 5 列 = minmax(0,1fr)，只吃剩余空间、可缩到 0。
+ * （flex 版本的 flex-basis:auto 会让它按内容宽参与分配，把右簇顶出可视区——实测过。） */
 .dc-strip-grow {
-  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
+}
+
+/* 右簇：必显项 + 可收项 + ⋯。放在 grid 最后一列（auto），永远拿满自己的宽度 */
+.dc-strip-tails {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 分隔符 */
+.dc-strip-sep {
+  color: var(--dc-border-strong);
+}
+
+/* ⋯ 溢出菜单（position:fixed，避免被 .dc-strip 的 overflow 裁掉） */
+.dc-strip-more {
+  display: flex;
+  align-items: center;
+}
+.dc-strip-pop {
+  position: fixed;
+  z-index: 72;
+  min-width: 240px;
+  max-width: min(560px, 92vw);
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--dc-layer-1);
+  border: 1px solid var(--dc-border-strong);
+  border-radius: 8px;
+  box-shadow: var(--dsw-shadow-lv3, 0 18px 48px rgba(0, 0, 0, 0.28));
+}
+.dc-strip-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dc-strip-pop-label {
+  flex: none;
+  width: 28px;
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-strip-pop-body {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+/* 分档微调：窄档先把「阶段日期」和导航内边距让出来（必显项一个都不能少）。
+   注意：分隔符不能 display:none —— grid 的列与子节点一一对应，少一个子节点会错列。 */
+.dc-strip.is-tier-tight .dc-stagechip .dc-flat,
+.dc-strip.is-tier-min .dc-stagechip .dc-flat {
+  display: none;
+}
+.dc-strip.is-tier-tight .dc-nav-item,
+.dc-strip.is-tier-min .dc-nav-item {
+  /* 窄档收的是水平内边距，垂直保持 6px（命中区不许因省地方而缩到 24px 以下） */
+  padding: 6px 7px;
+}
+
+/* 一级入口平铺成 7 项（A6）后，窄档给导航一条**横滚兜底**：
+   宁可"导航自己滚"，也不许把右簇（广度 / 问模型 / ⌘K / 收栏）挤出可视区 ——
+   这正是审计 L2 的教训（右端被 overflow:hidden 静默裁掉，DOM 里却都在）。
+   `min-width: 0` 让这一格可以被压缩（否则 auto 轨道按 max-content 撑，照样挤出边界）。 */
+.dc-strip.is-tier-tight .dc-nav,
+.dc-strip.is-tier-min .dc-nav {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dc-strip.is-tier-tight .dc-nav::-webkit-scrollbar,
+.dc-strip.is-tier-min .dc-nav::-webkit-scrollbar {
+  display: none;
 }
 
 /* 指数条：横向滚动、不显示滚动条 */
@@ -140,7 +309,9 @@ body[data-ds-dark-theme] .dsh-stock {
   align-items: baseline;
   gap: 4px;
   flex: none;
-  font-size: 11px;
+  /* 指数涨跌是"一屏里据此判断天气"的数 → data 档（12px）；名称退一档到 note（11px）。
+     原来两者同为 11px，层级只能靠颜色区分。 */
+  font-size: var(--dc-fs-data);
   cursor: pointer;
   padding: 2px 4px;
   border-radius: 4px;
@@ -152,7 +323,7 @@ body[data-ds-dark-theme] .dsh-stock {
   color: var(--dc-text-3);
 }
 
-/* 一级视图导航（4 个） */
+/* 一级视图导航（A6：7 项平铺 —— 复盘/作战 + 行情/自挖板块/选股筛选/监控规则/外盘） */
 .dc-nav {
   display: flex;
   align-items: center;
@@ -165,11 +336,20 @@ body[data-ds-dark-theme] .dsh-stock {
   background: transparent;
   color: var(--dc-text-3);
   font-size: 12px;
-  padding: 5px 11px;
+  /* 垂直 6px（原 5px）：让命中区达到 24px —— WCAG 2.2 SC 2.5.8 的最小目标尺寸。
+     实测原控件高度 13–27px 全部低于 24px；状态带 38px 高，24px 按钮不影响布局。
+     水平 8px（原 11px）：7 个入口合计省下 42px —— 状态带是全屏最挤的一条，
+     宽度要留给内容（判决见 README 版面基线：主区 1148px 是硬预算）。 */
+  padding: 6px 8px;
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.12s ease, background 0.12s ease;
+}
+/* 次要入口（外盘）：颜色更淡 —— A4 的「弱化」在平铺导航里的等价表达（不是"藏起来"）。
+   刻意写在 :hover / .is-on **之前**：那两条（同类特异性、更靠后）才能照常覆盖它。 */
+.dc-nav-item.is-secondary {
+  color: var(--dc-dim);
 }
 .dc-nav-item:hover {
   color: var(--dc-text);
@@ -183,7 +363,7 @@ body[data-ds-dark-theme] .dsh-stock {
 }
 .dc-nav-badge {
   margin-left: 4px;
-  font-size: 9px;
+  font-size: 11px;
   padding: 0 4px;
   border-radius: 999px;
   background: var(--dc-danger);
@@ -191,12 +371,13 @@ body[data-ds-dark-theme] .dsh-stock {
   font-variant-numeric: tabular-nums;
 }
 
-/* 主体三栏 */
+/* 主体三栏。position:relative 是给「窄容器下栏位改覆盖式」用的定位上下文 */
 .dc-body {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .dc-rail {
@@ -205,7 +386,9 @@ body[data-ds-dark-theme] .dsh-stock {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: var(--dc-layer-1);
+  /* 与状态带/底栏同一套"外框"底：三栏结构（自选/个股 │ 主区 │ AI）一眼能读出来，
+   * 主区保持纯白 = 内容区。此前左右栏与主区同色，只靠 1px 竖线分隔。 */
+  background: var(--dc-layer-2);
 }
 .dc-rail--left {
   width: 268px;
@@ -217,6 +400,35 @@ body[data-ds-dark-theme] .dsh-stock {
 }
 .dc-rail[hidden] {
   display: none;
+}
+
+/* ── 窄容器退化（B1）：判据是**容器实测宽度**（AppShell 给的 is-w-* 类），不是视口 ──
+ * 为什么：DSH 里「视口宽、容器窄」是常态。视口 1920 而面板 600px 时，
+ * 左右栏各 268/344px 会把主区压成一条（实测右栏被压到约 100px、AI 文本逐字换行）。
+ * 处理：窄容器收窄左栏；极窄容器把用户手动展开的栏位改成**覆盖式**（不挤主区）。 */
+.dc-shell.is-w-narrow .dc-rail--left {
+  width: 220px;
+}
+.dc-shell.is-w-min .dc-rail--left {
+  width: 180px;
+}
+.dc-shell.is-w-narrow .dc-rail--right:not([hidden]) {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  width: min(344px, 94%);
+  box-shadow: var(--dsw-shadow-lv3, 0 18px 48px rgba(0, 0, 0, 0.28));
+}
+.dc-shell.is-w-min .dc-rail--left:not([hidden]) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 45;
+  width: min(268px, 90%);
+  box-shadow: var(--dsw-shadow-lv3, 0 18px 48px rgba(0, 0, 0, 0.28));
 }
 
 .dc-main {
@@ -237,8 +449,12 @@ body[data-ds-dark-theme] .dsh-stock {
   height: 32px;
   padding: 0 8px;
   border-bottom: 1px solid var(--dc-border);
+  /* 栏头比栏体再深一档：栏内的"标题行 / 列表"也要分层，否则整条灰栏是一片平 */
+  background: var(--dc-layer-3);
+  font-weight: 600;
+  letter-spacing: 0.02em;
   font-size: 11px;
-  color: var(--dc-text-3);
+  color: var(--dc-text-2);
   overflow: hidden;
 }
 
@@ -257,8 +473,8 @@ body[data-ds-dark-theme] .dsh-stock {
   height: 24px;
   padding: 0 10px;
   border-top: 1px solid var(--dc-border);
-  background: var(--dc-layer-1);
-  font-size: 10px;
+  background: var(--dc-layer-2);
+  font-size: 11px;
   color: var(--dc-dim);
   overflow: hidden;
 }
@@ -308,60 +524,19 @@ body[data-ds-dark-theme] .dsh-stock {
   flex-direction: column;
 }
 
-/* ─────────────────────── 工具单页（A4） ─────────────────────── */
+/* ─────────────────── 一级入口的页面容器（A6：取代「工具单页」） ─────────────────── */
 
-/* 区块标题行：当前展开哪一个，一眼可见 */
-.dc-page-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 6px 2px 4px;
-  border-bottom: 1px solid var(--dc-border);
-}
-.dc-page-head strong {
-  font-size: 12px;
-}
-.dc-tool-body {
+/*
+ * 挂载槽：占满主区剩余高度，**不给内边距**（各页面自己带页头/内边距）。
+ *
+ * 为什么必须 `flex: 1 1 auto; min-height: 0`：
+ *   页面里有 `h-full`（监控页）与按容器实测算高的（行情页）两种写法 ——
+ *   它们都要求父级有**确定高度**。旧「工具单页」的 `.dc-tool-body` 就是这条约束的
+ *   既成事实（页面在它里面验证过），拆平后逐字保留，避免"换个壳就塌成内容高"。
+ */
+.dc-view-body {
   flex: 1 1 auto;
   min-height: 0;
-  padding-top: 4px;
-}
-/* 其余工具的入口列表：标题常驻、内容按需挂载 */
-.dc-tool-more {
-  margin-top: 10px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--dc-border);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.dc-tool-entry {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--dc-text);
-  padding: 4px 6px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 11px;
-}
-.dc-tool-entry:hover {
-  border-color: var(--dc-border);
-  background: var(--dc-hover);
-}
-.dc-tool-entry-label {
-  font-weight: 600;
-  white-space: nowrap;
-}
-.dc-tool-entry-hint {
-  color: var(--dc-text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ─────────────────────────── 3. 基础控件 ─────────────────────────── */
@@ -375,8 +550,9 @@ body[data-ds-dark-theme] .dsh-stock {
   background: transparent;
   color: var(--dc-text);
   font-size: 11px;
+  font-weight: 500;
   padding: 3px 9px;
-  border-radius: 5px;
+  border-radius: var(--dc-r-sm);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
@@ -405,7 +581,12 @@ body[data-ds-dark-theme] .dsh-stock {
   color: var(--dc-text);
 }
 .dc-btn--icon {
+  /* 方形 24×24：实测面板里有 21 个控件高度落在 17–22px（低于 WCAG 2.2 的 24px 最小命中区），
+   * 其中就包括类卡片头部的 ⟳/证据/重命名 这类图标按钮 —— 又难点又不齐。 */
   padding: 3px 6px;
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: var(--dc-r-sm);
 }
 
 .dc-chip {
@@ -414,8 +595,10 @@ body[data-ds-dark-theme] .dsh-stock {
   gap: 4px;
   border: 1px solid var(--dc-border);
   border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 10px;
+  /* 22px：原 1px 内边距算下来只有 ~18px，一排 chip 看着像"半截标签"；同时给个下限让点击稳一点 */
+  min-height: 22px;
+  padding: 2px 9px;
+  font-size: 11px;
   color: var(--dc-text-3);
   cursor: pointer;
   background: transparent;
@@ -434,18 +617,57 @@ body[data-ds-dark-theme] .dsh-stock {
 .dc-tag {
   display: inline-flex;
   align-items: center;
-  border-radius: 3px;
-  padding: 0 5px;
-  font-size: 10px;
-  line-height: 16px;
-  background: var(--dc-layer-3);
+  border-radius: var(--dc-r-xs);
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  /* 同上：亮色下 layer-3 = #ffffff，标签底会消失 → 用 --dc-track */
+  background: var(--dc-track);
   color: var(--dc-text-3);
+}
+.dc-tag--danger {
+  background: var(--dc-danger);
+  color: #fff;
+}
+/* 可点的标签（底栏「已更新到 … · 点此加载」）：不要再写内联 style */
+.dc-tag--action {
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+}
+
+/* 半渲染告警条（状态带/栏位没画出来）——唯一出路是硬刷新，所以放在最顶上 */
+.dc-layout-warn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: #fff;
+  background: var(--dc-danger);
+}
+.dc-layout-warn > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dc-layout-warn .dc-btn {
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
 }
 
 /* 数字：等宽 + 表格数字，跳动时不抖 */
 .dc-num {
   font-family: var(--dc-mono);
   font-variant-numeric: tabular-nums;
+}
+/* 单位（亿/万/%/只…）：**不要**跟着等宽字体走 —— 西文等宽字体下 CJK 单位字宽会跳变，
+   看起来发挤（实测）。单位用正文字体、略小一档、贴紧跟数字。 */
+.dc-unit {
+  font-family: inherit;
+  /* 下限 11px：0.92em 挂在 11px 正文上会算出 10.12px，直接跌破本文件自定的类型下限（实测 2 处）。
+   * max() 既保住"略小一档"的层级差，又不会掉到 11px 以下。 */
+  font-size: max(11px, 0.92em);
 }
 .dc-up {
   color: var(--dc-up);
@@ -455,6 +677,39 @@ body[data-ds-dark-theme] .dsh-stock {
 }
 .dc-flat {
   color: var(--dc-flat);
+}
+
+/* 状态语义色（**不要**拿 dc-up/dc-down 当"成功/失败"用）。
+ *
+ * 实测反例：诊断面板把 success 渲染成 dc-up（红）、error 渲染成 dc-down（绿）——
+ * 与 A 股「红涨绿跌」直接对撞，用户会读反。价格/涨跌才用 dc-up/dc-down；
+ * 状态类信息（成功/失败/注意/信息）用下面这组，色相与价格语义解耦。 */
+.dc-ok {
+  color: var(--dc-success);
+}
+.dc-bad {
+  color: var(--dc-danger);
+}
+.dc-warn {
+  color: var(--dc-warn);
+}
+.dc-info {
+  /* 用 --dc-info（文字版强调色）而不是 --dc-accent（品牌填充色）：
+     后者在亮色底上只有 2.54:1，当文字读不出来（见 scripts/contrast.mjs）。 */
+  color: var(--dc-info);
+}
+
+/*
+ * 键盘焦点可见性（B2 补，属批次 3 的 a11y 项，但零布局风险所以先落）。
+ *
+ * 审计实测：全仓**没有任何 `:focus-visible` 规则**，却有 14 处 `outline-none` ——
+ * 键盘用户完全看不到焦点在哪（Tab 一遍等于盲走）。这里只对插件作用域补一条环：
+ * 用品牌色描边 + 1px 偏移，不占布局、不影响鼠标用户。
+ */
+:where(.dsh-stock) :focus-visible {
+  outline: 2px solid var(--dc-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 
 /* 滚动条：细、随主题 */
@@ -468,7 +723,7 @@ body[data-ds-dark-theme] .dsh-stock {
 }
 .dc-scroll::-webkit-scrollbar-thumb {
   background: var(--dsw-alias-scrollbar-bg-l1, rgba(120, 130, 150, 0.35));
-  border-radius: 3px;
+  border-radius: var(--dc-r-xs);
 }
 .dc-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--dsw-alias-scrollbar-hover-l1, rgba(120, 130, 150, 0.6));
@@ -478,9 +733,11 @@ body[data-ds-dark-theme] .dsh-stock {
 
 .dc-card {
   border: 1px solid var(--dc-border);
-  border-radius: 8px;
+  border-radius: var(--dc-r-md);
   background: var(--dc-layer-2);
-  padding: 8px 10px;
+  /* 描边 + 一层极轻投影：容器和背景拉开一档（亮色下两者底色只差 1 个色阶，光靠描边会"贴"在页面上） */
+  box-shadow: var(--dc-shadow-1);
+  padding: 10px 12px;
 }
 
 .dc-card-head {
@@ -488,10 +745,13 @@ body[data-ds-dark-theme] .dsh-stock {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
+  margin: -2px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--dc-border);
   font-size: 11px;
   font-weight: 600;
-  color: var(--dc-text-2);
+  letter-spacing: 0.02em;
+  color: var(--dc-text);
 }
 
 .dc-kv {
@@ -519,6 +779,7 @@ body[data-ds-dark-theme] .dsh-stock {
   padding: 4px 8px;
   cursor: pointer;
   border-left: 2px solid transparent;
+  transition: background 0.12s ease;
 }
 .dc-row:hover {
   background: var(--dc-hover);
@@ -545,7 +806,7 @@ body[data-ds-dark-theme] .dsh-stock {
 }
 
 .dc-row-sub {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dc-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -580,9 +841,61 @@ body[data-ds-dark-theme] .dsh-stock {
   font-size: 11px;
   line-height: 1.7;
 }
+/* 空态图标：原来是一个 22px 字符 + opacity .7，在整屏空白里像"没加载出来"。
+ * 改成 44px 柔和圆底 + 居中字符：给空白一个视觉锚点，也把"这是设计好的空态、不是坏了"说清楚。
+ * 底色用前景色 7% 混出（明暗都成立，且不吃品牌色 —— 空态不是"成功"）。 */
 .dc-empty-mark {
-  font-size: 22px;
-  opacity: 0.7;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--dc-text) 7%, transparent);
+  color: var(--dc-text-3);
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* 空态内层：文案 │ 动作 两栏。窄容器（单列主区）自动回落成一栏并保持居中；
+   宽容器（dc-main--flow2/3）改成左对齐两栏，动作区按 auto-fit 自适应 1–3 列。
+   为什么不写死 `max-w-md`：主区 1148px 时那等于空掉 61% 的宽度（实测作战/监控整屏空白）。 */
+.dc-empty-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 1080px;
+}
+.dc-empty-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.dc-empty-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+.dc-empty-actions:empty {
+  display: none;
+}
+.dc-main--flow2 .dc-empty,
+.dc-main--flow3 .dc-empty {
+  align-items: stretch;
+  text-align: left;
+  padding: 18px 20px;
+}
+.dc-main--flow2 .dc-empty-inner,
+.dc-main--flow3 .dc-empty-inner {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  align-items: start;
+}
+.dc-main--flow2 .dc-empty-text,
+.dc-main--flow3 .dc-empty-text {
+  align-items: flex-start;
 }
 
 /* ─────────────────────────── 5. AI 面板 ─────────────────────────── */
@@ -616,7 +929,7 @@ body[data-ds-dark-theme] .dsh-stock {
 }
 
 .dc-ai-note {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dc-dim);
   line-height: 1.6;
 }
@@ -671,7 +984,9 @@ body[data-ds-dark-theme] .dsh-stock {
   min-width: 0;
   height: 6px;
   border-radius: 3px;
-  background: var(--dc-layer-3);
+  /* 中性底用 --dc-track（朝前景混 12%），不用 layer-3 —— 宿主亮色下 layer-3 = #ffffff，
+     与容器 1.00:1，整条进度槽会"消失"（实测）。 */
+  background: var(--dc-track);
   overflow: hidden;
   position: relative;
 }
@@ -721,16 +1036,31 @@ body[data-ds-dark-theme] .dsh-stock {
   background: var(--dc-warn);
 }
 
+/* 分节标题：此前是"和正文同色的 11px 灰字"，在一屏十几段的密排里扫不出段边界。
+ * 现在给三条稳定信号：字重 600（层次靠粗细，不靠缩字号）+ 品牌色竖条（定位）+ 稍大的字距（区分标题与数据）。
+ * 竖条用 ::before 而不是 border-left：不占布局宽度，也不会被 flex 的 gap 算错。 */
 .dc-section-label {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--dc-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--dc-text-2);
   margin-top: 2px;
+}
+.dc-section-label::before {
+  content: '';
+  flex: none;
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--dc-accent);
 }
 
 /* 型号/耗时脚注 */
 .dc-ai-meta {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dc-dim);
   display: flex;
   flex-wrap: wrap;
@@ -752,7 +1082,7 @@ body[data-ds-dark-theme] .dsh-stock {
 
 /* 模型思考（默认折叠） */
 .dc-think {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dc-dim);
 }
 .dc-think > summary {
@@ -768,7 +1098,7 @@ body[data-ds-dark-theme] .dsh-stock {
   word-break: break-word;
   max-height: 180px;
   overflow-y: auto;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
 }
 
@@ -823,7 +1153,7 @@ body[data-ds-dark-theme] .dsh-stock {
   border-radius: 4px;
   background: var(--dc-layer-3);
   color: var(--dc-text-3);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-align: center;
   line-height: 16px;
@@ -854,7 +1184,7 @@ body[data-ds-dark-theme] .dsh-stock {
 
 .dc-rank-sub {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dc-dim);
 }
 
@@ -1120,7 +1450,7 @@ body[data-ds-dark-theme] .dsh-stock {
 
 .dc-stagehead-note {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dc-dim);
   max-width: 46%;
   overflow: hidden;
@@ -1133,7 +1463,7 @@ body[data-ds-dark-theme] .dsh-stock {
   align-items: center;
   gap: 4px;
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--dc-accent);
   border: 1px solid color-mix(in srgb, var(--dc-accent) 40%, transparent);
   border-radius: 999px;
@@ -1162,48 +1492,122 @@ body[data-ds-dark-theme] .dsh-stock {
   color: var(--dc-dim);
 }
 
-/* 工具抽屉：分组标签 */
-.dc-toolgroup {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-}
-.dc-toolgroup + .dc-toolgroup {
-  border-left: 1px solid var(--dc-border);
-  margin-left: 6px;
-  padding-left: 8px;
-}
-.dc-toolgroup-label {
-  font-size: 9px;
-  color: var(--dc-dim);
-  margin-right: 2px;
-  white-space: nowrap;
-}
-
 /*
  * 列流排版：把「顺序流程」的各步骤在宽屏并排展开，窄屏自动回落单列。
  *
  * 用 CSS multi-column 而不是 grid：流程块高度差异大，grid 按行对齐会留下大片空白，
  * 多列则是紧密接排（接近瀑布流），更像"看板"。
  * 每块 break-inside: avoid，防止卡片被从中间劈开。
+ *
+ * 列数按**主区容器实测宽度**（AppShell 量 `.dc-main` 后给 dc-main--flow2/3 类），
+ * 不是视口 —— 原先用 @media (min-width:900/1340px) 判定，左右栏都开时
+ * 主区可能只有 600px 却仍排 3 列（每列 ~190px，实测挤成一团）。
  */
+/* 列流：**行优先的 grid**，不是 CSS 多列（`columns`）。
+ *
+ * 为什么换掉 `columns`：多列是"先填满第一列再填第二列"，于是编号顺序在视觉上变成
+ *   ① ④ ⑥ / ② ⑤ ⑦ —— 复盘页的七步是**有严格序号**的流程，读起来就是乱的（用户实测反馈）。
+ * grid 是行优先：① ② ③ / ④ ⑤ ⑥ / ⑦，与引导条的 ①›②›③… 一致，且 DOM 顺序 = 视觉顺序
+ * （键盘 Tab / 读屏顺序也跟着对）。
+ *
+ * 列数按**主区容器实测宽度**分档（不是视口；左右栏都开时主区可能只有 600px）：
+ *   ≥1450 → 4 列 · ≥1100 → 3 列 · ≥780 → 2 列 · 否则 1 列。
+ * 阈值刻意放低到 1100（原 1180）：实测在 2048 宽的窗口下主区只有 ~1148px，
+ * 原阈值让宽屏用户只拿到 2 列 —— "再分一栏"的最直接收益。 */
 .dc-flow {
-  columns: 1;
-  column-gap: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  /* 行内各单元**等高**（stretch）：复盘页的块高度随数据量剧烈变化（0 条 / 20 条 / 40 只），
+     用 start 会把下一行整体推来推去，视觉上就是"排版在跳"。等高后每一行是一条稳定的带。 */
+  align-items: stretch;
 }
-@media (min-width: 900px) {
-  .dc-flow {
-    columns: 2;
-  }
+.dc-main--flow2 .dc-flow {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-@media (min-width: 1340px) {
-  .dc-flow {
-    columns: 3;
-  }
+.dc-main--flow3 .dc-flow {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-.dc-flow > * {
-  break-inside: avoid;
+.dc-main--flow4 .dc-flow {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+/* 独占整行的块（复盘的 ⑦ 明日交易计划：输出物必须完整可见，不被挤进一列） */
+.dc-flow > .dc-flow-span {
+  grid-column: 1 / -1;
+}
+
+/* ── 固定槽位：让"这一步"永远在同一个位置 ───────────────────────────────
+ * 为什么必须显式给列：复盘七步里有若干块是**条件渲染**的（梯队为空、强度分析中、
+ * 无炸板事件…）。grid 自动流会把这些空位"补掉"，于是 ③ 会滑到 ② 的位置上——
+ * 数据一到、块一出现，整页编号就换了地方。按序号钉住列，缺块就留空位。 */
+.dc-main--flow2 .dc-flow > .dc-slot-1,
+.dc-main--flow2 .dc-flow > .dc-slot-3,
+.dc-main--flow2 .dc-flow > .dc-slot-5 {
+  grid-column: 1;
+}
+.dc-main--flow2 .dc-flow > .dc-slot-2,
+.dc-main--flow2 .dc-flow > .dc-slot-4,
+.dc-main--flow2 .dc-flow > .dc-slot-6 {
+  grid-column: 2;
+}
+.dc-main--flow3 .dc-flow > .dc-slot-1,
+.dc-main--flow3 .dc-flow > .dc-slot-4 {
+  grid-column: 1;
+}
+.dc-main--flow3 .dc-flow > .dc-slot-2,
+.dc-main--flow3 .dc-flow > .dc-slot-5 {
+  grid-column: 2;
+}
+.dc-main--flow3 .dc-flow > .dc-slot-3,
+.dc-main--flow3 .dc-flow > .dc-slot-6 {
+  grid-column: 3;
+}
+.dc-main--flow4 .dc-flow > .dc-slot-1,
+.dc-main--flow4 .dc-flow > .dc-slot-5 {
+  grid-column: 1;
+}
+.dc-main--flow4 .dc-flow > .dc-slot-2,
+.dc-main--flow4 .dc-flow > .dc-slot-6 {
+  grid-column: 2;
+}
+.dc-main--flow4 .dc-flow > .dc-slot-3 {
+  grid-column: 3;
+}
+.dc-main--flow4 .dc-flow > .dc-slot-4 {
+  grid-column: 4;
+}
+
+/* 一个槽位里叠多张卡：单元内部自成一个纵向流（gap 由卡片自己的 mb 提供，
+   最后一个不再留底边距，免得与 grid gap 叠成双倍空隙）。 */
+.dc-flow-cell,
+.dc-flow > .dc-slot-1,
+.dc-flow > .dc-slot-2,
+.dc-flow > .dc-slot-3,
+.dc-flow > .dc-slot-4,
+.dc-flow > .dc-slot-5,
+.dc-flow > .dc-slot-6 {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.dc-flow-cell > *:last-child,
+.dc-flow > .dc-slot-1 > *:last-child,
+.dc-flow > .dc-slot-2 > *:last-child,
+.dc-flow > .dc-slot-3 > *:last-child,
+.dc-flow > .dc-slot-4 > *:last-child,
+.dc-flow > .dc-slot-5 > *:last-child,
+.dc-flow > .dc-slot-6 > *:last-child {
+  margin-bottom: 0;
+}
+
+/* 卡片内的长列表：**限高 + 内部滚动**，让卡片高度不随数据条数无限增长
+   （复盘页每行等高，一行里只要有一张卡是 40 行，整行就被撑起来）。
+   限高不是藏信息：列表头写着总条数，滚一下就能看全。 */
+.dc-card-list {
+  max-height: 15rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ─────────────────────────── 6. 搜索面板（⌘K） ─────────────────────────── */
@@ -1373,49 +1777,115 @@ body[data-ds-dark-theme] .dsh-stock textarea::placeholder {
   color: var(--dc-dim);
 }
 
-/* ─────────────────────────── 8. 作用域 reset ───────────────────────────
- * preflight 关闭（避免污染 dsh shell 全局样式），只对本插件作用域做最小 reset。
- * 用 :where() 把特异性压到 0，组件类与 Tailwind 工具类可正常覆盖。
+/* ─────────────────────────── 8. 作用域 reset（= preflight 的作用域版本） ───────────────────────────
+ *
+ * 背景：Tailwind 的 preflight 是**全局**的，而本插件的 CSS 被注入宿主 `<head>`，
+ * 于是 preflight 会同时作用于 DSH shell 的 DOM（`*{border-width:0}`、
+ * `button{background:transparent}`…）。宿主不使用 Tailwind（组件样式是 CSS Modules，
+ * 见官方 web-styling 规范），这不是它该承受的东西。
+ *
+ * 所以：`tailwind.config.js` 关掉 preflight（corePlugins.preflight = false），
+ * 在这里**按作用域补回同一批规则**（只作用于 `.dsh-stock` 内），
+ * 从而做到「宿主不再被污染」且「插件自身渲染与以前一致」。
+ *
+ * 两条纪律：
+ *   1. 一律用 `:where()` 把特异性压到 0（preflight 用 `*`，特异性也是 0）——
+ *      否则会压过 Tailwind 工具类（`.border` 只设 border-width，靠 preflight 的
+ *      `border-style: solid` 生效；`.box-content` 同理）；
+ *   2. 只补 preflight 里**会影响插件**的那些元素规则，html/body 级别的全局规则不补
+ *      （宿主自带 `html,body,#root{height:100%;margin:0}`，实测确认）。
  */
 
-.dsh-stock,
-.dsh-stock *,
-.dsh-stock *::before,
-.dsh-stock *::after {
+/* 通用：与 preflight 的 `*, ::before, ::after` 等价（border-color 取 preflight 的默认值） */
+:where(.dsh-stock, .dsh-stock *, .dsh-stock ::before, .dsh-stock ::after) {
   box-sizing: border-box;
+  border-width: 0;
+  border-style: solid;
+  border-color: #e5e7eb;
 }
 
-:where(.dsh-stock) button {
-  font: inherit;
-  cursor: pointer;
-  background: transparent;
-  border: none;
+/* [hidden] 的 display:none 由 preflight 提供；这里补一份同特异性的（0,1,0），
+   保证 `.dc-rail[hidden]` 之外的普通 hidden 用法也成立 */
+:where(.dsh-stock [hidden]) {
+  display: none;
+}
+
+:where(.dsh-stock a) {
   color: inherit;
+  text-decoration: inherit;
 }
 
-:where(.dsh-stock) input,
-:where(.dsh-stock) select,
-:where(.dsh-stock) textarea {
+/* ⚠️ 下面这组必须整条包在 `:where()` 里（特异性 0）。
+ *
+ * 踩过的坑（2026-09-12 实测）：最初写成 `:where(.dsh-stock) button,
+ * :where(.dsh-stock) [type='button'] …` —— `:where()` 只吃掉了宿主那一段，
+ * 剩下的 `[type='button']` 是**属性选择器 = 类级特异性 (0,1,0)**，
+ * 与 `.dc-nav-item`（也是 (0,1,0)）打平；而本段在文件末尾 → **后来者赢**，
+ * 于是把组件自己的 `padding: 5px 11px` / `border` 全部清零（真机表现为状态带导航
+ * 「复盘作战看盘工具」挤成一团）。preflight 当年没这个问题，是因为它在文件最前面。
+ * 结论：reset 一律零特异性，把顺序决定权交回组件类。 */
+:where(.dsh-stock button, .dsh-stock [type='button'], .dsh-stock [type='reset'], .dsh-stock [type='submit']) {
   font: inherit;
+  color: inherit;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  background-color: transparent;
+  background-image: none;
+  border: none;
 }
 
-:where(.dsh-stock) ul,
-:where(.dsh-stock) ol {
+:where(.dsh-stock input, .dsh-stock select, .dsh-stock textarea) {
+  font: inherit;
+  color: inherit;
+  margin: 0;
+  padding: 0;
+}
+:where(.dsh-stock ::placeholder) {
+  opacity: 1;
+  color: #9ca3af;
+}
+
+:where(.dsh-stock ul, .dsh-stock ol) {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-:where(.dsh-stock) h1,
-:where(.dsh-stock) h2,
-:where(.dsh-stock) h3,
-:where(.dsh-stock) p {
+:where(.dsh-stock h1, .dsh-stock h2, .dsh-stock h3, .dsh-stock h4, .dsh-stock h5, .dsh-stock h6) {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+:where(.dsh-stock p) {
   margin: 0;
 }
 
-:where(.dsh-stock) svg {
+:where(.dsh-stock table) {
+  border-collapse: collapse;
+  border-color: inherit;
+  text-indent: 0;
+}
+
+:where(.dsh-stock img, .dsh-stock video, .dsh-stock canvas) {
+  display: block;
+  vertical-align: middle;
+}
+
+:where(.dsh-stock svg) {
   display: inline-block;
   vertical-align: middle;
+}
+
+:where(.dsh-stock hr) {
+  height: 0;
+  color: inherit;
+  border-top-width: 1px;
+}
+
+:where(.dsh-stock textarea) {
+  resize: vertical;
 }
 
 /*
@@ -1436,4 +1906,58 @@ body[data-ds-dark-theme] .dsh-stock textarea::placeholder {
   z-index: 30;
   background: var(--dc-layer-1);
   backdrop-filter: blur(6px);
+}
+
+/* ─────────────── 9. 宿主「会话列外壳」适配（工作台视图专用） ───────────────
+ *
+ * 本节**不是** `.dsh-stock` 内部的样式，而是对宿主两个元素的选择性改写。
+ * 为什么必须放在这里：它们是宿主 `ui-conversation` 画的、**在插件视图之上**的东西，
+ * 我们的 DOM 里没有它们，只能靠 CSS 选择器命中（不改宿主文件 —— v1.2 起的纪律）。
+ *
+ * 一条纪律：**工作台里这两样都不要**（用户决策）。
+ *   ① [data-width-handle]  正文栏宽度的两条拖拽条 —— 挡路（见下）；
+ *   ② [data-composer-seat] 底部对话输入框 —— 工作台是盯盘台，不占最下面那一条。
+ *      要打字切上方「对话」标签（那里输入框原样俱在）；插件自己发出的 prompt 走
+ *      `setDraft + submit`，不依赖输入框可见。
+ *
+ * 作用域由 `lib/host-chrome.ts` 写在 `<body>` 上的 `data-dc-workbench` 标记限定：那个模块在
+ * 工作台视图**挂载期间**才打标记，而 ui-conversation 只渲染当前选中的视图条目
+ * （`only: active.id`）—— 所以「对话」标签页完全不受本节影响（挂载 ⟺ 选中）。
+ *
+ * 依赖的宿主钩子（只观察、不改写；DSH 哪天改名 → 退化为"什么都没隐藏"，不报错；
+ * `window.__STOCK_PANEL__.chrome()` 会把实况报出来）。
+ *
+ * 特异性说明（刻意不用 `!important`）：本节选择器是 (0,2,1)，宿主的
+ * `.wSkVaW_widthHandle` / `.wSkVaW_composerSeat` 是 (0,1,0)，赢在特异性上、不靠顺序
+ * （本文件在宿主样式之后注入这一点也不依赖）。
+ */
+
+/* ① 移除正文栏宽度拖拽条（两条贯穿全屏高度的 col-resize 热区）
+ *
+ * 实测（DSH dsh-client-ui-conversation）：
+ *   `.wSkVaW_widthHandle{ position:absolute; top:0; bottom:0; z-index:8;
+ *                         cursor:col-resize; width:min(40px, calc((100% - 正文宽)/2 - 48px)) }`
+ *   `[data-side=left]{right:calc(50% + 正文宽/2 + 24px)}` · `[data-side=right]{left:…}`
+ *
+ * 它的用途是"拖居中**正文栏**的宽度"（对称写 `--dsh-chat-user-width`），位置在正文列
+ * 两侧的留白里 —— 「对话」页里落在正文外的空白上，合理。但工作台是**满宽**面板，
+ * 于是这两条 40px 的带子压在面板左右边缘，而且 `top:0;bottom:0` 一路通到**底部对话框两端**：
+ * 点按钮、点列表行、拖选文字都会被它接管（光标变 col-resize）。
+ *
+ * 藏掉不损失任何能力：工作台里没有正文栏，那条宽度偏好（`dsh.conversation.contentWidth`）
+ * 是「对话」页的东西 —— 回「对话」标签页照样拖，本节不生效。
+ * 宿主自己在"composer 悬浮"场景也是这么处置这两条的（`.wSkVaW_root:has([data-conversation-composer-overlay])
+ * .wSkVaW_widthHandle{display:none}`），这里沿用同一手法。 */
+body[data-dc-workbench] [data-width-handle] {
+  display: none;
+}
+
+/* ② 移除底部对话输入框（座位整块让给主区）
+ *
+ * 座位 `display:none`（**不卸载**：Lexical 编辑器实例还在，插件的「深入对话」注入照旧能发）。
+ * 宿主的 `viewArea` 是 `flex:1 1 0; min-height:0`，座位一让位，主区就吃满整列高度
+ * （面板高度由 AppShell 按容器实测封顶，会跟着重算）。
+ * 只在本视图内生效：切回「对话」标记随卸载摘掉，输入框原样回来。 */
+body[data-dc-workbench] [data-composer-seat] {
+  display: none;
 }

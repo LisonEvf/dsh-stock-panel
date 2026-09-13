@@ -12,7 +12,14 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { nameClass, namingAvailability, namingCacheStats, clearNamingCache, type NamingRuntime } from '../src/host/naming/run.ts'
+import {
+  nameClass,
+  nameClasses,
+  namingAvailability,
+  namingCacheStats,
+  clearNamingCache,
+  type NamingRuntime,
+} from '../src/host/naming/run.ts'
 import type { NameClassOutcome, NameClassSuccess } from '../src/host/naming/run.ts'
 import { collectMaterials, filterMarketRows, limitUpTypeOf, toCandles } from '../src/host/naming/collect.ts'
 
@@ -123,6 +130,9 @@ function runtime(over: Partial<NamingRuntime> = {}, toolOpts: Parameters<typeof 
     llm: llm.llm,
     route: { provider: 'test-provider', model: 'test-model' },
     today: TODAY,
+    // 快讯源必须**显式关闭**：不关就会真发 HTTP（慢、且让测试依赖外部网络）。
+    // 快讯源自己的契约在 `naming-news.test.ts` 里用假 fetch 覆盖。
+    news: false,
     ...over,
   }
   return { rt, calls, llmCalls: llm.calls }
@@ -168,6 +178,41 @@ test('★ as_of ≠ 当前交易日 → 不采实时源，并如实交代（不�
     out.collectNotes.some((n) => n.includes('当前快照')),
     '板块归属是当前快照 → 必须标注口径偏差',
   )
+})
+
+test('★ 逐源状态必须区分「按设计跳过」与「采集失败」（同一句话会把归因说反）', async () => {
+  const { rt } = runtime({ today: '2026-09-12' })
+  const out = expectOk(await nameClass(rt, { classId: 6 }))
+  const bySource = new Map(out.result.sourceStatus.map((s) => [s.source, s]))
+  assert.equal(bySource.get('unusual')?.status, 'skipped_by_design', '实时源是"按设计跳过"，不是失败')
+  assert.equal(bySource.get('market_monitor')?.status, 'skipped_by_design')
+  assert.notEqual(bySource.get('belong_board')?.status, 'failed', '未抛错的源不能标成失败')
+  // 成因文案由**系统模板**生成，且不得把"按设计跳过"写成"采集失败"
+  assert.ok(out.result.causeNote.includes('按设计跳过'), `成因要写清是设计取舍：${out.result.causeNote}`)
+  assert.ok(!/采集失败/.test(out.result.causeNote), '没有任何源失败时，成因里不许出现"采集失败"')
+  assert.ok(!out.result.missingSources.includes('kline') || bySource.get('kline')?.status !== 'used')
+})
+
+test('★ 源真的失败时才写"采集失败"，且成因优先级高于"没素材"', async () => {
+  const base = fakeTools()
+  const rt = runtime(
+    {
+      callTool: async (name, args) => {
+        if (name === 'kline') throw new Error('socket hang up')
+        return base.callTool(name, args)
+      },
+    },
+    {},
+    // 模型说"素材不足" → 走降级分支，由系统按采集事实定成因
+    fakeLlm({ verdict: 'insufficient', theme: null, confidence: 0.2, alternatives: [], evidence: [], reasoning: '素材不足。' }),
+  ).rt
+  const out = expectOk(await nameClass(rt, { classId: 6 }))
+  const kline = out.result.sourceStatus.find((s) => s.source === 'kline')
+  assert.equal(kline?.status, 'failed')
+  assert.match(String(kline?.detail), /socket hang up/)
+  assert.equal(out.result.verdict, 'insufficient')
+  assert.equal(out.result.degradedReason, 'source_failed', '失败必须压过"没素材"')
+  assert.ok(out.result.causeNote.includes('采集失败'), '成因里要出现"采集失败"')
 })
 
 test('未知当前交易日 → 保守不采实时源（宁缺勿造）', async () => {
@@ -227,7 +272,7 @@ test('采集：源失败只记缺失，不抛断整类', async () => {
     if (name === 'hist_concept_class') throw new Error('不该被调到')
     return []
   }
-  const out = await collectMaterials({ callTool, today: TODAY }, { asOf: AS_OF, members: MEMBERS.map((m) => ({ market: 'SZ' as const, code: m.code, name: m.name })), windowDays: 5 })
+  const out = await collectMaterials({ callTool, today: TODAY, news: false }, { asOf: AS_OF, members: MEMBERS.map((m) => ({ market: 'SZ' as const, code: m.code, name: m.name })), windowDays: 5 })
   assert.ok(out.corpus.missingSources.includes('belong_board'), '整源失败要记入 missingSources')
   assert.deepEqual(out.corpus.failedStocks.sort(), ['SZ300308', 'SZ300502'], '失败票要记名')
   assert.ok(out.corpus.items.length > 0, '其他源照常产出素材')
@@ -379,4 +424,201 @@ test('有效口径回传（UI 必须展示 as_of 与四个参数）', async () =
   assert.equal(out.result.asOf, AS_OF)
   assert.equal(out.result.fingerprint.length, 16)
   assert.ok(out.result.materialCount > 0, `素材条数要上报（实际 ${out.result.materialCount}）`)
+})
+
+// ===== ⑤ 批量命名（类列表默认路径）=====
+//
+// 批量与单类**共用护栏与缓存**，差别只有"一次问几组"。所以这里锁的是批量的三条纪律：
+//   a. 弱链伪类不命名，且**不因为它在批里就顺手问一下**（零额外模型调用）；
+//   b. 组间不许借证据：把 A 组的引文写进 B 组 → B 组必须被护栏拒（批量不放松严格性）；
+//   c. 同口径第二次调用 = 0 采集 + 0 模型调用（整批 memo）；refresh 才重算。
+
+const BATCH_MEMBERS: Record<number, Array<{ market: string; code: string; name: string; chg_pct: number }>> = {
+  2: [
+    { market: 'SZ', code: '300308', name: '中际旭创', chg_pct: 4.03 },
+    { market: 'SZ', code: '300502', name: '新易盛', chg_pct: 2.94 },
+  ],
+  3: [
+    { market: 'SH', code: '600519', name: '贵州茅台', chg_pct: -1.2 },
+    { market: 'SH', code: '601318', name: '中国平安', chg_pct: 0.4 },
+  ],
+}
+
+/** 批量用的假工具层：类表（含强度）+ 逐类成员 + 板块/日K/实时源。 */
+function fakeBatchTools() {
+  const calls: string[] = []
+  const callTool = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
+    calls.push(name)
+    switch (name) {
+      case 'hist_concept_classes':
+        return {
+          ok: true,
+          as_of: AS_OF,
+          meta: { as_of: AS_OF, window: 90, min_corr: 0.6, pool_n: 200, n_classes: 3 },
+          classes: [
+            // 强度刻意乱序：批量必须按强度降序挑目标（最猛的班先有名字）
+            { class_id: 3, size: 2, mean_intra_corr: 0.7, strong_density: 1, weak_chain: false, strength: 1.2 },
+            { class_id: 2, size: 2, mean_intra_corr: 0.6675, strong_density: 1, weak_chain: false, strength: 12.4 },
+            { class_id: 1, size: 5, mean_intra_corr: 0.02, strong_density: 0.05, weak_chain: true, strength: 0.1 },
+          ],
+        }
+      case 'hist_concept_class': {
+        const id = Number(args.class_id)
+        return {
+          ok: true,
+          as_of: AS_OF,
+          meta: { as_of: AS_OF, n_classes: 3 },
+          class: { class_id: id, size: (BATCH_MEMBERS[id] ?? []).length, mean_intra_corr: 0.6675 },
+          members: BATCH_MEMBERS[id] ?? [],
+        }
+      }
+      case 'belong_board':
+        return args.code === '300308' || args.code === '300502'
+          ? [
+              { board_type: '4', board_name: 'CPO概念' },
+              { board_type: '12', board_name: '通信设备' },
+            ]
+          : [{ board_type: '12', board_name: '酿酒行业' }]
+      case 'kline':
+        return candles()
+      case 'unusual':
+        return [{ code: '300308', name: '中际旭创', time: '10:03', desc: '加速拉升', value: 6.2 }]
+      case 'market_monitor':
+        return []
+      default:
+        throw new Error(`未预期的工具调用：${name}`)
+    }
+  }
+  return { callTool, calls }
+}
+
+/** 批量模型输出：2 组都给结论（`overrides` 可覆盖某一组）。 */
+function batchPayload(overrides: Record<number, unknown> = {}) {
+  const base: Record<number, unknown> = {
+    2: goodPayload(),
+    3: {
+      verdict: 'named',
+      theme: '白酒',
+      confidence: 0.6,
+      evidence: [
+        { stock: '600519 贵州茅台', quote: '酿酒行业', ts: `${AS_OF} 15:00` },
+        { stock: '601318 中国平安', quote: '酿酒行业', ts: `${AS_OF} 15:00` },
+      ],
+      reasoning: '行业板块指向酿酒。',
+    },
+  }
+  const results = Object.keys({ ...base, ...overrides }).map((k) => {
+    const id = Number(k)
+    return { class_id: id, ...(overrides[id] ?? base[id] ?? {}) }
+  })
+  return { results }
+}
+
+test('★ 批量：按强度降序命名，弱链组不参与（零额外模型调用）', async () => {
+  const llm = fakeLlm(batchPayload())
+  const { callTool, calls } = fakeBatchTools()
+  const out = await nameClasses(
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    {},
+  )
+  assert.equal(out.ok, true)
+  if (out.ok !== true) return
+  assert.equal(out.llmCalls, 1, '两组一批 → 只调一次模型')
+  assert.equal(out.targetCount, 2, '目标 = 两个可采信类（弱链类不进目标）')
+  const byId = new Map(out.entries.map((e) => [e.classId, e]))
+  assert.equal(byId.get(1)?.skipReason, 'weak_chain', '弱链伪类不命名，并说明原因')
+  assert.equal(byId.get(1)?.naming, null)
+  assert.equal(byId.get(2)?.naming?.verdict, 'named')
+  assert.equal(byId.get(2)?.naming?.theme, '光模块')
+  assert.equal(byId.get(3)?.naming?.verdict, 'named')
+  // 目标顺序按强度：class 2（12.4）在 class 3（1.2）之前
+  assert.equal(byId.get(2)?.members.length, 2, '成员一并回给界面（不用二次取数）')
+  // 采集只做一次：市场级列表按**市场**拉（本用例跨沪深 → 2 次），而不是按类拉（那会是 4 次）
+  assert.equal(calls.filter((c) => c === 'unusual').length, 2, '实时源每市场只采一次（并集采集，不是每类一次）')
+  assert.ok(calls.filter((c) => c === 'hist_concept_class').length === 2, '逐类取成员')
+})
+
+test('★ 批量不放松护栏：把 A 组的引文写进 B 组 → B 组被拒（不得 named）', async () => {
+  const llm = fakeLlm(
+    batchPayload({
+      // class 3 引用了只存在于 class 2 语料里的句子（跨组借证据 = 幻觉的批量变体）
+      3: {
+        verdict: 'named',
+        theme: '光模块',
+        confidence: 0.99,
+        evidence: [{ stock: '600519 贵州茅台', quote: 'CPO概念', ts: `${AS_OF} 15:00` }],
+        reasoning: '借用邻组的证据',
+      },
+    }),
+  )
+  const { callTool } = fakeBatchTools()
+  const out = await nameClasses(
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    {},
+  )
+  assert.equal(out.ok, true)
+  if (out.ok !== true) return
+  const byId = new Map(out.entries.map((e) => [e.classId, e]))
+  assert.equal(byId.get(3)?.naming?.verdict !== 'named', true, '跨组引文不得 named')
+  assert.equal(byId.get(3)?.naming?.theme, null, '降级后不得保留主题名')
+  assert.equal(byId.get(3)?.naming?.degradedReason, 'guard_rejected', '成因 = 被护栏拒')
+  assert.equal(byId.get(2)?.naming?.verdict, 'named', '同批里合规的那组不受影响')
+})
+
+test('★ 批量：模型漏给某组结论 → 如实降级（绝不替它补结论）', async () => {
+  const payload = batchPayload()
+  payload.results = payload.results.filter((r) => (r as { class_id: number }).class_id !== 3)
+  const llm = fakeLlm(payload)
+  const { callTool } = fakeBatchTools()
+  const out = await nameClasses(
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    {},
+  )
+  if (out.ok !== true) throw new Error('批量应成功返回')
+  const three = out.entries.find((e) => e.classId === 3)
+  assert.equal(three?.naming?.verdict !== 'named', true)
+  assert.equal(three?.naming?.degradedReason, 'llm_invalid_json')
+  assert.ok((three?.naming?.guardNotes ?? []).length >= 1 || three?.naming?.reasoning !== undefined)
+})
+
+test('★ 批量：同口径第二次 = 0 采集 + 0 模型调用；refresh 才重算', async () => {
+  clearNamingCache()
+  const llm = fakeLlm(batchPayload())
+  const { callTool, calls } = fakeBatchTools()
+  const rt = { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY }
+  await nameClasses(rt, {})
+  assert.equal(llm.calls(), 1)
+  const callsAfterFirst = calls.length
+  const again = await nameClasses(rt, {})
+  assert.equal(again.ok, true)
+  if (again.ok !== true) return
+  assert.equal(again.memoHit, true, '整批 memo 命中')
+  assert.equal(again.llmCalls, 0, '命中 memo 不再调模型')
+  // 命中的那一轮只允许再读一次类表（引擎快照已缓存，纯 CPU）：
+  // 不许出现 belong_board / kline / unusual / hist_concept_class 这些**采集**调用
+  const added = calls.slice(callsAfterFirst)
+  assert.deepEqual(added, ['hist_concept_classes'], `命中 memo 时只读类表（实际 ${added.join(',')}）`)
+  assert.ok(again.entries.filter((e) => e.naming !== null).every((e) => e.cached), '命中的组标 cached')
+  const forced = await nameClasses(rt, { refresh: true })
+  assert.equal(forced.ok, true)
+  if (forced.ok !== true) return
+  assert.equal(forced.llmCalls, 1, 'refresh 必须真的重算一次')
+  assert.equal(llm.calls(), 2)
+})
+
+test('★ 批量：成员数超过单批上限 → 分批调用（口径不变）', async () => {
+  clearNamingCache()
+  const llm = fakeLlm(batchPayload())
+  const { callTool } = fakeBatchTools()
+  const out = await nameClasses(
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    // 每次只允许一组（每组 2 只成员）→ 必须分成两批
+    { maxMembersPerCall: 2 },
+  )
+  assert.equal(out.ok, true)
+  if (out.ok !== true) return
+  assert.equal(out.llmCalls, 2, '两组 → 两批 → 两次模型调用')
+  const byId = new Map(out.entries.map((e) => [e.classId, e]))
+  assert.equal(byId.get(2)?.naming?.theme, '光模块', '分批不改变任何一组的结论')
+  assert.equal(byId.get(3)?.naming?.theme, '白酒')
 })

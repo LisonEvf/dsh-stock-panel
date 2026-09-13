@@ -29,12 +29,12 @@ interface Props {
 /** 预期清单条目的「昨日状态」徽标（WATCH-METHODOLOGY §3.3 状态字段）。 */
 function expectStateBadge(s: ExpectItem['state']): { label: string; color: string; bg: string } {
   switch (s) {
-    case 'strong': return { label: '强一致', color: '#c74040', bg: '#c740401a' }
+    case 'strong': return { label: '强一致', color: 'var(--dc-up)', bg: 'var(--dc-up-soft)' }
     case 'divergence': return { label: '分歧', color: '#e85910', bg: '#e859101a' }
-    case 'weak2strong': return { label: '弱转强候选', color: '#c74040', bg: '#c740401a' }
+    case 'weak2strong': return { label: '弱转强候选', color: 'var(--dc-up)', bg: 'var(--dc-up-soft)' }
     case 'highRisk': return { label: '高位风险', color: '#e85910', bg: '#e859101a' }
-    case 'recession': return { label: '退潮', color: '#2d9b65', bg: '#2d9b651a' }
-    default: return { label: '低位启动', color: '#c74040', bg: '#c740401a' }
+    case 'recession': return { label: '退潮', color: 'var(--dc-down)', bg: 'var(--dc-down-soft)' }
+    default: return { label: '低位启动', color: 'var(--dc-up)', bg: 'var(--dc-up-soft)' }
   }
 }
 
@@ -52,8 +52,8 @@ export function ExpectVerdictPanel({ day }: Props) {
   if (expectations.length === 0) {
     return (
       <div className="mb-1.5 rounded-md border border-amber-100 bg-amber-50/50 px-2 py-2">
-        <div className="text-[10px] font-medium text-amber-600">还没有可对照的预期清单</div>
-        <div className="mt-0.5 text-[9px] leading-snug text-slate-500">
+        <div className="dc-t-data font-medium text-amber-600">还没有可对照的预期清单</div>
+        <div className="mt-0.5 dc-t-micro leading-snug text-slate-500">
           竞价无对照基准 → 按纪律默认只看不买（清单外一律不参与）。先在「复盘」页写 3-5 条预期，竞价才有判定对象。
         </div>
       </div>
@@ -65,10 +65,10 @@ export function ExpectVerdictPanel({ day }: Props) {
   return (
     <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[10px] font-medium text-slate-400">
+        <span className="dc-t-data font-medium text-slate-400">
           预期对照 × 今日竞价判定
         </span>
-        <span className={`rounded px-1 py-px font-mono text-[8px] font-bold tabular-nums ${judgedCount === expectations.length ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+        <span className={`rounded px-1 py-px font-mono dc-t-micro font-bold tabular-nums ${judgedCount === expectations.length ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
           {judgedCount}/{expectations.length} 已判定
         </span>
       </div>
@@ -81,15 +81,15 @@ export function ExpectVerdictPanel({ day }: Props) {
             <li key={e.id} className="rounded-md border border-slate-100 bg-white px-1.5 py-1">
               {/* 行 1：名称 + 昨日状态 + 剧本 */}
               <div className="flex items-center gap-1">
-                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-700">
+                <span className="min-w-0 flex-1 truncate dc-t-note font-semibold text-slate-700">
                   {e.name}
-                  <span className="ml-1 font-mono text-[8px] font-normal text-slate-300">{e.symbol.slice(2)}</span>
+                  <span className="ml-1 font-mono dc-t-micro font-normal text-slate-300">{e.symbol.slice(2)}</span>
                 </span>
-                <span className="shrink-0 rounded px-1 py-px text-[8px] font-medium" style={{ color: badge.color, background: badge.bg }}>
+                <span className="shrink-0 rounded px-1 py-px dc-t-micro font-medium" style={{ color: badge.color, background: badge.bg }}>
                   {badge.label}
                 </span>
               </div>
-              <div className="mt-0.5 truncate text-[8px] text-slate-400" title={`剧本：${e.scenario}`}>
+              <div className="mt-0.5 truncate dc-t-micro text-slate-400" title={`剧本：${e.scenario}`}>
                 剧本 {e.scenario}
                 {e.auctionOK && <span className="ml-1.5 text-slate-300">竞价 OK：{e.auctionOK}</span>}
                 {e.failIf && <span className="ml-1.5 text-amber-500/80">失败：{e.failIf}</span>}
@@ -104,7 +104,7 @@ export function ExpectVerdictPanel({ day }: Props) {
                     <button
                       key={v}
                       onClick={() => (active ? unsetVerdict(day, e.symbol) : setVerdict(day, e.symbol, v))}
-                      className="rounded border px-1 py-px text-[8px] font-medium transition-colors"
+                      className="rounded border px-1 py-px dc-t-micro font-medium transition-colors"
                       style={
                         active
                           ? { color: '#fff', background: c, borderColor: c }
@@ -131,7 +131,7 @@ export function ExpectVerdictPanel({ day }: Props) {
           )
         })}
       </ul>
-      <div className="mt-1 text-[8px] leading-snug text-slate-400">
+      <div className="mt-1 dc-t-micro leading-snug text-slate-400">
         对照规则（§4.4）：强一致+竞价更强=超预期｜强一致+低开/开板=证伪→放弃｜分歧+放量=弱转强候选｜高位高开无共振=陷阱。
       </div>
     </div>

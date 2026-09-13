@@ -9,8 +9,13 @@
  * 用法：KlineChart 在渲染日K后对蜡烛 series 调 attachPrimitive；数据变化时
  * detach 旧的并 attach 新的（最简单可靠的刷新方式）。
  *
- * 类型说明：pane renderer 的 draw(target) 参数官方类型来自 fancy-canvas（未直接
- * 安装在 pnpm 根），本文件用 any 弱化，画布 API 仍按官方形状调用。
+ * 配色：获利/套牢两档用 `themeRgb('up'|'down')` —— 原来是**十进制字面量**
+ * `[199,64,64] / [45,155,101]`，grep 抓不到、暗色主题下也不会提亮（审计点名的坑）。
+ * 现在每次绘制现取主题色，宿主切明暗后的下一次重绘就是新色。
+ *
+ * 类型说明：pane renderer 的 draw(target) 参数官方类型 CanvasRenderingTarget2D 来自
+ * fancy-canvas（未直接装在本包依赖里）→ 这里用**最小结构类型 + as 断言**代替 `any`：
+ * any 连画布 API 拼错都放过，结构类型至少把本文件真正用到的方法约束住了。
  */
 
 import type {
@@ -21,8 +26,21 @@ import type {
   Time,
 } from 'lightweight-charts'
 import type { ChipsResult } from '@/lib/chips'
+import { themeRgb } from '@/lib/theme-colors'
+import { themeAlpha } from '@/lib/chart-theme'
 
 type PriceToY = (price: number) => number | null
+
+/** fancy-canvas 的 MediaCoordinatesRenderingScope（只用得到这两项）。 */
+interface MediaCoordinateSpace {
+  context: CanvasRenderingContext2D
+  mediaSize: { width: number; height: number }
+}
+
+/** fancy-canvas 的 CanvasRenderingTarget2D（只用到 useMediaCoordinateSpace）。 */
+interface PaneRendererTarget {
+  useMediaCoordinateSpace<T>(draw: (scope: MediaCoordinateSpace) => T): T
+}
 
 class ChipPaneRenderer implements ISeriesPrimitivePaneRenderer {
   private bins: { price: number; weight: number }[] = []
@@ -38,11 +56,17 @@ class ChipPaneRenderer implements ISeriesPrimitivePaneRenderer {
     this.toY = fn
   }
 
-  draw(target: any): void {
+  draw(target: unknown): void {
     const toY = this.toY
-    const media = target?.useMediaCoordinateSpace
-    if (typeof media !== 'function' || !toY || !this.bins.length) return
-    media((scope: { context: CanvasRenderingContext2D; mediaSize: { width: number; height: number } }) => {
+    // 结构断言 + 运行时守卫：拿不到官方类型（fancy-canvas 不在依赖里）但也不放行错误形状
+    const renderer = (typeof target === 'object' && target !== null ? target : null) as PaneRendererTarget | null
+    if (renderer === null || typeof renderer.useMediaCoordinateSpace !== 'function' || !toY || !this.bins.length) {
+      return
+    }
+    // 主题色现取（themeRgb 内部有缓存 + 主题变化失效）：切明暗后本次重绘即是新色
+    const upRgb = themeRgb('up')
+    const downRgb = themeRgb('down')
+    renderer.useMediaCoordinateSpace((scope) => {
       const ctx = scope.context
       const w = scope.mediaSize.width
       const h = scope.mediaSize.height
@@ -77,7 +101,7 @@ class ChipPaneRenderer implements ISeriesPrimitivePaneRenderer {
         const norm = r.weight / maxW
         const barW = Math.max(1, norm * maxBar)
         const isProfit = r.price <= this.currentPrice
-        const base = isProfit ? [199, 64, 64] : [45, 155, 101]
+        const base = isProfit ? upRgb : downRgb
         const alpha = 0.3 + 0.45 * norm
         const grad = ctx.createLinearGradient(right - barW, 0, right, 0)
         grad.addColorStop(0, `rgba(${base[0]},${base[1]},${base[2]},${alpha * 0.3})`)
@@ -86,10 +110,10 @@ class ChipPaneRenderer implements ISeriesPrimitivePaneRenderer {
         ctx.fillRect(right - barW, r.y - 0.5, barW, 1.5)
       }
 
-      // 现价分界细线
+      // 现价分界细线（中性色，不借涨跌语义；亮度取自主题）
       const yCur = toY(this.currentPrice)
       if (yCur != null && Number.isFinite(yCur)) {
-        ctx.fillStyle = 'rgba(100,116,139,0.35)'
+        ctx.fillStyle = themeAlpha('flat', 0.35)
         ctx.fillRect(0, yCur - 0.5, w, 1)
       }
     })

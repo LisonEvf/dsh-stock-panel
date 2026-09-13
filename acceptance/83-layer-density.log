@@ -1,0 +1,24 @@
+[ux-density] 类型尺度（src/**/*.tsx）
+    dc-t-decision  4
+    dc-t-data      169
+    dc-t-note      74
+    dc-t-micro     230
+    text-xs        25
+    text-sm        22
+    text-base      1
+    text-lg        2
+    text-xl        0
+    （四档合计 477 处；语义档合计 50 处）
+    ℹ️ text-[15px] × 1（白名单：个股现价（主数字））
+    ℹ️ text-[16px] × 1（白名单：情绪温度计（一屏最显眼的那个数））
+    ℹ️ text-[18px] × 1（白名单：昨日涨停今日表现（复盘①的核心结论数））
+
+[ux-density] 宽度利用（报告；数值越低越好，重点看是否在增长）
+    justify-between（两端对齐，中间常空）         39
+    ml-auto（把内容推到两端）                   23
+    truncate（靠截断而不是给宽度）                55
+    max-w-md/lg（居中限宽，主区会大块留白）          3
+    w-1[0-9]（固定窄列，常在 12px 字号下不够）      7
+
+[ux-density] 全部通过 ✅（--check）
+

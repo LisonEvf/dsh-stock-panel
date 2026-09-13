@@ -13,7 +13,7 @@
  * 并给出「本阶段必须回答的问题 / 唯一输出」。UI 由此实现
  * **时段自动切换 + 手动覆盖**（用户想看哪一阶段就看哪一阶段，但默认服从流程）。
  */
-import { phaseFromDate, type SessionPhase } from './session-clock'
+import { isWeekend, phaseFromDate, type SessionPhase } from './session-clock'
 
 /** 四个方法论阶段。 */
 export type Stage = 'review' | 'auction' | 'intraday' | 'tail'
@@ -112,9 +112,21 @@ export function stageOf(phase: SessionPhase, minutes: number): Stage {
   return 'review'
 }
 
-/** 当前阶段（默认按本地时钟）。 */
-export function currentStage(d: Date = new Date()): Stage {
-  return stageOf(phaseFromDate(d), minuteOfDay(d))
+/**
+ * 当前阶段（默认按本地时钟）。
+ *
+ * ⚠️ 实测 bug（2026-09-12 发现并修复）：原实现是 `stageOf(phaseFromDate(d), …)`，
+ * 而 `phaseFromDate` 在 `isTradeDay` 未传时**一律返回 'closed'**（见其实现第一行），
+ * 于是 `stageOf('closed', …)` 恒等于 `'review'` —— `currentStage()` **永远返回复盘**，
+ * 「跨 9:15 自动切到作战 / 跨 15:10 切回复盘」这套时段跟随**整个是死的**。
+ *
+ * 现在：`isTradeDay` 显式可选，缺省时退到**本地周末判定**（与 `buildClock` 的
+ * `isTradeDay = !isWeekend(d)` 同口径）；有服务端交易日历时由调用方传入（更准，
+ * 能识节假日）。节假日仍按工作日近似，属已知限制。
+ */
+export function currentStage(d: Date = new Date(), isTradeDay?: boolean): Stage {
+  const tradeDay = isTradeDay ?? !isWeekend(d)
+  return stageOf(phaseFromDate(d, tradeDay), minuteOfDay(d))
 }
 
 /**

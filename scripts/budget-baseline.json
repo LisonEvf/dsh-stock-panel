@@ -1,0 +1,7 @@
+{
+  "note": "budget 基线：只降不升。改大必须在 PR 里说明原因。",
+  "pollSites": 26,
+  "requestsPerMinuteUpperBound": 153,
+  "maxTimersPerKey": 4,
+  "filesWithPolling": 18
+}

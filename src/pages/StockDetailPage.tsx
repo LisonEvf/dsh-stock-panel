@@ -165,6 +165,23 @@ export function StockDetailPage({ open, onBack }: Props) {
     return latest ? Number(latest.close) : 0
   }, [state.rows])
 
+  /**
+   * 现价的颜色档位：拿最后两根 K 线比较出方向（涨红/跌绿/平或数据不足为中性）。
+   *
+   * 原实现是写死的 `text-red-600`（实测），于是**跌了也红** —— 在金融终端里这等于
+   * 把方向读反。这里只在方向已知时上语义色，未知就保持中性，不假装精度。
+   */
+  const priceToneClass = useMemo(() => {
+    const n = state.rows.length
+    if (n < 2) return 'text-slate-800'
+    const last = Number(state.rows[n - 1]?.close)
+    const prev = Number(state.rows[n - 2]?.close)
+    if (!Number.isFinite(last) || !Number.isFinite(prev) || prev === 0) return 'text-slate-800'
+    if (last > prev) return 'dc-up'
+    if (last < prev) return 'dc-down'
+    return 'dc-flat'
+  }, [state.rows])
+
   // M9：日 K 区间切换 → 按需重取（根数与当前 rows 一致则跳过；失败保留旧数据）。
   useEffect(() => {
     if (!state.symbol || chartMode !== 'day') return
@@ -313,12 +330,18 @@ export function StockDetailPage({ open, onBack }: Props) {
           </div>
           {(state.name || latestClose > 0) && (
             <div className="flex items-baseline justify-between gap-2">
-              <span className="min-w-0 truncate text-[12px] font-medium text-slate-500">
+              <span className="min-w-0 truncate dc-t-data font-medium text-slate-500">
                 {state.name}
-                {state.symbol && <span className="ml-1 font-mono text-[10px] text-slate-300">{state.symbol}</span>}
+                {state.symbol && <span className="ml-1 font-mono dc-t-data text-slate-300">{state.symbol}</span>}
               </span>
               {latestClose > 0 && (
-                <span className="shrink-0 text-[15px] font-bold tabular-nums text-red-600">{fmtPrice(latestClose)}</span>
+                /* 现价**不能永远红**（实测原为 text-red-600）：涨跌方向未知时用中性文字色，
+                   已知方向才上语义色。这里只有收盘价与上一根 K 线的比较可用，没有再退中性。 */
+                <span
+                  className={`shrink-0 text-[15px] font-bold tabular-nums ${priceToneClass}`}
+                >
+                  {fmtPrice(latestClose)}
+                </span>
               )}
             </div>
           )}
@@ -346,14 +369,14 @@ export function StockDetailPage({ open, onBack }: Props) {
             <div className="mb-1 flex items-center gap-1">
               <button
                 onClick={() => setChartMode('day')}
-                className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${chartMode === 'day' ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400'}`}
+                className={`rounded px-1.5 py-0.5 dc-t-micro font-medium ${chartMode === 'day' ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400'}`}
               >
                 日K
               </button>
               <button
                 onClick={() => setChartMode('min')}
                 disabled={!minBase}
-                className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${chartMode === 'min' ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400 disabled:opacity-40'}`}
+                className={`rounded px-1.5 py-0.5 dc-t-micro font-medium ${chartMode === 'min' ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400 disabled:opacity-40'}`}
                 title={minBase ? '当日/最近交易日分时' : '暂无日K数据，分时不可用'}
               >
                 分时
@@ -361,7 +384,7 @@ export function StockDetailPage({ open, onBack }: Props) {
               {chartMode === 'day' && (
                 <button
                   onClick={() => setShowMA((v) => !v)}
-                  className={`ml-auto rounded px-1.5 py-0.5 text-[9px] font-medium ${showMA ? 'bg-blue-50 text-blue-500' : 'bg-white text-slate-300'}`}
+                  className={`ml-auto rounded px-1.5 py-0.5 dc-t-micro font-medium ${showMA ? 'bg-blue-50 text-blue-500' : 'bg-white text-slate-300'}`}
                   title="MA5/10/20 均线叠加开关"
                 >
                   MA {showMA ? '开' : '关'}
@@ -374,12 +397,12 @@ export function StockDetailPage({ open, onBack }: Props) {
                   <button
                     key={r.key}
                     onClick={() => setRangeKey(r.key)}
-                    className={`rounded px-1 py-px font-mono text-[9px] ${rangeKey === r.key ? 'bg-emerald-100 text-emerald-600' : 'text-slate-400 hover:bg-white'}`}
+                    className={`rounded px-1 py-px font-mono dc-t-micro ${rangeKey === r.key ? 'bg-emerald-100 text-emerald-600' : 'text-slate-400 hover:bg-white'}`}
                   >
                     {r.label}
                   </button>
                 ))}
-                {chartBusy && <span className="ml-auto text-[9px] text-slate-300">取数中…</span>}
+                {chartBusy && <span className="ml-auto dc-t-micro text-slate-300">取数中…</span>}
               </div>
             )}
             {loading && !state.rows.length ? (
@@ -395,7 +418,7 @@ export function StockDetailPage({ open, onBack }: Props) {
                   chipsLoading={chipTicksSwr.status === 'loading'}
                 />
               ) : (
-                <div className="flex h-64 items-center justify-center text-[11px] text-slate-300">暂无历史 K 线数据</div>
+                <div className="flex h-64 items-center justify-center dc-t-note text-slate-300">暂无历史 K 线数据</div>
               )
             ) : minBase && symParts ? (
               <StockIntraday
@@ -407,7 +430,7 @@ export function StockDetailPage({ open, onBack }: Props) {
                 height={280}
               />
             ) : (
-              <div className="flex h-64 items-center justify-center text-[11px] text-slate-300">暂无日K数据，分时不可用</div>
+              <div className="flex h-64 items-center justify-center dc-t-note text-slate-300">暂无日K数据，分时不可用</div>
             )}
           </div>
         )}
@@ -420,7 +443,7 @@ export function StockDetailPage({ open, onBack }: Props) {
           </div>
         )}
         {!state.levels && state.levelsNote !== null && (
-          <div className="mt-2.5 rounded border border-amber-100 bg-amber-50 px-2 py-1.5 text-[10px] leading-relaxed text-amber-700">
+          <div className="mt-2.5 rounded border border-amber-100 bg-amber-50 px-2 py-1.5 dc-t-data leading-relaxed text-amber-700">
             <span className="font-medium">关键价位不可用</span>：{state.levelsNote}
             <br />
             <span className="text-amber-600">

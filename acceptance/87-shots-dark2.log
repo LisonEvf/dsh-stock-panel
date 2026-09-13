@@ -1,0 +1,18 @@
+open session: clicked
+  📸 acceptance\shots\dark-01-行情.png
+  📸 acceptance\shots\dark-02-复盘.png
+  📸 acceptance\shots\dark-03-作战.png
+  📸 acceptance\shots\dark-04-选股筛选.png
+  📸 acceptance\shots\dark-05-监控规则.png
+  📸 acceptance\shots\dark-06-外盘.png
+  📸 acceptance\shots\dark-07-自挖板块.png
+open stock: clicked:新易盛SZ300502
+  📸 acceptance\shots\dark-08-工作台-个股.png
+  📸 acceptance\shots\dark-09-行情-宽屏2560.png
+  📸 acceptance\shots\dark-10-行情-窄屏1280.png
+  📸 acceptance\shots\dark-11-导航-hover.png
+  dark proof: {"bodyBg":"rgb(21, 21, 23)","panelBg":"rgb(21, 21, 23)","attr":true}
+  📸 acceptance\shots\dark-12-行情-暗色.png
+  📸 acceptance\shots\dark-13-复盘-暗色.png
+done: 13 张
+

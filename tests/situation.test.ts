@@ -141,7 +141,9 @@ test('标签与颜色覆盖全部局势（不出现英文枚举）', () => {
   for (const s of all) {
     const label = situationLabel(s)
     assert.ok(label.length > 0 && !label.includes(s), `${s} → ${label}`)
-    assert.match(situationColor(s), /^#[0-9a-f]{6}$/i, `${s} 颜色为 hex`)
+    // B2 令牌收口：颜色由字面量 hex 改为**语义 token**（`var(--dc-up)` 等），
+    // 这样明暗主题自动跟随、也不会再出现"两套红"。契约本身不变：每个局势都必须有色。
+    assert.match(situationColor(s), /^(#[0-9a-f]{6}|var\(--dc-[a-z-]+\))$/i, `${s} 颜色为语义色`)
   }
   assert.equal(new Set(all.map(situationLabel)).size, all.length, '标签互不相同')
   // A 股语义：退潮=绿（回避），新方向/高低切=红（变化）

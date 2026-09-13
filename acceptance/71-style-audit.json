@@ -1,0 +1,118 @@
+{
+  "shellBg": "rgb(255, 255, 255)",
+  "shellFont": "-apple-system",
+  "sizes": {
+    "11px": 142,
+    "12px": 98,
+    "10.12px": 2,
+    "14px": 13,
+    "18px": 1,
+    "22px": 1
+  },
+  "weights": {
+    "400": 184,
+    "500": 33,
+    "600": 39,
+    "700": 1
+  },
+  "fonts": {
+    "-apple-system": 130,
+    "ui-monospace": 127
+  },
+  "radii": {
+    "5px": 7,
+    "6px": 29,
+    "4px": 72,
+    "8px": 3,
+    "2px": 8
+  },
+  "cards": [],
+  "numeric": {
+    "total": 10,
+    "tabular": 10,
+    "sample": [
+      {
+        "cls": "dc-num dc-down",
+        "txt": "-1.18%",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num dc-down",
+        "txt": "-1.08%",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num dc-down",
+        "txt": "-0.49%",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num dc-down",
+        "txt": "-1.01%",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num dc-down",
+        "txt": "-1.45%",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num",
+        "txt": "40",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num",
+        "txt": "21",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num dc-flat",
+        "txt": "2",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num",
+        "txt": "423.00",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      },
+      {
+        "cls": "dc-num",
+        "txt": "90.25",
+        "num": "tabular-nums",
+        "family": "ui-monospace"
+      }
+    ]
+  },
+  "tags": {},
+  "interactions": {
+    "navHover": true,
+    "rowHover": true,
+    "cardHover": false,
+    "focusVisible": true,
+    "transition": true,
+    "reducedMotion": true,
+    "shadow": true
+  },
+  "hitHeights": {
+    "17": 3,
+    "18": 5,
+    "20": 3,
+    "21": 10,
+    "22": 22,
+    "24": 16,
+    "29": 7,
+    "42": 5,
+    "44": 2,
+    "45": 9
+  }
+}

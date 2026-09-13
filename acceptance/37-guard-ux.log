@@ -1,0 +1,28 @@
+  ✔ preflight-off
+  ✔ scoped-reset
+  ✔ strip-grid-not-flex
+  ✔ strip-tails-and-overflow-menu
+  ✔ no-viewport-magic-height
+  ✔ flow-columns-by-container
+  ✔ skeleton-uses-container-width
+  ✔ hard-reload-not-plain-reload
+  ✔ half-render-self-check
+  ✔ no-hardcoded-semantic-colors
+  ✔ no-manual-unit-math
+  ✔ status-colors-decoupled-from-price
+  ✔ chart-theme-single-source
+  ✔ three-state-component
+  ✔ review-draft-persisted
+  ✔ error-kind-propagated
+  ✔ hotkeys-pure-and-tested
+  ✔ palette-dialog-a11y
+  ✔ watchlist-rows-keyboard-reachable
+  ✔ hit-target-24px
+  ✔ no-dead-postcss-config
+  ✔ type-scale-tokens-defined
+  ✔ type-scale-floor-in-components
+  ✔ empty-state-uses-container-width
+  ✔ flow-slots-pinned
+
+[ux-contract] 全部通过 ✅（25 条）
+

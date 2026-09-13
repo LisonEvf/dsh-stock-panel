@@ -18,8 +18,8 @@ interface Props {
   code: string
 }
 
-const UP = '#c74040'
-const DOWN = '#2d9b65'
+const UP = 'var(--dc-up)'
+const DOWN = 'var(--dc-down)'
 
 export function StockAuctionReview({ market, code }: Props) {
   // 懒加载缓存：报价 + 竞价序列分离缓存，命中立即回看，失败下线重试。
@@ -39,12 +39,12 @@ export function StockAuctionReview({ market, code }: Props) {
       <h3 className="mb-1.5 text-xs font-medium text-slate-500">竞价回顾（当日）</h3>
       <div className="rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-1.5">
         {loading ? (
-          <div className="py-2 text-center text-[10px] text-slate-300">竞价数据加载中…</div>
+          <div className="py-2 text-center dc-t-data text-slate-300">竞价数据加载中…</div>
         ) : !feat ? (
-          <div className="py-2 text-center text-[10px] text-slate-300">当日暂无竞价数据</div>
+          <div className="py-2 text-center dc-t-data text-slate-300">当日暂无竞价数据</div>
         ) : (
           <>
-            <div className="flex flex-wrap gap-x-2.5 gap-y-1 text-[10px]">
+            <div className="flex flex-wrap gap-x-2.5 gap-y-1 dc-t-data">
               <span className="font-mono font-semibold tabular-nums" style={{ color: feat.openPct >= 0 ? UP : DOWN }}>
                 竞价开 {feat.openPct >= 0 ? '+' : ''}
                 {feat.openPct.toFixed(1)}%
@@ -55,7 +55,7 @@ export function StockAuctionReview({ market, code }: Props) {
               </span>
               {feat.fakeBigThenDrop && <span className="font-medium text-amber-600">⚠ 撤单诱多特征</span>}
             </div>
-            <div className="mt-1 text-[9px] text-slate-300">竞价总匹配量 {feat.matchedTotal.toLocaleString()} · 盘后仍可回看当日竞价</div>
+            <div className="mt-1 dc-t-micro text-slate-300">竞价总匹配量 {feat.matchedTotal.toLocaleString()} · 盘后仍可回看当日竞价</div>
           </>
         )}
       </div>

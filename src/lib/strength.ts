@@ -107,9 +107,9 @@ export function strongKindLabel(kind: StrongKind): string {
 export function strongKindColor(kind: StrongKind): string {
   switch (kind) {
     case 'trueStrong':
-    case 'weak2strong': return '#c74040' // 红：强
-    case 'inertia': return '#c74040' // 红但需谨慎（惯性）
-    case 'weakening': return '#2d9b65' // 绿：弱
+    case 'weak2strong': return 'var(--dc-up)' // 红：强
+    case 'inertia': return 'var(--dc-up)' // 红但需谨慎（惯性）
+    case 'weakening': return 'var(--dc-down)' // 绿：弱
     default: return '#94a3b8' // 灰：平
   }
 }

@@ -5,7 +5,7 @@
  * 说明：client.js **默认 minify**（B2 决策，2026-09-12）；同时产出 `lib/client.js.map`
  * 补偿可调试性 —— 宿主 client-modules 层会读取该 map 并校验为 Source Map v3，
  * 再盖章自己的组合 map URL（map 缺失不影响插件执行）。逃生阀：`CLIENT_MINIFY=0`。
- * 阈值默认 600KB（env CLIENT_MAX_KB 可覆盖）。
+ * 阈值默认 650KB（env CLIENT_MAX_KB 可覆盖）。
  *
  * 体积账：
  *   665KB   1.1.x 基线（窄列版：10 个页面全内联，未压缩）
@@ -16,6 +16,16 @@
  *   814.0KB 1.4.0+A1（host 侧持久化）→ 当时阈值 820 → 840KB（余量只剩 2%）
  *   825.8KB 1.4.0+B5③（诊断面板）
  *   **530.8KB 1.4.0+B2（开启 minify；−35.7%）→ 阈值 840 → 600KB（余量 69KB）**
+ *   605.4KB 1.4.0+UX-B2（令牌收口 / 单位单一入口 / 图表主题 / 三态组件）
+ *           → 阈值 600 → **620KB**（余量 14.6KB）。这是一次**有意识的**加预算：
+ *           新增的都是"减少重复"的共享模块（`lib/theme-colors` `lib/chart-theme`
+ *           `components/Num` `components/StateView`），它们替换掉的是散在 20+ 文件里的
+ *           重复实现；下一轮减重仍按下面的杠杆（退役旧页面 / 删过渡重映射层）。
+ *   632.1KB 1.4.0+UX-B3（草稿持久化 / ErrorBar / hotkeys 纯函数 / ConfirmButton）
+ *           → 阈值 620 → **650KB**（余量 17.9KB）。同样是有意识加预算：本批新增的是
+ *           「切换/点票不再丢草稿」「错误可分类可重试」「键盘可达」这三类体验修复的载体。
+ *           ⚠️ 体积棘轮已连续两批上调（600→620→650），下一批应优先做**减重**（退役
+ *           被新骨架取代的旧页面是最直接的杠杆），而不是继续加预算。
  *
  * 成分（`node scripts/bundle-report.mjs`，未压缩口径 822.5KB）：
  *   lightweight-charts 216.8KB(26%) · src/pages 175.9KB(22%；ReviewPage 单文件 51.8KB)
@@ -42,7 +52,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const file = join(resolve(__dirname, '..'), 'lib', 'client.js')
-const maxKb = Number(process.env.CLIENT_MAX_KB ?? 600)
+const maxKb = Number(process.env.CLIENT_MAX_KB ?? 650)
 
 if (!existsSync(file)) {
   console.error('[check-bundle] 缺 lib/client.js —— 请先 pnpm build')

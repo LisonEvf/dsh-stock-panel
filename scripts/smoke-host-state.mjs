@@ -8,7 +8,7 @@
 //   1. 三条同源路由都注册了（call / build / state），且都是 exact；
 //   2. GET /api/stock-panel/build → { version: package.json, buildId: 8 位十六进制 }；
 //   3. 持久化领域的 spec 契约正确：领域名合法（^[a-z][a-z0-9_]*$，不能有连字符）、
-//      version=1、layout=per-record、8 张表且每张带 valueSchema.parse、global schema 拒绝 null；
+//      version=1、layout=per-record、9 张表（含 UX-B3 新增的 review_draft）且每张带 valueSchema.parse、global schema 拒绝 null；
 //   4. GET /api/stock-panel/state → 全量快照（含全部表）；POST 写入后能被 GET 读到；
 //   5. **降级**：宿主没挂 storageDomain 时，GET 返回 available:false + 原因，且 apply 不抛异常。
 //
@@ -198,6 +198,8 @@ async function main() {
   }
 
   console.log('[3] 持久化领域的 spec 契约')
+  /** 声明的表清单（块 [3]/[4] 共用：块内 let 会掉进块作用域，之前就在这里踩过）。 */
+  let declaredTables = []
   {
     const spec = recorder.spec
     assert(spec !== undefined, 'facility.open 被调用（说明域已初始化）')
@@ -207,7 +209,14 @@ async function main() {
     assert(spec.layout === 'per-record', `layout = per-record（${spec.layout}）`)
     assert(spec.invalidRecords === 'backup-and-skip', '单条坏记录不阻塞整域打开')
     const tables = Object.keys(spec.tables)
-    assert(tables.length === 8, `声明 8 张表（实际 ${tables.length}：${tables.join(',')}）`)
+    // 表清单**从唯一定义源核对**（不再写死 9）：声明表 ↔ spec 表必须一一对应，
+    // 少了会漏迁、多了会开出没人写的空表。脚本此前硬编码 9/8，实测已与代码漂移过。
+    declaredTables = (modA.STATE_TABLES ?? []).map((t) => t.table)
+    assert(declaredTables.length > 0, `lib/index.js 导出 STATE_TABLES（${declaredTables.length} 张）`)
+    assert(
+      tables.length === declaredTables.length && declaredTables.every((t) => tables.includes(t)),
+      `spec 表 = STATE_TABLES（spec ${tables.length} / 声明 ${declaredTables.length}：${tables.join(',')}）`,
+    )
     assert(
       tables.every((t) => typeof spec.tables[t].valueSchema?.parse === 'function'),
       '每张表都带 valueSchema.parse（子系统逐条校验要用）',
@@ -228,8 +237,8 @@ async function main() {
     assert(snap.available === true, `可用（available=${snap.available}）`)
     assert(snap.domain === 'stock_panel', `域 = stock_panel（${snap.domain}）`)
     assert(
-      snap.tables && Object.keys(snap.tables).length === 8,
-      `快照含全部 8 张表（实际 ${Object.keys(snap.tables ?? {}).length}）`,
+      snap.tables && Object.keys(snap.tables).length === declaredTables.length,
+      `快照含全部 ${declaredTables.length} 张表（实际 ${Object.keys(snap.tables ?? {}).length}）`,
     )
 
     const put = { table: 'watchlist', key: 'SH600519', value: { market: 'SH', code: '600519', name: '贵州茅台' } }

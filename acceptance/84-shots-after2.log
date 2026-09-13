@@ -1,0 +1,15 @@
+open session: clicked
+  📸 acceptance\shots\after2-01-行情.png
+  📸 acceptance\shots\after2-02-复盘.png
+  📸 acceptance\shots\after2-03-作战.png
+  📸 acceptance\shots\after2-04-选股筛选.png
+  📸 acceptance\shots\after2-05-监控规则.png
+  📸 acceptance\shots\after2-06-外盘.png
+  📸 acceptance\shots\after2-07-自挖板块.png
+open stock: clicked:新易盛SZ300502
+  📸 acceptance\shots\after2-08-工作台-个股.png
+  📸 acceptance\shots\after2-09-行情-宽屏2560.png
+  📸 acceptance\shots\after2-10-行情-窄屏1280.png
+  📸 acceptance\shots\after2-11-导航-hover.png
+done: 11 张
+

@@ -76,3 +76,33 @@ export function repair(text: string): string {
   if (inString) out += '"'
   return out + stack.reverse().join('')
 }
+
+/** 批量输出里的一组（classId + 该组的模型原始输出）。 */
+export interface RawBatchEntry {
+  classId: number
+  raw: RawNamingOutput
+}
+
+/**
+ * 从批量输出里取出 `results` 数组（逐组归一）。
+ *
+ * 与单类解析同一立场：**只做结构提取，不猜内容**。缺项（某组没给结论）不在这里补，
+ * 由调用方按"该组模型未给结论"如实降级 —— 补一个空结论出来等于替模型签字。
+ */
+export function extractBatchResults(raw: RawNamingOutput | null): { entries: RawBatchEntry[]; error: string } {
+  if (raw === null) return { entries: [], error: '空响应' }
+  const list = (raw as { results?: unknown }).results
+  if (!Array.isArray(list)) {
+    const keys = Object.keys(raw as Record<string, unknown>).slice(0, 8).join(',')
+    return { entries: [], error: `顶层缺少 results 数组（收到的键：${keys || '无'}）` }
+  }
+  const entries: RawBatchEntry[] = []
+  for (const item of list) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) continue
+    const o = item as Record<string, unknown> & RawNamingOutput
+    const id = Number(o.class_id ?? o.classId)
+    if (!Number.isFinite(id)) continue
+    entries.push({ classId: id, raw: o })
+  }
+  return { entries, error: '' }
+}

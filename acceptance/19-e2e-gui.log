@@ -1,0 +1,73 @@
+[e2e] 目标 http://127.0.0.1:3080（隔离 Chrome headless）
+  [PASS] 应用已加载（document.title 非空） — DeepSeek Harness
+  [PASS] window.__STOCK_PANEL__ 自检句柄存在
+  [PASS] viewRegistered = true — true
+  [PASS] 版本回传 — 1.4.0
+  [PASS] 传输层 = embedded — embedded
+  [PASS] 内置工具清单 = 19 — 19
+  [PASS] 面板内 callTool(server_info) 真机联通 — {"count":1,"flags":"000000ffffffffff","tag":"-1","today":"2026-09-13","ts1":182820,"sessions_1":[{"open":"9:30","close":
+  ℹ️ 空态无会话 → 打开侧栏会话：clicked:移除工作台对话框拖拽调整组件5小时
+  [PASS] 对话视图标签栏可见
+  [PASS] 插件视图「A股工作台」已注册 — ["对话","GAL视窗","A股工作台","轨迹"]
+  [PASS] 切到「A股工作台」 — clicked
+  [PASS] 面板渲染出内容 — innerText 1228 字
+  [PASS] 一级导航 7 项都在 — ["复盘","作战","行情","自挖板块","选股筛选","监控规则","外盘"]
+  [FAIL] 图表画布已挂载（canvas） — 0
+  [PASS] 行情页首屏数据落地（不再"加载中"或图表已挂载） — canvas=7 残留加载态=["加载中…","加载中…","加载涨停池…"]
+  [PASS] 图表画布已挂载（canvas） — canvas=7
+  [PASS] 面板发起了数据层请求（/api/stock-panel/*） — 11 次：[{"url":"/api/stock-panel/state","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200}]
+
+[e2e] 一级入口逐个挂载：
+  [PASS] 入口「复盘」挂载且无新增报错 — chars=2353 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「作战」挂载且无新增报错 — chars=1815 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「行情」挂载且无新增报错 — chars=2571 canvas=7 table=1 新增报错=0
+      片段：
+  [PASS] 入口「选股筛选」挂载且无新增报错 — chars=1473 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「监控规则」挂载且无新增报错 — chars=1268 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「外盘」挂载且无新增报错 — chars=1255 canvas=7 table=1 新增报错=0
+      片段：
+  [PASS] 入口「自挖板块」挂载且无新增报错 — chars=2935 canvas=0 table=0 新增报错=0 · 本次模型调用 0 次 ·
+      片段：
+  ℹ️ 截图：acceptance\e2e-panel.png
+  [PASS] 无未捕获异常
+  [PASS] 无 console.error
+
+[e2e] 面板文案抽样：新会话
+工作区
+gal-view
+DSH项目中添加视图的方法
+2天
+ entiment
+运行本项目
+2天
+clu ter-namer
+BettaFi h消息挖掘能力参考分析
+2天
+避免提交API密钥的Git操作
+2天
+Lottery
+同步数据预测验证调整
+4天
+frontend-d h
+进行中
+插件功能系统测试与验收报告
+15分钟
+移除工作台对话框拖拽调整组件
+5小时
+自挖模块素材不足整备
+18小时
+真实模拟用户综合评审产品
+19小时
+自选盘撤除并调整板块层级
+1天
+展开其余
+[e2e] 控制台摘要：
+    [log] [stock-panel] apply called, injecting conversation.view → stock-panel
+    [log] [stock-panel] 视图「A股工作台」已注册（conversation.view#stock-panel）。
+
+[e2e] 1 项未通过（共 25 项）
+

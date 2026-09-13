@@ -21,10 +21,20 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Type check（全量，0 错误门禁）
         run: npx tsc --noEmit
-      - name: Lint（0 error；warning 棘轮 30 = 只降不升）
+      - name: Lint（0 error；warning 棘轮 0 = 只降不升）
         run: npx eslint src scripts --max-warnings 0
       - name: Unit tests（node:test + esbuild 打包，离线）
         run: node scripts/unit.mjs
+      - name: Client artifact vs source（防手改生成物 / 防漂移）
+        run: node scripts/build-client.mjs --check
+      - name: UX contract（尺寸收口 / 更新路径的静态契约）
+        run: node scripts/ux-contract.mjs
+      - name: UX density（类型尺度下限 + 宽度利用账）
+        run: node scripts/ux-density.mjs --check
+      - name: Request budget ratchet（轮询次·分，只降不升）
+        run: node scripts/budget.mjs --check
+      - name: Contrast guard（语义色/文字的 WCAG 对比度）
+        run: node scripts/contrast.mjs --check
       - name: Bundle size guard
         run: node scripts/check-bundle-size.mjs
       - name: Client view registration smoke（官方 conversation.view 契约）
@@ -35,3 +45,5 @@ jobs:
         run: node scripts/smoke-host-state.mjs
       - name: Naming bridge smoke（A2b：路由 / 口径 / 护栏 / 缓存，假工具+假模型）
         run: node scripts/smoke-naming.mjs
+      - name: Concept classes smoke（A2b 补强：类列表的强度/涨幅/涨停数接线，真引擎+假行情）
+        run: node scripts/smoke-concept-classes.mjs

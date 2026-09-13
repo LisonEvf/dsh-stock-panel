@@ -1,0 +1,39 @@
+[budget] 轮询声明（按间隔升序）：
+     1s  setInterval src/components/SessionMission.tsx:31
+     1s  setInterval src/panel/DiagnosticsPanel.tsx:74
+    12s  useSwr      src/panel/use-ai.ts:89  key=market !== null && code !== null ? swrKey.quote(market
+    12s  useSwr      src/views/WatchView.tsx:72  key=quoteKey
+    15s  useSwr      src/panel/StatusStrip.tsx:101  key=swrKey.indices()
+    15s  useSwr      src/panel/use-ai.ts:105  key=swrKey.indices()
+    30s  setInterval src/panel/AppShell.tsx:115
+    30s  useSwr      src/panel/StatusStrip.tsx:103  key=swrKey.allA()
+    30s  useSwr      src/panel/use-ai.ts:99  key=market !== null && code !== null ? swrKey.capitalFlow(market
+    30s  useSwr      src/panel/use-ai.ts:104  key=swrKey.allA()
+    30s  useSwr      src/panel/WatchList.tsx:81  key=swrKey.allA()
+    60s  useSwr      src/lib/build-info.ts:36  key=swr:buildinfo
+    60s  useSwr      src/panel/StatusStrip.tsx:105  key=swr:serverclock
+     动态  setInterval src/components/AlertWatcher.tsx:272
+     动态  setInterval src/components/AuctionRadar.tsx:186
+     动态  setInterval src/lib/cache.ts:249
+     动态  useSwr      src/pages/IndicesPage.tsx:46  key=swrKey.indices()
+     动态  setInterval src/pages/LadderPage.tsx:70
+     动态  useSwr      src/pages/MarketOverview.tsx:84  key=swrKey.indices()
+     动态  useSwr      src/pages/MarketOverview.tsx:89  key=swrKey.allA()
+     动态  useSwr      src/pages/MarketOverview.tsx:94  key=swrKey.unusualAll()
+     动态  setInterval src/pages/MarketPage.tsx:156
+     动态  setInterval src/pages/WarPage.tsx:360
+     动态  setInterval src/pages/WatchlistPage.tsx:93
+     动态  setInterval src/panel/hooks.ts:232
+
+[budget] 指标：
+  pollSites = 25
+  requestsPerMinuteUpperBound = 150
+  maxTimersPerKey = 4
+  filesWithPolling = 18
+
+[budget] 同一缓存 key 的多个定时器（预算头号风险）：
+  4× swrKey.indices()
+  4× swrKey.allA()
+
+[budget] OK：请求预算未变差 ✅
+

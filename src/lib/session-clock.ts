@@ -38,7 +38,8 @@ export interface ServerInfo {
 }
 
 const str10 = (v: unknown): string => (typeof v === 'string' ? v.slice(0, 10) : '')
-const isWeekend = (d: Date): boolean => d.getDay() === 0 || d.getDay() === 6
+/** 周末判定。导出给 `stage.ts` 的 `currentStage` 做交易日兜底（见那里的 bug 说明）。 */
+export const isWeekend = (d: Date): boolean => d.getDay() === 0 || d.getDay() === 6
 
 function localDateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')

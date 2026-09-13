@@ -45,17 +45,17 @@ export function SessionMission(props: Props) {
           {/* 行 1：时段标题 + 倒计时/进度 */}
           <div className="flex items-center gap-1.5">
             <ListChecks className="h-3 w-3 shrink-0 text-slate-400" />
-            <span className={`truncate text-[11px] font-semibold ${ts.label}`}>
+            <span className={`truncate dc-t-note font-semibold ${ts.label}`}>
               {phaseIcon(m.phase)} {m.title}
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1">
               {p && p.total > 0 && (
-                <span className={`rounded px-1 py-px font-mono text-[8px] font-bold tabular-nums ${ts.chip}`}>
+                <span className={`rounded px-1 py-px font-mono dc-t-micro font-bold tabular-nums ${ts.chip}`}>
                   {p.done}/{p.total}
                 </span>
               )}
               {cd && m.anchor && (
-                <span className="flex shrink-0 items-center gap-0.5 rounded bg-white/70 px-1 py-px font-mono text-[8px] text-slate-500" title={m.anchor.label}>
+                <span className="flex shrink-0 items-center gap-0.5 rounded bg-white/70 px-1 py-px font-mono dc-t-micro text-slate-500" title={m.anchor.label}>
                   <Timer className="h-2.5 w-2.5" />
                   {cd}
                 </span>
@@ -64,7 +64,7 @@ export function SessionMission(props: Props) {
           </div>
 
           {/* 行 2：一句话目标 */}
-          <div className="mt-0.5 text-[10px] leading-snug text-slate-600">{m.goal}</div>
+          <div className="mt-0.5 dc-t-data leading-snug text-slate-600">{m.goal}</div>
 
           {/* 行 3：完成检查清单 */}
           {m.checks.length > 0 && (
@@ -74,7 +74,7 @@ export function SessionMission(props: Props) {
                   {c.done
                     ? <Check className="mt-px h-2.5 w-2.5 shrink-0 text-emerald-500" />
                     : <Circle className="mt-px h-2.5 w-2.5 shrink-0 text-slate-300" />}
-                  <span className={`min-w-0 flex-1 text-[9px] leading-snug ${c.done ? 'text-slate-500 line-through decoration-slate-300' : 'text-slate-600'}`}>
+                  <span className={`min-w-0 flex-1 dc-t-micro leading-snug ${c.done ? 'text-slate-500 line-through decoration-slate-300' : 'text-slate-600'}`}>
                     {c.label}
                   </span>
                 </li>
@@ -83,8 +83,8 @@ export function SessionMission(props: Props) {
           )}
 
           {/* 提示 / 警告（弱提示） */}
-          {m.warn && <div className="mt-1 rounded bg-white/60 px-1.5 py-0.5 text-[9px] leading-snug text-amber-600">⚠ {m.warn}</div>}
-          {m.hint && !m.warn && <div className="mt-1 text-[8px] leading-snug text-slate-400">💡 {m.hint}</div>}
+          {m.warn && <div className="mt-1 rounded bg-white/60 px-1.5 py-0.5 dc-t-micro leading-snug text-amber-600">⚠ {m.warn}</div>}
+          {m.hint && !m.warn && <div className="mt-1 dc-t-micro leading-snug text-slate-400">💡 {m.hint}</div>}
         </div>
       </div>
     </div>

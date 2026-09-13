@@ -54,7 +54,7 @@ export function StockIntraday({ market, code, baseDate, prevClose, height = 300 
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: '#94a3b8',
-        fontSize: 10,
+        fontSize: 11,
       },
       grid: {
         vertLines: { color: 'rgba(148,163,184,0.10)' },
@@ -167,7 +167,7 @@ export function StockIntraday({ market, code, baseDate, prevClose, height = 300 
   return (
     <div className="w-full">
       {hasAuction && (
-        <div className="mb-1 flex items-center gap-2 text-[9px] text-slate-400">
+        <div className="mb-1 flex items-center gap-2 dc-t-micro text-slate-400">
           <span className="text-[#2563eb]">— 价</span>
           <span className="text-[#f59e0b]">— 均</span>
           <span className="text-[#a855f7]">⌁ 竞价(9:15-9:25)</span>
@@ -176,17 +176,17 @@ export function StockIntraday({ market, code, baseDate, prevClose, height = 300 
       )}
       <div ref={containerRef} style={{ height, position: 'relative' }}>
         {status === 'loading' && (
-          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-300">
+          <div className="absolute inset-0 flex items-center justify-center dc-t-note text-slate-300">
             分时加载中…
           </div>
         )}
         {status === 'success' && ticks.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-300">
+          <div className="absolute inset-0 flex items-center justify-center dc-t-note text-slate-300">
             {baseDate} 暂无分时数据（休市/源空）
           </div>
         )}
         {status === 'error' && (
-          <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] text-red-400">
+          <div className="absolute inset-0 flex items-center justify-center px-4 text-center dc-t-note text-red-400">
             {errorText || '分时加载失败'}
           </div>
         )}

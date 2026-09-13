@@ -23,6 +23,7 @@ export type NamingVerdict = 'named' | 'no_common' | 'insufficient'
 export type DegradedReason =
   | 'none' // 正常（named）
   | 'no_material' // 窗口内本来就没素材
+  | 'source_skipped' // 实时源按设计跳过（as_of ≠ 当前交易日，不做历史回放）
   | 'source_failed' // 源采集失败
   | 'llm_unavailable' // LLM 不可用（宿主未挂载 / 调用失败）
   | 'llm_invalid_json' // LLM 输出无法解析
@@ -30,12 +31,52 @@ export type DegradedReason =
   | 'partial_material' // 部分成员票窗口内没有素材
   | 'guard_rejected' // 过了模型但被护栏拒（幻觉引文 / 证据不足 / 时间错位）
 
+/**
+ * 素材源的**状态**（四态）。
+ *
+ * 为什么要把"缺失"拆开：三种完全不同的情形曾被塞进同一个 `missingSources` 数组 ——
+ *   ① 实时源**按设计跳过**（as_of 不是当前交易日，异动/监控没有历史接口）；
+ *   ② 调用成功但**没有产出**素材（例如窗口内没有涨停 → 日K 不产出封板素材）；
+ *   ③ 真的**采集失败**（网络/协议错误）。
+ * 三者混在一起，UI 只能写成"源采集缺失"，而模型看到这个词就会顺着写成"采集失败"——
+ * 一个以"证据可反查、拒绝命名是一等公民"为卖点的功能，在唯一可见的降级说明上给了
+ * 错误归因（实测 2026-09-12 周六：证据卡写着"belong_board/kline/... 等源全部采集失败"，
+ * 真相是其中两个按设计跳过、两个无产出、零个失败）。
+ */
+export type SourceStatus = 'used' | 'skipped_by_design' | 'no_material' | 'failed'
+
+/** 单个素材源的状态报告。 */
+export interface SourceReport {
+  /** 源名（`unusual` / `market_monitor` / `belong_board` / `kline`）。 */
+  source: string
+  status: SourceStatus
+  /** 人读说明（**由系统模板生成**，不由模型书写）。 */
+  detail: string
+  /** 该源实际产出并被采纳的素材条数。 */
+  produced: number
+}
+
+/** 素材源状态的中文名（UI 与成因文案共用一处）。 */
+export const SOURCE_STATUS_LABEL: Record<SourceStatus, string> = {
+  used: '已采用',
+  skipped_by_design: '按设计跳过',
+  no_material: '无产出',
+  failed: '采集失败',
+}
+
 /** 素材类型。 */
 export type MaterialKind =
   | 'unusual' // 异动（加速拉升/封涨停板/打开涨停…）
   | 'limit_up_type' // 封板状态（一字板/T字板/换手板/炸板…）
   | 'board_concept' // 概念板块（当日题材线索）
   | 'board_industry' // 行业板块（官方花名册口径，v0 不作对照，仅入语料供参照）
+  /**
+   * 板块级快讯（新浪 7×24，见 `news.ts`）。
+   *
+   * 这是本站**唯一非通达信**的素材源，也是唯一能提供"为什么一起动"的源：
+   * 异动/封板是价格事实、板块标签是厂商分类，都不解释原因。
+   */
+  | 'news_flash'
 
 /** 归一后的素材条目（对应参考实现 `NewsItem`）。 */
 export interface MaterialItem {
@@ -182,7 +223,17 @@ export interface NamingResult {
   alternatives: string[]
   evidence: NamingEvidence[]
   reasoning: string
+  /** 派生：状态 ≠ used 的源名（prompt 与既有消费者沿用；真源是 `sourceStatus`）。 */
   missingSources: string[]
+  /** 逐源状态（**唯一真源**：UI 的证据卡与成因文案都从这里来）。 */
+  sourceStatus: SourceReport[]
+  /**
+   * 系统生成的成因说明（模板，确定性）。
+   *
+   * 与 `reasoning` 的区别：`reasoning` 是**模型自己写的**推理散文，`causeNote` 是
+   * **系统根据采集事实写的**归因。UI 必须把两者分开显示 —— 归因不能交给被审计者。
+   */
+  causeNote: string
   degradedReason: DegradedReason
   guardNotes: string[]
   /** 缓存指纹（换模型/窗口/源集合即失效）。 */
@@ -197,13 +248,26 @@ export interface NamingResult {
 /** 语料（对应参考实现 `Corpus`）。 */
 export interface MaterialCorpus {
   items: MaterialItem[]
-  /** 采集失败的源名（去重排序）。 */
+  /**
+   * 逐源状态（**唯一真源**）。
+   *
+   * 兼容性：旧语料/测试可能只给 `missingSources` —— 那种情况视为"信息不足"，
+   * 护栏与成因文案会退回到旧口径（见 `cause.ts`），不假装知道得更细。
+   */
+  sources?: SourceReport[]
+  /** 派生自 `sources`（status ≠ used 的源名）；旧调用方仍直接读它。 */
   missingSources: string[]
   /** 采集失败的成员 key（去重排序）。 */
   failedStocks: string[]
 }
 
 export const EMPTY_CORPUS: MaterialCorpus = { items: [], missingSources: [], failedStocks: [] }
+
+/** 由逐源状态派生"缺失源"清单（status ≠ used）。 */
+export function missingSourcesOf(sources: readonly SourceReport[] | undefined): string[] {
+  if (!sources || sources.length === 0) return []
+  return sources.filter((s) => s.status !== 'used').map((s) => s.source).sort()
+}
 
 /** 素材按成员分组（key = `${code} ${name}`，与 `stock` 字段同口径）。 */
 export function groupByStock(items: MaterialItem[]): Map<string, MaterialItem[]> {

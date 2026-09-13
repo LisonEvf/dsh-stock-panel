@@ -27,7 +27,7 @@ export function AiReportCard({ report, onDelete }: Props) {
           <span className="text-xs font-medium text-slate-600">AI 四维分析</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-400">{fmtDate(report.created_at)}</span>
+          <span className="dc-t-data text-slate-400">{fmtDate(report.created_at)}</span>
           {onDelete && (
             <button onClick={handleDelete} className="p-0.5 text-slate-300 hover:text-red-500" title="删除">
               <Trash2 className="h-3.5 w-3.5" />
@@ -56,7 +56,7 @@ export function AiReportCard({ report, onDelete }: Props) {
       {report.content && report.content.length > 400 && (
         <button
           onClick={() => setExpanded(v => !v)}
-          className="mt-2 text-[11px] text-blue-500 hover:text-blue-700"
+          className="mt-2 dc-t-note text-blue-500 hover:text-blue-700"
         >
           {expanded ? '收起' : '展开全文'}
         </button>

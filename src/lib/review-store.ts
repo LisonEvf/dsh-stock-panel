@@ -8,6 +8,10 @@
  * v3（N5+）：快照额外保存当日涨停池摘要（limitUpPool），次日复盘据此**实算**
  * 晋级率 / 首板溢价（替代近似初值），不再需要"猜"。旧 v2 数据加载时自动迁移。
  *
+ * N10：**未存档草稿不在本模块**（它是高频临时态，见 `review-draft.ts` 的独立键
+ * `dsh-stock-panel:review-draft:v1`）；本模块只多了 `saveReviewTracked`
+ * —— 让调用方能判断"这次存档到底写下去没有"，草稿的清理时机依赖它。
+ *
  * 模块级内存态 + 变更通知，跨组件即时同步（复用 watchlist-store 模式）。
  */
 
@@ -145,14 +149,25 @@ function sanitize(list: ReviewSnapshot[]): ReviewSnapshot[] {
   return arr.slice(0, MAX_DAYS)
 }
 
-function persist(): void {
+/**
+ * 写库：localStorage 镜像 + host 增量同步。
+ *
+ * @returns localStorage 是否**真的写成功**（配额满 / 隐私模式会失败）。
+ *   host 同步是异步增量推送、失败会自动重试（`host-state.ts` 的 failedTables + 5s 重试），
+ *   所以"落盘成功"的判据只看本地这一笔 —— N10 的复盘草稿只在**存档确实落盘**后才清
+ *   （见 `review-draft.ts` 口径 3），拿不准就当失败，宁可留着草稿。
+ */
+function persist(): boolean {
+  let ok = false
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshots))
+    ok = true
   } catch {
-    /* 隐私模式等忽略 */
+    /* 隐私模式/配额：忽略（调用方据返回值决定是否清草稿） */
   }
   // A1：host 域同步（增量；不可用时自动 no-op）。
   syncTable('review', snapshots)
+  return ok
 }
 
 function notify(): void {
@@ -203,15 +218,32 @@ export function getLatestPlan(day: string): ReviewSnapshot | null {
  * 返回更新后的快照列表（始终按日新→旧排序）。
  */
 export function saveReview(snap: ReviewSnapshot): ReviewSnapshot[] {
+  upsertReview(snap)
+  notify()
+  return snapshots
+}
+
+/**
+ * 保存今日复盘并**回报是否落盘**（N10：草稿只在存档真的成功后才清）。
+ *
+ * 为什么不改 `saveReview` 的返回类型：它是既有契约（多处按 `ReviewSnapshot[]` 使用），
+ * 这里新增一个语义更窄的入口更安全 —— 需要知道"到底存下去没有"的调用方走它。
+ */
+export function saveReviewTracked(snap: ReviewSnapshot): { ok: boolean; snapshots: ReviewSnapshot[] } {
+  const ok = upsertReview(snap)
+  notify()
+  return { ok, snapshots }
+}
+
+/** 写入/覆盖当日条目并落库（返回 localStorage 是否写成功）。 */
+function upsertReview(snap: ReviewSnapshot): boolean {
   const idx = snapshots.findIndex((s) => s.day === snap.day)
   const next = idx >= 0
     ? snapshots.map((s, i) => (i === idx ? snap : s))
     : [snap, ...snapshots]
   next.sort((a, b) => (a.day < b.day ? 1 : -1))
   snapshots = next.slice(0, MAX_DAYS)
-  persist()
-  notify()
-  return snapshots
+  return persist()
 }
 
 /** 删除某日复盘。 */

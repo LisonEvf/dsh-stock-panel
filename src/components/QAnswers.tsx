@@ -34,9 +34,9 @@ interface Props {
 }
 
 const Q1_OPTS: { v: Q1Value; label: string; desc: string; color: string }[] = [
-  { v: 'strengthen', label: '增强', desc: '放量/封板/共振', color: '#c74040' },
+  { v: 'strengthen', label: '增强', desc: '放量/封板/共振', color: 'var(--dc-up)' },
   { v: 'flat', label: '中性', desc: '证据不增减', color: '#64748b' },
-  { v: 'weaken', label: '衰减', desc: '滞涨/缩量/破位', color: '#2d9b65' },
+  { v: 'weaken', label: '衰减', desc: '滞涨/缩量/破位', color: 'var(--dc-down)' },
 ]
 
 const Q3_OPTS: { v: Q3Action; label: string }[] = [
@@ -71,16 +71,16 @@ export function QAnswers({ autoSituation }: Props) {
       {/* ===== Q1 持续性 ===== */}
       <div className="rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
         <div className="flex items-center gap-1">
-          <span className="text-[10px] font-semibold text-slate-500">Q1 持续性</span>
+          <span className="dc-t-data font-semibold text-slate-500">Q1 持续性</span>
           {run?.q1 ? (
-            <span className="ml-auto flex items-center gap-0.5 text-[8px] text-emerald-600">
+            <span className="ml-auto flex items-center gap-0.5 dc-t-micro text-emerald-600">
               <Check className="h-2.5 w-2.5" />已答 {hm(run.q1.at)}
             </span>
           ) : (
-            <span className="ml-auto rounded bg-amber-100 px-1 py-px text-[8px] text-amber-600">未答</span>
+            <span className="ml-auto rounded bg-amber-100 px-1 py-px dc-t-micro text-amber-600">未答</span>
           )}
         </div>
-        <div className="mt-0.5 text-[8px] text-slate-400">主线/持仓的持续性证据在增强还是衰减？</div>
+        <div className="mt-0.5 dc-t-micro text-slate-400">主线/持仓的持续性证据在增强还是衰减？</div>
         <div className="mt-1 flex flex-wrap gap-1">
           {Q1_OPTS.map((o) => {
             const active = run?.q1?.value === o.v
@@ -89,7 +89,7 @@ export function QAnswers({ autoSituation }: Props) {
                 key={o.v}
                 onClick={() => setQ1(day, o.v)}
                 title={o.desc}
-                className="flex-1 rounded border px-1 py-0.5 text-center text-[9px] font-medium transition-colors"
+                className="flex-1 rounded border px-1 py-0.5 text-center dc-t-micro font-medium transition-colors"
                 style={
                   active
                     ? { color: '#fff', background: o.color, borderColor: o.color }
@@ -106,16 +106,16 @@ export function QAnswers({ autoSituation }: Props) {
       {/* ===== Q2 局势 ===== */}
       <div className="rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
         <div className="flex items-center gap-1">
-          <span className="text-[10px] font-semibold text-slate-500">Q2 局势</span>
+          <span className="dc-t-data font-semibold text-slate-500">Q2 局势</span>
           {run?.q2 ? (
-            <span className="ml-auto flex items-center gap-0.5 text-[8px] text-emerald-600">
+            <span className="ml-auto flex items-center gap-0.5 dc-t-micro text-emerald-600">
               <Check className="h-2.5 w-2.5" />已确认 {hm(run.q2.at)}
             </span>
           ) : (
-            <span className="ml-auto rounded bg-amber-100 px-1 py-px text-[8px] text-amber-600">未答</span>
+            <span className="ml-auto rounded bg-amber-100 px-1 py-px dc-t-micro text-amber-600">未答</span>
           )}
         </div>
-        <div className="mt-0.5 text-[8px] text-slate-400">有没有局势变化（高低切/退潮/新方向）正在发生？</div>
+        <div className="mt-0.5 dc-t-micro text-slate-400">有没有局势变化（高低切/退潮/新方向）正在发生？</div>
         <div className="mt-1 flex flex-wrap gap-1">
           {SITUATIONS.map((s) => {
             const active = run?.q2?.situation === s
@@ -126,10 +126,10 @@ export function QAnswers({ autoSituation }: Props) {
                 key={s}
                 onClick={() => setQ2(day, s, isAuto ? 'auto' : 'manual')}
                 title={situationLabel(s)}
-                className={`rounded border px-1 py-0.5 text-[9px] font-medium transition-colors ${active ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                className={`rounded border px-1 py-0.5 dc-t-micro font-medium transition-colors ${active ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
                 style={active ? {} : { borderColor: '#cbd5e1', background: isAuto && !run?.q2 ? '#f1f5f9' : undefined }}
               >
-                {isAuto && !run?.q2 && <span className="mr-0.5 text-[7px] text-emerald-500">系统→</span>}
+                {isAuto && !run?.q2 && <span className="mr-0.5 dc-t-micro text-emerald-500">系统→</span>}
                 {label}
               </button>
             )
@@ -140,20 +140,20 @@ export function QAnswers({ autoSituation }: Props) {
       {/* ===== Q3 动作 ===== */}
       <div className="rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
         <div className="flex items-center gap-1">
-          <span className="text-[10px] font-semibold text-slate-500">Q3 动作</span>
+          <span className="dc-t-data font-semibold text-slate-500">Q3 动作</span>
           {q3Complete ? (
-            <span className="ml-auto flex items-center gap-0.5 text-[8px] text-emerald-600">
+            <span className="ml-auto flex items-center gap-0.5 dc-t-micro text-emerald-600">
               <Check className="h-2.5 w-2.5" />已答
             </span>
           ) : (
-            <span className="ml-auto rounded bg-amber-100 px-1 py-px text-[8px] text-amber-600">未答</span>
+            <span className="ml-auto rounded bg-amber-100 px-1 py-px dc-t-micro text-amber-600">未答</span>
           )}
         </div>
-        <div className="mt-0.5 text-[8px] text-slate-400">对持仓与候选，今天该做的动作是什么？（尾盘才定去留）</div>
+        <div className="mt-0.5 dc-t-micro text-slate-400">对持仓与候选，今天该做的动作是什么？（尾盘才定去留）</div>
         {positions.length === 0 ? (
           <button
             onClick={() => setQ3Idle(day, !run?.q3?.idle)}
-            className={`mt-1 w-full rounded border px-1 py-1 text-[9px] font-medium transition-colors ${
+            className={`mt-1 w-full rounded border px-1 py-1 dc-t-micro font-medium transition-colors ${
               run?.q3?.idle ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'
             }`}
             style={!run?.q3?.idle ? { borderColor: '#cbd5e1' } : {}}
@@ -167,11 +167,11 @@ export function QAnswers({ autoSituation }: Props) {
               return (
                 <li key={p.symbol} className="rounded bg-white px-1.5 py-1">
                   <div className="flex items-center justify-between gap-1">
-                    <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-slate-600">
+                    <span className="min-w-0 flex-1 truncate dc-t-data font-medium text-slate-600">
                       {p.name}
-                      <span className="ml-1 font-mono text-[8px] text-slate-300">{p.code}</span>
+                      <span className="ml-1 font-mono dc-t-micro text-slate-300">{p.code}</span>
                     </span>
-                    <span className="shrink-0 font-mono text-[8px] text-slate-300">{p.shares}股</span>
+                    <span className="shrink-0 font-mono dc-t-micro text-slate-300">{p.shares}股</span>
                   </div>
                   <div className="mt-0.5 flex flex-wrap gap-0.5">
                     {Q3_OPTS.map((o) => {
@@ -180,7 +180,7 @@ export function QAnswers({ autoSituation }: Props) {
                         <button
                           key={o.v}
                           onClick={() => setQ3Symbol(day, p.symbol, o.v)}
-                          className={`rounded border px-1 py-px text-[8px] font-medium transition-colors ${
+                          className={`rounded border px-1 py-px dc-t-micro font-medium transition-colors ${
                             active ? 'bg-slate-700 text-white' : 'text-slate-500 hover:bg-slate-100'
                           }`}
                           style={!active ? { borderColor: '#e2e8f0' } : {}}

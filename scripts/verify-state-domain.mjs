@@ -86,10 +86,10 @@ async function main() {
     '表句柄可用（watchlist.put 是函数）',
   )
 
-  console.log('[2] 8 张表 + 写入/读取')
-  const tables = [
-    'watchlist', 'review', 'dayrun', 'positions', 'tradelog', 'verdicts', 'events', 'viewed',
-  ]
+  // 表清单从唯一定义源取（此前硬编码 8 张：代码加到 9 张后本脚本就一直"缺表"、名存实亡）
+  const declaredTables = (myMod.STATE_TABLES ?? []).map((t) => t.table)
+  console.log(`[2] ${declaredTables.length} 张表 + 写入/读取`)
+  const tables = declaredTables
   const missing = tables.filter((t) => {
     try {
       domain.table(t)
@@ -98,7 +98,10 @@ async function main() {
       return true
     }
   })
-  assert(missing.length === 0, `8 张表都已声明（缺失：${missing.join(',') || '无'}）`)
+  assert(
+    declaredTables.length > 0 && missing.length === 0,
+    `${declaredTables.length} 张表都已声明（缺失：${missing.join(',') || '无'}）`,
+  )
 
   await domain.table('watchlist').put('SH600519', { market: 'SH', code: '600519', name: '贵州茅台' })
   // 事件流的自然键含 ':' 与中文 → per-record 介质**必须**拒绝它（这正是 host 层要做 base64url 的原因）。

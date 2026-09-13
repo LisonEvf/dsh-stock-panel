@@ -123,6 +123,9 @@ function miniObjectSchema(label: string, keyField?: string): MiniSchema {
 const KEY_FIELD: Record<string, string | undefined> = {
   watchlist: 'code',
   review: 'day',
+  // UX-B3：复盘草稿表（记录键 = day）。缺这行不报错，但该表会跳过 host 侧软校验，
+  // 脏数据更容易落盘 —— 校验是有价值的，别省。
+  review_draft: 'day',
   dayrun: 'day',
   positions: 'symbol',
   tradelog: undefined,

@@ -41,3 +41,28 @@ export function isStaleBuild(info: BuildInfo | null | undefined): boolean {
   if (info === null || info === undefined) return false
   return info.buildId !== CLIENT_BUILD_ID && info.buildId !== '?'
 }
+
+/**
+ * 硬刷新：带**变化的 build 参数**重新加载，绕过 HTTP 缓存。
+ *
+ * 为什么不能只调 `location.reload()`（v1.4 及以前就是这么写的，实测无效）：
+ * client.js 的 URL 固定不变，`reload()` 会命中磁盘缓存 → 页面继续跑旧 bundle。
+ * 实测（2026-09-12）：点「构建已更新 · 点此刷新」后页内 build 仍是旧的
+ * （`ef950715`），服务端已是 `3873ab9c`；同一次操作后还出现过半渲染态
+ * （见 `panel/hooks.ts` 的 `useChromeHealth`）。
+ *
+ * 这里只**追加查询参数**、不动路径与既有参数（宿主的鉴权/路由不受影响）：
+ * 参数取服务端 build id —— 它变化 ⇒ 新 URL ⇒ 必然缓存未命中。
+ */
+export function hardReload(serverBuildId?: string | null): void {
+  if (typeof window === 'undefined') return
+  const tag = serverBuildId !== undefined && serverBuildId !== null && serverBuildId !== '' ? serverBuildId : CLIENT_BUILD_ID
+  try {
+    const url = new URL(window.location.href)
+    url.searchParams.set('dshPanelBuild', tag)
+    window.location.replace(url.toString())
+  } catch {
+    window.location.reload()
+  }
+}
+

@@ -25,8 +25,11 @@ import { RefreshCw, Pause, Play, ChevronDown, ChevronRight, LayoutGrid } from 'l
 import { MarketOverview } from './MarketOverview'
 import { IndicesPage } from './IndicesPage'
 import { LadderPage } from './LadderPage'
+import { useAvailableHeight, useContainerWidth } from '@/panel/hooks'
 import { openStockAndWatch, type Selection } from '@/lib/selection'
+import { usePollGate, isPollAllowed, notePollSkipped } from '@/lib/poll-gate'
 import type { MarketTag } from '@/lib/symbol'
+import { StateView } from '@/components/StateView'
 
 /** 可调节拍（0 = 暂停自动刷新，仍可手动刷新）。 */
 const TACT_OPTIONS: Array<{ ms: number; label: string; hint: string }> = [
@@ -38,6 +41,21 @@ const TACT_OPTIONS: Array<{ ms: number; label: string; hint: string }> = [
 ]
 
 type SectionId = 'overview' | 'indices' | 'ladder'
+
+/**
+ * 页面级兜底的观察窗（ms）。
+ *
+ * 为什么需要（审计结论）：本页三块**各自**有兜底，但"三块全都取不到数"这件事
+ * **没有任何地方表达**（原话：MarketPage 自身零兜底）—— 用户看到的是三块各自的
+ * 小字提示，得自己在脑子里拼出"今天数据源不可达"这个结论。
+ *
+ * 为什么不违反"全页只有一个节拍器"：这里不是在加第二个**轮询**，而是只在
+ * ① 首屏装配 ② 手动"刷新全部" 之后各起一个**一次性**观察窗；而且判定用的是
+ * 现成的信号（子页面只在成功时回传 `onUpdatedAt`），没有新增任何请求。
+ * `scripts/budget.mjs` 的棘轮只统计 `setInterval` / `useSwr(refreshInterval)` 声明点，
+ * 一次性 setTimeout 不计入（也不该计入：它不产生周期流量）。
+ */
+const ASSEMBLY_GRACE_MS = 12_000
 
 interface SectionMeta {
   id: SectionId
@@ -100,26 +118,10 @@ function useSection() {
  * DSH 左侧会话栏 + 右侧 AI 栏都在时，视口 1920px 的面板可用宽度可能只有 600px。
  * 实测（真机截图）就出现了"视口够宽 → 强制三列 → 每列 ~200px 挤成一团"。
  * 所以这里用 ResizeObserver 量真实可用宽度：≥1120 → 三列；≥760 → 两列；否则单列。
+ *
+ * B1 起 `useContainerWidth` / `useAvailableHeight` 已提升到 `@/panel/hooks`（骨架级复用），
+ * 本页不再自带一份实现。
  */
-function useContainerWidth() {
-  const ref = useRef<HTMLDivElement>(null)
-  const [width, setWidth] = useState(0)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const apply = (w: number) => setWidth((prev) => (Math.abs(prev - w) < 8 ? prev : w))
-    apply(el.clientWidth)
-    if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) apply(e.contentRect.width)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  return { ref, width }
-}
 
 export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => void }) {
   const [tactMs, setTactMs] = useState(30_000)
@@ -139,7 +141,10 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
   const overview = useSection()
   const indices = useSection()
   const ladder = useSection()
-  const container = useContainerWidth()
+  /** 栅格自己既是「列数」的测量对象，也是「可用高度」的测量对象。 */
+  const gridRef = useRef<HTMLDivElement>(null)
+  const containerWidth = useContainerWidth(gridRef)
+  const availableHeight = useAvailableHeight(gridRef, { min: 520 })
   const sections = useMemo<Record<SectionId, ReturnType<typeof useSection>>>(
     () => ({ overview, indices, ladder }),
     [overview, indices, ladder],
@@ -150,6 +155,12 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
     if (tactMs <= 0) return
     const timer = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
+      // 休市闸门：节拍器一拍就会驱动三块强制验证 —— 非交易时段不推它，
+      // 否则"轮询闸门"只是挡住了 cache 的定时器，节拍器照样把请求打出去。
+      if (!isPollAllowed()) {
+        notePollSkipped()
+        return
+      }
       setTick((v) => v + 1)
       setLastTickAt(Date.now())
     }, tactMs)
@@ -161,6 +172,39 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
     setLastTickAt(Date.now())
   }, [])
 
+  /* ── 页面级兜底：三块都不可达（审计点名的缺口） ─────────────────────────
+   * 判定只用**已有**信号：子页面仅在成功取数后回传 `onUpdatedAt` → `blockAt`。
+   * 因此"本块有过时间戳" ⇔ "本块至少成功取过一次数"，不需要再加探针请求。
+   * 只看「展开且在视野内」的块：窄屏退化态下不可见的块 `enabled=false`，
+   * 压根没发请求，把它们算作"不可达"是误报。
+   */
+  const [probeSeq, setProbeSeq] = useState(0)
+  const [graceExpired, setGraceExpired] = useState(false)
+  const expectedBlocks = (['overview', 'indices', 'ladder'] as SectionId[]).filter(
+    (id) => !collapsed[id] && sections[id].active,
+  )
+  const expectedCount = expectedBlocks.length
+  const reportedCount = expectedBlocks.filter((id) => blockAt[id] !== undefined).length
+
+  useEffect(() => {
+    // 没有"该取数的块"（全折叠/全不在视野），或已经有一块成功 → 无从判定，撤掉兜底
+    if (expectedCount === 0 || reportedCount > 0) {
+      setGraceExpired(false)
+      return
+    }
+    const t = window.setTimeout(() => setGraceExpired(true), ASSEMBLY_GRACE_MS)
+    return () => window.clearTimeout(t)
+  }, [expectedCount, reportedCount, probeSeq])
+
+  /** 三块全都没回报数据（页面级结论）。 */
+  const pageUnreachable = expectedCount > 0 && reportedCount === 0 && graceExpired
+  /** 「刷新全部」：重开观察窗 + 驱动节拍器（不给第二套刷新路径，仍走 refreshAll）。 */
+  const retryAll = useCallback(() => {
+    setGraceExpired(false)
+    setProbeSeq((v) => v + 1)
+    refreshAll()
+  }, [refreshAll])
+
   const refreshOne = useCallback((id: SectionId) => {
     setLocalTick((s) => ({ ...s, [id]: s[id] + 1 }))
   }, [])
@@ -170,16 +214,21 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
   }, [])
 
   const openStock = onOpenStock ?? openStockAndWatch
+  /** 休市闸门状态（非交易时段定时轮询被挡，头部如实说明）。 */
+  const gate = usePollGate()
   const activeCount = (['overview', 'indices', 'ladder'] as SectionId[]).filter(
     (id) => !collapsed[id] && sections[id].active,
   ).length
   const hhmmss = (at: number | undefined) =>
     at === undefined ? '—' : new Date(at).toLocaleTimeString('zh-CN', { hour12: false })
 
-  // 按容器实测宽度决定列数（不用视口断点，见 useContainerWidth 注释）
-  const cols = container.width >= 1120 ? 3 : container.width >= 760 ? 2 : 1
+  // 按容器实测宽度决定列数（不用视口断点，见文件头注释）
+  const cols = containerWidth >= 1120 ? 3 : containerWidth >= 760 ? 2 : 1
   const gridClass = cols === 1 ? 'flex flex-col gap-1.5' : 'grid min-h-0 grid-cols-12 gap-1.5'
-  const gridStyle = cols === 1 ? undefined : { height: 'calc(100vh - 216px)', minHeight: 520 }
+  // 高度：量「到最近滚动容器可视底边」的可用空间，而不是 calc(100vh - 216px) ——
+  // 宿主头部高度/字号（可调 12–17px）/提示条都会变，硬减一个常数换个环境必然错位。
+  const gridStyle =
+    cols === 1 ? undefined : { height: availableHeight > 0 ? `${availableHeight}px` : undefined, minHeight: 520 }
   const blockSpan = (id: SectionId) => (cols === 1 ? '' : cols === 2 ? SPAN_2COL[id] : SPAN_3COL[id])
   // 单列时块不设内部滚动（否则每块都被压成一条），改为每块最小高度 + 页面整体滚
   const blockClass = cols === 1 ? 'min-h-[520px]' : 'min-h-0'
@@ -199,16 +248,16 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
             type="button"
             onClick={() => toggle(meta.id)}
             title={isCollapsed ? '展开（展开后恢复轮询）' : '折叠（折叠即停止该块轮询，省请求）'}
-            className="flex min-w-0 items-center gap-1 text-[12px] font-semibold text-slate-700 hover:text-slate-900"
+            className="flex min-w-0 items-center gap-1 dc-t-data font-semibold text-slate-700 hover:text-slate-900"
           >
             {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
             <span className="truncate">{meta.label}</span>
           </button>
-          <span className="truncate text-[9px] text-slate-400" title={meta.hint}>
+          <span className="truncate dc-t-micro text-slate-400" title={meta.hint}>
             {meta.hint}
           </span>
           <span className="ml-auto flex shrink-0 items-center gap-1">
-            <span className="font-mono text-[9px] text-slate-300" title="本块最近一次成功取数时间">
+            <span className="font-mono dc-t-micro text-slate-300" title="本块最近一次成功取数时间">
               {hhmmss(blockAt[meta.id])}
             </span>
             <button
@@ -234,15 +283,15 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
     <div className="flex min-h-0 flex-col gap-1.5">
       {/* 顶栏：节拍 + 全局刷新 + 预算提示（合并页面必须让请求代价可见） */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="flex items-center gap-1 text-[12px] font-semibold text-slate-700">
+        <span className="flex items-center gap-1 dc-t-data font-semibold text-slate-700">
           <LayoutGrid size={12} className="text-emerald-600" />
           行情聚合面板
         </span>
-        <span className="text-[9px] text-slate-400">
+        <span className="dc-t-micro text-slate-400">
           三块并排一屏看完 · 全页共用一个节拍器 · 折叠某块即停止它的轮询
         </span>
         <span className="ml-auto flex items-center gap-1">
-          <span className="text-[9px] text-slate-400" title="节拍：驱动所有展开中的块">
+          <span className="dc-t-micro text-slate-400" title="节拍：驱动所有展开中的块">
             节拍
           </span>
           {TACT_OPTIONS.map((o) => (
@@ -251,7 +300,7 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
               type="button"
               title={o.hint}
               onClick={() => setTactMs(o.ms)}
-              className={`rounded px-1 py-px font-mono text-[9px] ${
+              className={`rounded px-1 py-px font-mono dc-t-micro ${
                 tactMs === o.ms ? 'bg-emerald-100 text-emerald-600' : 'text-slate-400 hover:bg-slate-100'
               }`}
             >
@@ -262,29 +311,53 @@ export function MarketPage({ onOpenStock }: { onOpenStock?: (s: Selection) => vo
             type="button"
             onClick={refreshAll}
             title="立即刷新全部展开中的块"
-            className="ml-1 flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-slate-500 hover:bg-slate-100"
+            className="ml-1 flex items-center gap-0.5 rounded px-1 py-0.5 dc-t-data text-slate-500 hover:bg-slate-100"
           >
             <RefreshCw size={10} />
             刷新
           </button>
           {tactMs <= 0 ? (
-            <span className="flex items-center gap-0.5 text-[9px] text-amber-600">
+            <span className="flex items-center gap-0.5 dc-t-micro text-amber-600">
               <Pause size={9} /> 已暂停
             </span>
           ) : (
-            <span className="flex items-center gap-0.5 font-mono text-[9px] text-slate-400">
+            <span className="flex items-center gap-0.5 font-mono dc-t-micro text-slate-400">
               <Play size={9} /> {tactMs / 1000}s
             </span>
           )}
-          <span className="font-mono text-[9px] text-slate-400" title="上次自动刷新（所有展开块一起）">
+          <span className="font-mono dc-t-micro text-slate-400" title="上次自动刷新（所有展开块一起）">
             {lastTickAt === null ? '' : `· ${hhmmss(lastTickAt)}`}
           </span>
-          <span className="text-[9px] text-slate-400">轮询中 {activeCount}/3</span>
+          {/* 休市闸门：非交易时段行情不会变，定时轮询已被挡下（手动刷新仍可用）。
+              这里如实说明原因，而不是继续显示"轮询中"让人以为还在取数。 */}
+          {gate.allowed ? (
+            <span className="dc-t-micro text-slate-400">轮询中 {activeCount}/3</span>
+          ) : (
+            <span className="dc-t-micro text-amber-600" title={gate.reason}>
+              休市 · 已暂停定时轮询（手动刷新可用）
+            </span>
+          )}
         </span>
       </div>
 
+      {/* 页面级兜底：三块都没取到数时，把"今天数据源不可达"说成一句话并给出唯一出口。
+          用紧凑形态而不是替换整块栅格：各块自己的错误/空态仍由块内负责（本文件不动它们的渲染），
+          这里只补"页面级结论 + 刷新全部"——避免同一件事在页面上说两遍。 */}
+      {pageUnreachable && (
+        <StateView
+          kind="error"
+          compact
+          kindLabel="数据源不可达"
+          title={expectedCount >= 3 ? '三块都没取到数据' : `当前展开的 ${expectedCount} 块都没取到数据`}
+          hint={`观察窗 ${ASSEMBLY_GRACE_MS / 1000}s 内没有任何一块回报数据（各块内部的提示见对应区块）`}
+          reason="市场总览 / 指数 / 涨停梯队：展开中的块在观察窗内均无成功取数（单次 25s 超时或数据源离线）"
+          retryLabel="刷新全部"
+          onRetry={retryAll}
+        />
+      )}
+
       {/* 聚合栅格：按容器实测宽度 3/2/1 列；≥2 列时整页不滚动、各块内部滚动 */}
-      <div ref={container.ref} className={gridClass} style={gridStyle}>
+      <div ref={gridRef} className={gridClass} style={gridStyle}>
         {renderBlock(
           SECTIONS[0],
           <MarketOverview

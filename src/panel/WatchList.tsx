@@ -14,15 +14,23 @@
  * 请求预算：零额外请求。「自选」「个股」两组的**价格都取自状态带已在轮询的全 A 快照**
  * （`swr:mkt:allA`，30s），左栏放多少只都不增加网络流量。
  *
- * 键盘：j/k 或 ↑/↓ 在当前分组里移动（即时切换主图）。
+ * 键盘（审计 UX-PLAN I4 / V6 修）：
+ *   - `j/k`（全局）与 `↑/↓`（焦点在左栏内）在当前分组里移动（即时切换主图）；
+ *   - 移动**同时把真实键盘焦点搬到新行**并 `scrollIntoView({block:'nearest'})` ——
+ *     原实现只改 `ui.selection`，焦点留在原地、行滚出可视区外就再也"看不见自己走到哪了"；
+ *   - 行本身**可 Tab 到达**（`role="button"` + roving `tabIndex`：只有当前行是 0），
+ *     Enter/Space 打开 —— 原来是一个纯 `div + onClick`，键盘用户根本无法到达这一栏；
+ *   - **`j/k` 的作用域判定不在这里**：`resolveHotkey`（`lib/hotkeys.ts`）在左栏收起时
+ *     直接返回 `null`，本组件只执行派发过来的 `{type:'watchMove'}`。守卫只写一处，
+ *     不会出现"两处判断漂移"（这正是审计里"收起左栏按 j/k 仍换标的"的成因）。
  */
-import { useEffect, useMemo, useReducer } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useSwr, swrKey } from '@/lib/cache'
 import { fetchAllA } from '@/lib/market'
+import { subscribeWatchMove } from '@/lib/hotkeys'
 import { openStockAndWatch, updateUi, useUi, type LeftGroup } from '@/lib/selection'
 import { getWatchlist, subscribeWatchlist, type WatchItem } from '@/lib/watchlist-store'
 import { getViewed, subscribeViewed, type ViewedStock } from '@/lib/viewed-store'
-import { useHotkeys } from './hooks'
 import { pctClass } from './StatusStrip'
 import { fmtPrice } from '@/lib/format'
 
@@ -110,26 +118,64 @@ export function WatchList() {
     })
   }, [ui.leftGroup, items, viewed, byCode])
 
-  /** 键盘移动光标：把当前 selected 在列表中的位置 ±1。 */
-  const move = (delta: number) => {
-    if (rows.length === 0) return
+  /** 当前选中行在本分组里的下标（-1 = 选中的票不在本分组里，或还没选过）。 */
+  const activeIndex = useMemo(() => {
     const sel = ui.selection
-    const at = sel === null ? -1 : rows.findIndex((r) => r.market === sel.market && r.code === sel.code)
-    const next = at < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + delta))
-    const row = rows[next]
-    if (row !== undefined) openStockAndWatch({ market: row.market, code: row.code, name: row.name })
+    if (sel === null) return -1
+    return rows.findIndex((r) => r.market === sel.market && r.code === sel.code)
+  }, [rows, ui.selection])
+
+  /** 行 DOM 引用（roving focus 要按行号取节点）。 */
+  const rowRefs = useRef<Array<HTMLDivElement | null>>([])
+
+  /**
+   * roving tabindex（审计 I4 第 2 条）：
+   *   列表里**只有一行 `tabIndex=0`** —— Tab 进来落在"当前所在的那一行"，而不是
+   *   给每一行都留一个 Tab 停靠点（60 行 = 按 60 次 Tab 才能出去，等于键盘不可用）。
+   *   焦点跟随 `j/k` 移动，所以"按 Tab 进列表"永远落在你上一次走到的地方。
+   */
+  const [focusAt, setFocusAt] = useState(-1)
+
+  // 分组切换后旧行号失效（否则 Tab 会落在新列表里一个莫名其妙的位置）。
+  useEffect(() => {
+    setFocusAt(-1)
+  }, [ui.leftGroup])
+
+  const tabbableAt =
+    rows.length === 0 ? -1 : focusAt >= 0 && focusAt < rows.length ? focusAt : activeIndex >= 0 ? activeIndex : 0
+
+  /** 把**真实键盘焦点**搬到第 i 行，并保证这一行在可视区内。 */
+  const focusRow = (i: number) => {
+    setFocusAt(i)
+    const el = rowRefs.current[i]
+    if (el === null || el === undefined) return
+    el.focus()
+    // block:'nearest'：已经在可视区内就完全不动滚动位置（避免列表自己跳一下）。
+    el.scrollIntoView({ block: 'nearest' })
   }
 
-  useHotkeys((e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return
-    if (e.key === 'j' || e.key === 'ArrowDown') {
-      e.preventDefault()
-      move(1)
-    } else if (e.key === 'k' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      move(-1)
-    }
+  /** 键盘移动光标：把当前 selected 在列表中的位置 ±1（鼠标点击行为不变，仍是 openStockAndWatch）。 */
+  const move = (delta: number) => {
+    if (rows.length === 0) return
+    const at = activeIndex
+    const next =
+      at < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + delta))
+    const row = rows[next]
+    if (row === undefined) return
+    openStockAndWatch({ market: row.market, code: row.code, name: row.name })
+    focusRow(next)
+  }
+
+  /** 最新一份 move（listener 只绑一次，避免每次渲染重装监听）。 */
+  const moveRef = useRef(move)
+  // layout effect：分组切换那一帧里 rows 整个换了一批，若用被动 effect 就会有一小段
+  // "拿着上一组的 rows 去算下一行"的窗口（按 j 跳到别的票）。
+  useLayoutEffect(() => {
+    moveRef.current = move
   })
+
+  // 执行 AppShell 派发过来的移动（`j/k` 或左栏内的 `↑/↓`）。
+  useEffect(() => subscribeWatchMove((delta) => moveRef.current(delta)), [])
 
   const activeGroup = GROUPS.find((g) => g.id === ui.leftGroup)
 
@@ -168,16 +214,43 @@ export function WatchList() {
               : '还没有看过的个股：在左栏/搜索/任意列表点开一只票，它就会出现在这里。'}
           </div>
         ) : (
-          <div className="dc-list">
-            {rows.map((r) => {
+          <div
+            className="dc-list"
+            role="group"
+            aria-label={`${activeGroup?.label ?? '列表'}，共 ${rows.length} 只；j/k 或 ↑↓ 移动，回车打开`}
+          >
+            {rows.map((r, index) => {
               const active =
                 ui.selection !== null && ui.selection.market === r.market && ui.selection.code === r.code
+              const open = () => openStockAndWatch({ market: r.market, code: r.code, name: r.name })
               return (
+                // role="button" + tabIndex（审计 I4 第 2 条）：原来这里是个纯 div + onClick，
+                // 键盘完全不可达（Tab 跳不到、Enter 没反应）。这里刻意不用原生 <button>：
+                // `.dc-row` 的 flex 布局与左对齐文本是按 div 调的，改成 button 会被 UA 的
+                // `text-align: center` 打乱（正文居中），且行内还嵌了"价格/涨跌幅"两段数字。
                 <div
                   key={`${r.market}${r.code}`}
+                  ref={(el) => {
+                    rowRefs.current[index] = el
+                  }}
+                  role="button"
+                  // roving：只有当前行可 Tab 到达，其余 -1（可用 ↑↓/j/k 或 Tab 出去）。
+                  tabIndex={index === tabbableAt ? 0 : -1}
+                  // 当前标的 = "当前项"，用 aria-current 而不是再编一个视觉状态（读屏要能读出来）。
+                  aria-current={active ? 'true' : undefined}
                   className={`dc-row${active ? ' is-active' : ''}`}
                   title={`${r.name} ${r.market}${r.code}${r.extra !== undefined ? ` · ${r.extra}` : ''}（点击查看个股信息）`}
-                  onClick={() => openStockAndWatch({ market: r.market, code: r.code, name: r.name })}
+                  onClick={open}
+                  // 焦点落哪一行，roving 的"锚"就跟到哪一行（鼠标点、Tab 进来都算）。
+                  onFocus={() => setFocusAt(index)}
+                  onKeyDown={(e) => {
+                    // role="button" 只是"承诺"，浏览器不会代劳 Enter/Space —— 必须自己接，
+                    // 否则读屏用户听到"按钮"却按不动。
+                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                      e.preventDefault() // Space 默认是滚动列表
+                      open()
+                    }
+                  }}
                 >
                   <div className="dc-row-main">
                     <span className="dc-row-name">{r.name || r.code}</span>

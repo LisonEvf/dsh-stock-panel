@@ -17,8 +17,22 @@ export function getGatewayEndpoint(): string {
   return getHttpGatewayEndpoint()
 }
 
-/** 网关不可达/超时；业务错误抛普通 Error。 */
-export class TdxGatewayUnavailableError extends Error {}
+/**
+ * 网关不可达/超时；业务错误抛普通 Error。
+ *
+ * `kind`（UX-PLAN I3）：与内置桥接那条路对齐 —— 传输层失败在界面上要能与"业务错"区分，
+ * 否则「网关没起来」和「参数写错了」长得一模一样。取值与 lib/mcp.ts 的
+ * `McpErrorKind` 一致（这里不复用那个类型，避免 mcp.ts ↔ gateway.ts 循环 import）。
+ */
+export class TdxGatewayUnavailableError extends Error {
+  readonly kind: 'unavailable' | 'timeout'
+
+  constructor(message: string, kind: 'unavailable' | 'timeout' = 'unavailable') {
+    super(message)
+    this.name = 'TdxGatewayUnavailableError'
+    this.kind = kind
+  }
+}
 
 /** 探测网关健康（短超时，供诊断）。 */
 export async function gatewayHealth(endpoint?: string, timeoutMs = 1500): Promise<boolean> {
@@ -58,7 +72,8 @@ export async function gatewayCall(
     })
   } catch (err) {
     if (ac.signal.aborted) {
-      throw new TdxGatewayUnavailableError(`tdx 网关请求超时(${timeoutMs}ms): ${name}`)
+      // 客户端 AbortController 掐断 = 超时（与内置桥接同口径，见 lib/mcp.ts 的 'timeout'）
+      throw new TdxGatewayUnavailableError(`tdx 网关请求超时(${timeoutMs}ms): ${name}`, 'timeout')
     }
     const reason = err instanceof Error ? err.message : String(err)
     throw new TdxGatewayUnavailableError(`tdx 网关不可达: ${reason}`)
@@ -76,7 +91,8 @@ export async function gatewayCall(
   }
   if (!body || body.ok !== true) {
     const detail = (body && (body.error ?? body.message)) || '未知错误'
-    throw new Error(`tdx ${name}: ${detail}`)
+    // 业务错：挂 kind 让上层的分类贯通（消息格式保持原样，向后兼容既有 catch）
+    throw Object.assign(new Error(`tdx ${name}: ${detail}`), { kind: 'business' as const })
   }
   return body.data ?? null
 }

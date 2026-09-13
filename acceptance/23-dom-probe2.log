@@ -1,0 +1,141 @@
+[e2e] 目标 http://127.0.0.1:3080（隔离 Chrome headless）
+  [PASS] 应用已加载（document.title 非空） — DeepSeek Harness
+  [PASS] window.__STOCK_PANEL__ 自检句柄存在
+  [PASS] viewRegistered = true — true
+  [PASS] 版本回传 — 1.4.0
+  [PASS] 传输层 = embedded — embedded
+  [PASS] 内置工具清单 = 19 — 19
+  [PASS] 面板内 callTool(server_info) 真机联通 — {"count":1,"flags":"000000ffffffffff","tag":"-1","today":"2026-09-13","ts1":182644,"sessions_1":[{"open":"9:30","close":
+  ℹ️ 空态无会话 → 打开侧栏会话：clicked:frontend-dsh
+[probe] {
+  "beforeCount": 12,
+  "afterCount": 44,
+  "sample": [
+    {
+      "t": "gal-view",
+      "exp": "true",
+      "leaf": true
+    },
+    {
+      "t": "DSH项目中添加视图的方法2天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "sentiment",
+      "exp": "true",
+      "leaf": true
+    },
+    {
+      "t": "运行本项目2天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "cluster-namer",
+      "exp": "true",
+      "leaf": true
+    },
+    {
+      "t": "BettaFish消息挖掘能力参考分析2天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "避免提交API密钥的Git操作2天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "Lottery",
+      "exp": "true",
+      "leaf": true
+    },
+    {
+      "t": "同步数据预测验证调整4天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "frontend-dsh",
+      "exp": "true",
+      "leaf": true
+    },
+    {
+      "t": "新会话",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "进行中插件功能系统测试与验收报告13分钟",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "移除工作台对话框拖拽调整组件5小时",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "自挖模块素材不足整备18小时",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "真实模拟用户综合评审产品19小时",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "自选盘撤除并调整板块层级1天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "tickflow-stock-panel",
+      "exp": "true",
+      "leaf": true
+    },
+    {
+      "t": "向frontend-dsh迁移项目功能图表7天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "tickflow-stock-panel11天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "这个项目的图表是用什么做的11天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "运行该项目11天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "opentdx",
+      "exp": "true",
+      "leaf": true
+    },
+    {
+      "t": "分析这段代码存在的问题 #!/usr3天",
+      "exp": null,
+      "leaf": true
+    },
+    {
+      "t": "分析本项目所有解析器可以获3天",
+      "exp": null,
+      "leaf": true
+    }
+  ],
+  "leafCount": 44,
+  "clicked": "gal-view",
+  "tablists": 0,
+  "tabs": [],
+  "title": "DeepSeek Harness"
+}
+

@@ -16,8 +16,8 @@ interface Props {
   code: string
 }
 
-const UP = '#c74040'
-const DOWN = '#2d9b65'
+const UP = 'var(--dc-up)'
+const DOWN = 'var(--dc-down)'
 
 export function StockCapitalFlow({ market, code }: Props) {
   // 懒加载缓存：命中缓存秒开，后台验证失败自动下线重试（避免以假乱真）。
@@ -48,17 +48,17 @@ export function StockCapitalFlow({ market, code }: Props) {
       <h3 className="mb-1.5 text-xs font-medium text-slate-500">资金 · 当日/5日</h3>
       <div className="rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-1.5">
         {loading ? (
-          <div className="py-2 text-center text-[10px] text-slate-300">资金流加载中…</div>
+          <div className="py-2 text-center dc-t-data text-slate-300">资金流加载中…</div>
         ) : !row || !items.length ? (
-          <div className="py-2 text-center text-[10px] text-slate-300">暂无资金流数据</div>
+          <div className="py-2 text-center dc-t-data text-slate-300">暂无资金流数据</div>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-1">
               {items.map((it) => (
                 <div key={it.l} className="min-w-0 rounded bg-white px-1.5 py-1">
-                  <div className="truncate text-[9px] text-slate-400">{it.l}</div>
+                  <div className="truncate dc-t-micro text-slate-400">{it.l}</div>
                   <div
-                    className="font-mono text-[11px] font-semibold tabular-nums"
+                    className="font-mono dc-t-note font-semibold tabular-nums"
                     style={{ color: it.v > 0 ? UP : it.v < 0 ? DOWN : '#94a3b8' }}
                   >
                     {it.v > 0 ? '+' : ''}
@@ -67,7 +67,7 @@ export function StockCapitalFlow({ market, code }: Props) {
                 </div>
               ))}
             </div>
-            <div className="mt-1 text-[8px] leading-relaxed text-slate-300">
+            <div className="mt-1 dc-t-micro leading-relaxed text-slate-300">
               ⚠️ 仅作方向确认（相对排名 / 5日持续性），不作买卖信号
             </div>
           </>

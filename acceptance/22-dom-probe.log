@@ -1,0 +1,20 @@
+[e2e] 目标 http://127.0.0.1:3080（隔离 Chrome headless）
+  [PASS] 应用已加载（document.title 非空） — DeepSeek Harness
+  [PASS] window.__STOCK_PANEL__ 自检句柄存在
+  [PASS] viewRegistered = true — true
+  [PASS] 版本回传 — 1.4.0
+  [PASS] 传输层 = embedded — embedded
+  [PASS] 内置工具清单 = 19 — 19
+  [PASS] 面板内 callTool(server_info) 真机联通 — {"count":1,"flags":"000000ffffffffff","tag":"-1","today":"2026-09-13","ts1":182622,"sessions_1":[{"open":"9:30","close":
+  ℹ️ 空态无会话 → 打开侧栏会话：clicked:frontend-dsh
+[probe] {
+  "tablistCount": 0,
+  "roleCounts": {
+    "tree": 1,
+    "treeitem": 12,
+    "textbox": 1
+  },
+  "hits": [],
+  "bodyText": "新会话 工作区 gal-view sentiment cluster-namer Lottery frontend-dsh tickflow-stock-panel opentdx kronoros TorrentSearchVue downloadClient opentdx-mcp financeskill 设置 探索未至之境 预览版 frontend-dsh 标准模式 描述你想要构建的内容… / 调用指令 @ 文件或对话 完全权限 DeepSeek-V4-Flash-Vision-Exp High 详情 点击消息流中的工具行查看详情"
+}
+

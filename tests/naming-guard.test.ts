@@ -25,7 +25,7 @@ import {
   type MaterialWindow,
 } from '../src/host/naming/types.ts'
 import { applyGuards, computeEvidenceScore, degradedResult, findQuoteItem, verifyQuote } from '../src/host/naming/guard.ts'
-import { buildUserPrompt, NAMING_SYSTEM_PROMPT } from '../src/host/naming/prompt.ts'
+import { buildUserPrompt, NAMING_BATCH_SYSTEM_PROMPT, NAMING_SYSTEM_PROMPT } from '../src/host/naming/prompt.ts'
 import { parseLlmJson, repair } from '../src/host/naming/parse.ts'
 import { namingFingerprint, NAMING_PROMPT_VERSION } from '../src/host/naming/fingerprint.ts'
 import {
@@ -392,6 +392,11 @@ test('提示词把硬性规则写全（与护栏一一对应，改一处必须�
   for (const key of ['no_common', '逐字取自语料', 'insufficient', '严格 JSON', '不会据此下结论', '重新门控']) {
     assert.ok(NAMING_SYSTEM_PROMPT.includes(key), `系统提示词必须包含「${key}」`)
   }
+  // 第 0 条（素材优先级）：提示词要求"事件优先、标签兜底"，护栏侧用 guardNotes 独立核对同一件事
+  for (const key of ['【素材优先级】', '快讯', '无事件依据，按板块标签归类']) {
+    assert.ok(NAMING_SYSTEM_PROMPT.includes(key), `系统提示词必须包含「${key}」（第 0 条素材优先级）`)
+  }
+  assert.ok(NAMING_BATCH_SYSTEM_PROMPT.includes('【素材优先级】'), '批量提示词同样要有第 0 条')
   const prompt = buildUserPrompt({ classId: 7, asOf: WINDOW.end, members: [
     { market: 'SZ', code: '300308', name: '中际旭创', changePct: 6.2 },
     { market: 'SZ', code: '002281', name: '光迅科技', changePct: null },
@@ -402,9 +407,37 @@ test('提示词把硬性规则写全（与护栏一一对应，改一处必须�
   assert.ok(prompt.includes('- 002281 光迅科技'), '涨跌幅缺失时不留空串尾巴')
   assert.ok(prompt.includes('时间窗 2026-09-09 ~ 2026-09-11，共 3 天'), '窗口必须显式写出（否则模型不知道时间关系）')
   assert.ok(prompt.includes('=== 300308 中际旭创 ==='), '按票分块渲染素材')
-  assert.ok(prompt.includes('[belong_board 2026-09-11 15:00] 所属板块 / CPO概念、光通信'), '素材行格式 = " / " 分隔（护栏已做归一）')
+  // 源名必须渲染成**与规则同名**的中文标签：直接印 `belong_board`/`news_flash` 这种键名，
+  // 第 0 条就落不了地（模型分不出哪个是"快讯"）
+  assert.ok(prompt.includes('[板块归属 2026-09-11 15:00] 所属板块 / CPO概念、光通信'), '素材行格式 = " / " 分隔（护栏已做归一）')
+  assert.ok(!prompt.includes('[belong_board'), '不得把内部源键名直接渲染给模型')
   assert.ok(prompt.includes('（窗口内无素材）'), '没有素材的成员必须显式标注，不能静默留白')
   assert.ok(prompt.includes('"verdict": "named|no_common|insufficient"'), '输出 schema 必须写在 prompt 里')
+})
+
+test('快讯素材在 prompt 里渲染成「快讯」（与第 0 条规则同名，且全文进语料供逐字引文）', () => {
+  const body = '【军工板块持续走高 银河电子、博云新材双双涨停】午后军工板块持续走高，国科军工均涨超4%。'
+  const prompt = buildUserPrompt({
+    classId: 7,
+    asOf: WINDOW.end,
+    members: [{ market: 'SH', code: '688543', name: '国科军工', changePct: 4.5 }],
+    corpus: {
+      items: [{
+        stock: '688543 国科军工',
+        key: 'SH688543',
+        source: 'news_flash',
+        ts: '2026-09-11 13:53',
+        title: '军工板块持续走高 银河电子、博云新材双双涨停',
+        snippet: body,
+        kind: 'news_flash',
+      }],
+      missingSources: [],
+      failedStocks: [],
+    },
+    window: WINDOW,
+  })
+  assert.ok(prompt.includes('[快讯 2026-09-11 13:53]'), `快讯行必须带「快讯」标签（实际：\n${prompt}）`)
+  assert.ok(prompt.includes('国科军工均涨超4%'), '正文全文进语料，模型才能逐字引用')
 })
 
 test('提示词：缺失源要显式告知模型（否则它会把"没抓到"当成"没有题材"）', () => {

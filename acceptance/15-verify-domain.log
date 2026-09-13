@@ -1,0 +1,25 @@
+[verify-state-domain] 介质目录：C:\Users\Lison\AppData\Local\Temp\stock-panel-domain-8tuXsB
+[1] 真实 storage-domain 接受手搓 spec
+  ✅ open() 成功（spec 字段与 defineDomain 输出同构，未被校验拒绝）
+  ✅ 领域名 = stock_panel
+  ✅ 表句柄可用（watchlist.put 是函数）
+[2] 11 张表 + 写入/读取
+  ✅ 11 张表都已声明（缺失：无）
+  ✅ per-record 介质拒绝非路径安全键（unit 'stock_panel': per-record key 'SH-600519-10:03-封涨停板' is not path-safe (must…）→ 印证必须编码
+  ✅ base64url 编码后路径安全：U0gtNjAwNTE5LTEwOjAzLeWwgea2qOWBnOadvw
+  ✅ 编码/解码可逆（客户端看到的始终是自然键）
+  ✅ 读回 watchlist 记录
+  ✅ global 写入/读取正常
+[3] 介质布局（per-record 落盘）
+  ✅ 介质上落了文件：stock_panel | stock_panel\events | stock_panel\global.json | stock_panel\watchlist …
+  ✅ 介质总字节 505
+[4] 落盘持久性（关闭 → 重新打开）
+  ✅ 重新打开后记录仍在（说明确实落盘，不是进程内内存）
+  ✅ global 也持久化了
+[5] 版本策略：version 必须是 1（实测语义：不一致 = 静默丢记录）
+  ✅ version=2 打开**不报错**，但旧记录被静默丢弃（watchlist size=0）
+  ✅ ⚠️ 结论：version 绝不能随手上调（静默丢数据）—— 日常演进走 global.schemaVersion
+[6] 逃生口：compatibleVersions 让旧版本记录继续可读
+  ✅ 声明 compatibleVersions:[1] 后，用 version=2 打开仍能读到 version=1 的记录
+[verify-state-domain] 全部通过 ✅（真实存储栈）
+

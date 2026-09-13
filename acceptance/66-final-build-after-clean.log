@@ -1,0 +1,85 @@
+$ tsdown -c tsdown.config.ts && node scripts/build-client.mjs && node scripts/postbuild-dts.mjs
+ℹ tsdown v0.13.0 powered by rolldown v1.2.6
+ℹ Using tsdown config: C:\Users\Lison\Desktop\EvfWorkSpace\TRADE\tickflow-stock-panel\frontend-dsh\tsdown.config.ts
+ℹ entry: src\index.ts
+ℹ target: es2020
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ Cleaning 10 files
+[33mWarning: Invalid input options (1 issue found)
+- For the "define". Invalid key: Expected never but received "define". [0m
+ℹ lib\index.js             309.42 kB │ gzip:  96.75 kB
+ℹ lib\index.js.map         754.88 kB │ gzip: 198.76 kB
+ℹ lib\index-NNZPs6W-.d.ts   35.87 kB │ gzip:  14.43 kB
+ℹ 3 files, total: 1100.17 kB
+src\host\vendor\opentdx.js (2:16) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'net' in src/host/vendor/opentdx.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/host/vendor/opentdx.js:2:17 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m2 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mn[0m[38;5;249me[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"net"[38;5;249m;[0m
+ [38;5;240m  │[0m                 ──┬──  
+ [38;5;240m  │[0m                   ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+src\host\vendor\opentdx.js (3:17) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zlib' in src/host/vendor/opentdx.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/host/vendor/opentdx.js:3:18 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mz[0m[38;5;249ml[0m[38;5;249mi[0m[38;5;249mb[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"zlib"[38;5;249m;[0m
+ [38;5;240m  │[0m                  ───┬──  
+ [38;5;240m  │[0m                     ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+src\host\vendor\opentdx.js (2890:67) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in src/host/vendor/opentdx.js
+      [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/host/vendor/opentdx.js:2890:68 [38;5;246m][0m
+      [38;5;246m│[0m
+ [38;5;246m2890 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mm[0m[38;5;249mk[0m[38;5;249md[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249mS[0m[38;5;249my[0m[38;5;249mn[0m[38;5;249mc[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249me[0m[38;5;249mx[0m[38;5;249mi[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249ms[0m[38;5;249mS[0m[38;5;249my[0m[38;5;249mn[0m[38;5;249mc[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mw[0m[38;5;249mr[0m[38;5;249mi[0m[38;5;249mt[0m[38;5;249me[0m[38;5;249mF[0m[38;5;249mi[0m[38;5;249ml[0m[38;5;249me[0m[38;5;249mS[0m[38;5;249my[0m[38;5;249mn[0m[38;5;249mc[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249ma[0m[38;5;249md[0m[38;5;249mF[0m[38;5;249mi[0m[38;5;249ml[0m[38;5;249me[0m[38;5;249mS[0m[38;5;249my[0m[38;5;249mn[0m[38;5;249mc[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"fs"[38;5;249m;[0m
+ [38;5;240m     │[0m                                                                    ──┬─  
+ [38;5;240m     │[0m                                                                      ╰─── Module not found, treating it as an external dependency
+[38;5;246m──────╯[0m
+
+src\host\vendor\opentdx.js (2891:63) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in src/host/vendor/opentdx.js
+      [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/host/vendor/opentdx.js:2891:64 [38;5;246m][0m
+      [38;5;246m│[0m
+ [38;5;246m2891 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mj[0m[38;5;249mo[0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249m [0m[38;5;249ma[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249mj[0m[38;5;249mo[0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249m2[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mi[0m[38;5;249ms[0m[38;5;249mA[0m[38;5;249mb[0m[38;5;249ms[0m[38;5;249mo[0m[38;5;249ml[0m[38;5;249mu[0m[38;5;249mt[0m[38;5;249me[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249mn[0m[38;5;249ma[0m[38;5;249mm[0m[38;5;249me[0m[38;5;249m [0m[38;5;249ma[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249md[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249mn[0m[38;5;249ma[0m[38;5;249mm[0m[38;5;249me[0m[38;5;249m2[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"path"[38;5;249m;[0m
+ [38;5;240m     │[0m                                                                ───┬──  
+ [38;5;240m     │[0m                                                                   ╰──── Module not found, treating it as an external dependency
+[38;5;246m──────╯[0m
+
+src\host\vendor\opentdx.js (2892:23) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'os' in src/host/vendor/opentdx.js
+      [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/host/vendor/opentdx.js:2892:24 [38;5;246m][0m
+      [38;5;246m│[0m
+ [38;5;246m2892 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mt[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249md[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"os"[38;5;249m;[0m
+ [38;5;240m     │[0m                        ──┬─  
+ [38;5;240m     │[0m                          ╰─── Module not found, treating it as an external dependency
+[38;5;246m──────╯[0m
+
+src\host\vendor\opentdx.js (5897:30) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'url' in src/host/vendor/opentdx.js
+      [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/host/vendor/opentdx.js:5897:31 [38;5;246m][0m
+      [38;5;246m│[0m
+ [38;5;246m5897 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mi[0m[38;5;249ml[0m[38;5;249me[0m[38;5;249mU[0m[38;5;249mR[0m[38;5;249mL[0m[38;5;249mT[0m[38;5;249mo[0m[38;5;249mP[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"url"[38;5;249m;[0m
+ [38;5;240m     │[0m                               ──┬──  
+ [38;5;240m     │[0m                                 ╰──── Module not found, treating it as an external dependency
+[38;5;246m──────╯[0m
+
+src\host\vendor\opentdx.js (5898:30) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in src/host/vendor/opentdx.js
+      [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/host/vendor/opentdx.js:5898:31 [38;5;246m][0m
+      [38;5;246m│[0m
+ [38;5;246m5898 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mj[0m[38;5;249mo[0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249mn[0m[38;5;249ma[0m[38;5;249mm[0m[38;5;249me[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"path"[38;5;249m;[0m
+ [38;5;240m     │[0m                               ───┬──  
+ [38;5;240m     │[0m                                  ╰──── Module not found, treating it as an external dependency
+[38;5;246m──────╯[0m
+
+(inject-build-consts plugin) [33m[SOURCEMAP_BROKEN] [0mSourcemap is likely to be incorrect: a plugin (inject-build-consts) was used to transform files, but didn't generate a sourcemap for the transformation. Consult the plugin documentation for help: https://rolldown.rs/guide/troubleshooting#warning-sourcemap-is-likely-to-be-incorrect
+
+[33m[PLUGIN_TIMINGS] [0mYour build spent 99% of 5.4s inside plugin hooks (5.3s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - rolldown-plugin-dts:generate load (97%, 5.2s, 17 calls)
+Those rows are 97% of the build; the rest of the 99% is below.
+Not measurable — 1 hook whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - rolldown-plugin-dts:resolver resolveId (93 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+✔ Build complete in 5623ms
+[build-client] client.js 已生成
+[postbuild-dts] wrote lib/types/index.d.ts
+[postbuild-dts] wrote lib/types/client/index.d.ts
+[postbuild-dts] done

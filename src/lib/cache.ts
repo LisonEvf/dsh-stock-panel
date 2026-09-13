@@ -20,6 +20,7 @@
  * 每轮都必须拿新数据的轮询器不会受影响。
  */
 import { useCallback, useEffect, useReducer, useRef, useSyncExternalStore } from 'react'
+import { isPollAllowed, isPollGateExempt, notePollSkipped } from './poll-gate'
 
 export type SwrStatus = 'idle' | 'loading' | 'success' | 'error'
 
@@ -236,12 +237,21 @@ export function useSwr<T>(
   //      其余 13 个轮询者在后台标签页里照跑）；
   //   2. 依赖数组补上 refreshInterval —— 此前它被读在 effect 内部却不参与依赖，
   //      运行期改频率**永远不生效**（静默 bug）。
+  //
+  // 2026-09-12 追加**休市闸门**（`lib/poll-gate.ts`）：非交易时段行情不会变，
+  // 定时轮询只是白烧请求预算（实测周六行情页仍 30s×3 块，涨停梯队单轮 ≤177 次工具调用）。
+  // 这里只挡"定时再问一遍"，**不挡按需取数**：页面挂载/手动刷新/切标的照常请求，
+  // 而定时器继续走 —— 开盘后无需用户刷新即可自动恢复。
   const interval = options.refreshInterval ?? 0
   useEffect(() => {
     if (!enabled) return
     if (interval <= 0) return
     const timer = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
+      if (!isPollGateExempt(key) && !isPollAllowed()) {
+        notePollSkipped()
+        return
+      }
       ensure<T>(key, fetcherRef.current, { ...optsRef.current, ttl: 0 })
     }, interval)
     return () => window.clearInterval(timer)

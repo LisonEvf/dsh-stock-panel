@@ -1,0 +1,41 @@
+[cap] {"status":200,"available":true,"provider":"deepseek-official","model":"deepseek-v4-flash-vision-exp","promptVersion":"a2b-1","defaults":{"window":90,"minCorr":0.6,"poolN":200,"windowDays":5}}
+[classes] status=200 ms=8 顶层键=ok,data
+[stale 取法 body.json ?? body] as_of=— classes=0  → usable=0
+[正确取法 body.data ?? body] as_of=2026-09-11 classes=9  → usable=9
+[ranked] #5 size=2 strength=-1.33 | #3 size=4 strength=-1.57 | #7 size=2 strength=-2.14
+[naming] HTTP 200 ms=1331
+{
+  "classId": 3,
+  "size": 4,
+  "top": [
+    "西安奕材-U",
+    "恒坤新材",
+    "中巨芯-U",
+    "兴福电子"
+  ],
+  "verdict": "insufficient",
+  "theme": null,
+  "fingerprint": "16c22b2c9eefb17c",
+  "evidenceScore": 0,
+  "evidenceCount": 0,
+  "materialCount": 0,
+  "degradedReason": "source_skipped",
+  "missingSources": [
+    "belong_board",
+    "kline",
+    "market_monitor",
+    "unusual"
+  ],
+  "sourceStatus": [
+    "unusual:skipped_by_design(0)",
+    "market_monitor:skipped_by_design(0)",
+    "belong_board:no_material(0)",
+    "kline:no_material(0)"
+  ],
+  "evidence": [],
+  "collectNotes": [
+    "as_of=2026-09-11 ≠ 当前交易日 2026-09-13：异动/主力监控只有\"当日实时列表\"、没有历史接口 → **不做历史回放**，本次按设计跳过（把今天的异动贴到别的日期的类上等于凭空造证据）",
+    "素材 0 条（来源：无）"
+  ]
+}
+

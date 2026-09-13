@@ -23,6 +23,7 @@ import {
   type StockConcept,
 } from '@/lib/naming'
 import { NamingResultPanel } from './NamingResultPanel'
+import { ErrorBar } from './ErrorBar'
 import type { MarketTag } from '@/lib/symbol'
 
 interface Props {
@@ -52,7 +53,14 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
   const [outcome, setOutcome] = useState<NamingOutcome | null>(null)
   const [busy, setBusy] = useState(false)
   const [namingBusy, setNamingBusy] = useState(false)
-  const [err, setErr] = useState('')
+  /**
+   * 错误**分两路**（I3）：取数失败与命名失败是两件事，出路也不同 ——
+   * 旧版共用一个字符串，于是命名失败只能靠"重新取数"（把整张卡重拉一遍）来"重试"，
+   * 既不解决问题（命名桥接的问题不在取数），也白花一次聚类请求。
+   * 现在各自独立成 ErrorBar，重试各自回到该走的那条路（load / doNaming）。
+   */
+  const [loadErr, setLoadErr] = useState<unknown>(null)
+  const [namingErr, setNamingErr] = useState<unknown>(null)
 
   // 只在沪深两市有意义（引擎不支持 BJ）
   const supported = market === 'SH' || market === 'SZ'
@@ -60,7 +68,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
   const load = useCallback(async () => {
     if (!supported) return
     setBusy(true)
-    setErr('')
+    setLoadErr(null)
     setOutcome(null)
     try {
       // 能力/参数只探一次（参数由 host 半给出：界面不各自硬编码，否则两端口径会漂）
@@ -69,7 +77,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
       setNamingRouteMissing(info === null)
       setConcept(await fetchStockConcept(market as 'SH' | 'SZ', code, info?.defaults))
     } catch (e) {
-      setErr((e as Error).message || '自挖概念取数失败')
+      setLoadErr(e)
       setConcept(null)
     } finally {
       setBusy(false)
@@ -84,11 +92,11 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
     async (refresh: boolean) => {
       if (concept?.classId == null) return
       setNamingBusy(true)
-      setErr('')
+      setNamingErr(null)
       try {
         setOutcome(await requestNaming({ classId: concept.classId, asOf: concept.asOf, params: concept.params, refresh }))
       } catch (e) {
-        setErr((e as Error).message || '命名失败')
+        setNamingErr(e)
       } finally {
         setNamingBusy(false)
       }
@@ -106,10 +114,10 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
     <div className="rounded-lg border border-violet-100 bg-violet-50/30 p-2" data-testid="stock-concept-card">
       <div className="mb-1 flex items-center gap-1">
         <Link2 size={11} className="text-violet-500" />
-        <span className="text-[11px] font-medium text-slate-600">自挖板块（市场今天认定的班）</span>
+        <span className="dc-t-note font-medium text-slate-600">自挖板块（市场今天认定的班）</span>
         <span className="ml-auto flex items-center gap-1">
           {concept?.asOf && (
-            <span className="font-mono text-[9px] text-slate-400" title="引擎快照日期：参数或日期一变，类就会变">
+            <span className="font-mono dc-t-micro text-slate-400" title="引擎快照日期：参数或日期一变，类就会变">
               as_of {concept.asOf}
             </span>
           )}
@@ -125,19 +133,35 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
         </span>
       </div>
 
-      {!supported && <div className="text-[10px] text-slate-400">自挖概念引擎只覆盖沪深两市（北交所不参与聚类）</div>}
-      {supported && err !== '' && <div className="text-[10px] text-red-500">{err}</div>}
+      {!supported && <div className="dc-t-data text-slate-400">自挖概念引擎只覆盖沪深两市（北交所不参与聚类）</div>}
 
+      {/* 取数失败：分类 + 原因 + 重试（旧版只有一行红字，没有出路） */}
+      {supported && loadErr !== null && (
+        <ErrorBar
+          className="mb-1"
+          error={loadErr}
+          onRetry={() => void load()}
+          title="自挖概念取数失败"
+          retryLabel="重新取数"
+        />
+      )}
+
+      {/* 引擎不可用（concept.ok === false）：不是异常而是领域状态，但也必须给出路 */}
       {supported && concept !== null && !concept.ok && (
-        <div className="text-[10px] text-amber-700">
-          引擎当前不可用：{concept.notes.join('；') || '未知原因'}
-        </div>
+        <ErrorBar
+          className="mb-1"
+          error={concept.notes.join('；') || '引擎当前不可用（未给出原因）'}
+          onRetry={() => void load()}
+          title="引擎当前不可用"
+          retryLabel="重新取数"
+          kind="business"
+        />
       )}
 
       {supported && concept?.ok === true && (
         <>
           {/* 参数与口径：不标参数 = 结论不可复现 */}
-          <div className="mb-1 flex flex-wrap items-center gap-1 text-[9px] text-slate-400">
+          <div className="mb-1 flex flex-wrap items-center gap-1 dc-t-micro text-slate-400">
             <span className="rounded bg-white px-1 py-px font-mono">
               window {concept.params.window} · min_corr {concept.params.minCorr} · pool {concept.params.poolN}
             </span>
@@ -155,12 +179,12 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
           </div>
 
           {concept.notes.length > 0 && (
-            <div className="mb-1 text-[9px] leading-snug text-amber-600">{concept.notes.join('；')}</div>
+            <div className="mb-1 dc-t-micro leading-snug text-amber-600">{concept.notes.join('；')}</div>
           )}
 
           {sameClassPeers.length > 0 && (
             <div className="mb-1">
-              <div className="mb-0.5 text-[9px] text-slate-400">同类（同一共动类）</div>
+              <div className="mb-0.5 dc-t-micro text-slate-400">同类（同一共动类）</div>
               <div className="flex flex-wrap gap-1">
                 {sameClassPeers.map((n) => (
                   <button
@@ -168,7 +192,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                     type="button"
                     onClick={() => onOpenStock?.(n.market as MarketTag, n.code, n.name)}
                     title={`${n.code} ${n.name}｜相关 ${n.corr.toFixed(3)}｜同类`}
-                    className="rounded border border-violet-200 bg-white px-1 py-px text-[10px] text-slate-600 hover:border-violet-400"
+                    className="rounded border border-violet-200 bg-white px-1 py-px dc-t-data text-slate-600 hover:border-violet-400"
                   >
                     {n.name}
                     <span className={`ml-1 font-mono ${corrColor(n.corr)}`}>{n.corr.toFixed(2)}</span>
@@ -180,7 +204,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
 
           {otherPeers.length > 0 && (
             <div className="mb-1">
-              <div className="mb-0.5 text-[9px] text-slate-400">最近共动邻居（不同类，仅供参考）</div>
+              <div className="mb-0.5 dc-t-micro text-slate-400">最近共动邻居（不同类，仅供参考）</div>
               <div className="flex flex-wrap gap-1">
                 {otherPeers.map((n) => (
                   <button
@@ -188,7 +212,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                     type="button"
                     onClick={() => onOpenStock?.(n.market as MarketTag, n.code, n.name)}
                     title={`${n.code} ${n.name}｜相关 ${n.corr.toFixed(3)}｜不同类`}
-                    className="rounded border border-slate-200 bg-white/70 px-1 py-px text-[10px] text-slate-500 hover:border-slate-400"
+                    className="rounded border border-slate-200 bg-white/70 px-1 py-px dc-t-data text-slate-500 hover:border-slate-400"
                   >
                     {n.name}
                     <span className={`ml-1 font-mono ${corrColor(n.corr)}`}>{n.corr.toFixed(2)}</span>
@@ -213,7 +237,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                       ? `模型不可用：${avail.reason ?? '未知'}`
                       : '让模型根据成员票的当日素材归纳共同主题（护栏会核对每条引文）'
               }
-              className="dc-btn dc-btn--accent dc-btn--icon flex items-center gap-1 px-1.5 py-0.5 text-[10px] disabled:opacity-40"
+              className="dc-btn dc-btn--accent dc-btn--icon flex items-center gap-1 px-1.5 py-0.5 dc-t-data disabled:opacity-40"
             >
               <Sparkles size={10} />
               {namingBusy ? '命名中…' : '让模型命名这个班'}
@@ -224,24 +248,37 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                 disabled={namingBusy}
                 onClick={() => void doNaming(true)}
                 title="忽略缓存重新命名（会真的再调一次模型）"
-                className="rounded px-1 py-0.5 text-[9px] text-slate-400 hover:bg-white disabled:opacity-40"
+                className="rounded px-1 py-0.5 dc-t-micro text-slate-400 hover:bg-white disabled:opacity-40"
               >
                 重算
               </button>
             )}
             {namingRouteMissing && (
-              <span className="text-[9px] text-amber-600">命名桥接未注册：请重启 dsh web（host 半是进程内加载的）</span>
+              <span className="dc-t-micro text-amber-600">命名桥接未注册：请重启 dsh web（host 半是进程内加载的）</span>
             )}
             {!namingRouteMissing && avail !== null && !avail.available && (
-              <span className="text-[9px] text-amber-600">模型不可用：{avail.reason}</span>
+              <span className="dc-t-micro text-amber-600">模型不可用：{avail.reason}</span>
             )}
             {avail?.available === true && named === null && (
-              <span className="text-[9px] text-slate-400">
+              <span className="dc-t-micro text-slate-400">
                 {avail.provider}/{avail.model}
               </span>
             )}
-            {outcome?.ok === true && outcome.cached && <span className="text-[9px] text-slate-400">（缓存命中）</span>}
+            {outcome?.ok === true && outcome.cached && <span className="dc-t-micro text-slate-400">（缓存命中）</span>}
           </div>
+
+          {/* 命名失败：**就地重试命名**（旧版只有右上角的"重新取数"，那条路要重跑整块聚类，
+              既不对症也白花请求）。这里 onRetry 直接回到 doNaming。 */}
+          {namingErr !== null && (
+            <ErrorBar
+              className="mb-1"
+              error={namingErr}
+              onRetry={() => void doNaming(false)}
+              retryLabel="重新命名"
+              title="命名失败"
+              extra="命名失败不影响上面的共动类与邻居（那些是引擎算出来的，不依赖模型）。"
+            />
+          )}
 
           {refused !== null && <NamingResultPanel outcome={refused} />}
 

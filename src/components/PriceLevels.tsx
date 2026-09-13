@@ -46,14 +46,14 @@ export function PriceLevels({ levels, close, activeTypes, onToggleType }: Props)
         return (
           <div key={group.key} className={active ? '' : 'opacity-50'}>
             <div className="mb-1 flex items-center gap-2">
-              <span className="text-[11px] font-medium" style={{ color: group.color }}>{group.label}</span>
+              <span className="dc-t-note font-medium" style={{ color: group.color }}>{group.label}</span>
               {onToggleType && (
-                <button onClick={() => onToggleType(group.key)} className="text-[10px] text-slate-400 hover:text-slate-600">
+                <button onClick={() => onToggleType(group.key)} className="dc-t-data text-slate-400 hover:text-slate-600">
                   {active ? '收起' : '展开'}
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 dc-t-note">
               {items.map((p, i) => {
                 const isResistance = p.side === 'resistance'
                 const isSupport = p.side === 'support'
@@ -67,7 +67,7 @@ export function PriceLevels({ levels, close, activeTypes, onToggleType }: Props)
                     </span>
                     <span className="tabular-nums text-slate-700">
                       {fmtPrice(p.value)}
-                      <span className={`ml-1 text-[10px] ${diffNum > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      <span className={`ml-1 dc-t-data ${diffNum > 0 ? 'text-red-400' : 'text-green-400'}`}>
                         {diffNum > 0 ? '+' : ''}{diffPct.toFixed(1)}%
                       </span>
                     </span>
@@ -79,7 +79,7 @@ export function PriceLevels({ levels, close, activeTypes, onToggleType }: Props)
         )
       })}
       {close != null && (
-        <div className="pt-1 text-[11px] text-slate-500 border-t border-slate-100">
+        <div className="pt-1 dc-t-note text-slate-500 border-t border-slate-100">
           现价 {fmtPrice(close)}
         </div>
       )}

@@ -50,18 +50,18 @@ export function AiAnalysisHost({ symbol, name }: Props) {
           <MessageSquareText className="h-3.5 w-3.5 text-emerald-500" />
           AI 个股分析 · 对话联动
         </h3>
-        <span className="text-[9px] text-emerald-600/70">无需后端</span>
+        <span className="dc-t-micro text-emerald-600/70">无需后端</span>
       </div>
-      <p className="mb-1.5 text-[10px] leading-relaxed text-slate-500">
+      <p className="mb-1.5 dc-t-data leading-relaxed text-slate-500">
         行情工具已接入当前对话（stock_quote / stock_kline / stock_tick / stock_unusual），
         直接让助手分析即可——复制下面的指令，粘贴到对话区发送。
       </p>
-      <pre className="mb-1.5 whitespace-pre-wrap rounded bg-white px-2 py-1.5 font-sans text-[10px] leading-relaxed text-slate-600">
+      <pre className="mb-1.5 whitespace-pre-wrap rounded bg-white px-2 py-1.5 font-sans dc-t-data leading-relaxed text-slate-600">
         {prompt}
       </pre>
       <button
         onClick={() => void copy()}
-        className="flex w-full items-center justify-center gap-1 rounded-md bg-emerald-500 py-1.5 text-[11px] font-medium text-white hover:bg-emerald-600"
+        className="flex w-full items-center justify-center gap-1 rounded-md bg-emerald-500 py-1.5 dc-t-note font-medium text-white hover:bg-emerald-600"
       >
         {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
         {copied ? '已复制，去对话区发送' : '复制分析指令'}

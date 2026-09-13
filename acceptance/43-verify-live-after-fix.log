@@ -1,0 +1,42 @@
+[verify-live] 目标 http://127.0.0.1:3080
+[verify-live] 当前源码：v1.4.0 · build 122b9bab
+
+[1] host 半新鲜度（host 是进程内加载的，改完必须重启 dsh web）
+  ✅ 版本一致（运行 1.4.0 / 源码 1.4.0）
+  ❌ 构建 id 不一致（运行 2155f186 / 源码 122b9bab）→ 请重启 dsh web
+
+[2] 持久化可用性（A1）
+  ✅ 响应 ok=true
+  ✅ available=true · 服务来源 ctx.storageDomain
+  ✅ 11 张表都在（实际 11：watchlist,review,review_draft,dayrun,positions,tradelog,verdicts,events,viewed,alert_rules,alert_hits）
+  ℹ️ 各表记录数：watchlist=2  review=0  review_draft=0  dayrun=0  positions=0  tradelog=0  verdicts=2  events=0  viewed=8  alert_rules=0  alert_hits=0
+  ℹ️ 已从 localStorage 首迁：是
+
+[3] 写→读→删闭环（真域、真介质）
+  ✅ 写入 viewed/SZ999999（written=1）
+  ✅ 读回同一条记录（name=verify-live canary）
+  ✅ 删除 canary（deleted=1）
+  ✅ 删除后快照里不再有 canary（不留脏数据）
+
+[4] 自挖板块命名桥接（A2b：口径 + 全链路一次真实命名）
+  ✅ GET /api/stock-panel/naming → HTTP 200
+  ✅ 默认参数 = 校准推荐值（90 / 0.6 / 200）
+  ✅ 提示词版本：a2b-1
+  ℹ️ 命名能力：available=true（deepseek-official/deepseek-v4-flash-vision-exp） · 今日=未知
+  ℹ️ 引擎：as_of=2026-09-11 · 类 9 个（可用 9） · 孤立 114
+  ✅ POST 命名 类#1 → HTTP 200
+  ✅ 结果带口径指纹（16c22b2c9eefb17c）
+  ✅ 每条证据都有出处（可反查）
+  ✅ 结论：insufficient（降级成因 source_skipped）→ 不带主题名
+  ℹ️ 类#1（52 只 九号公司-WD/天能股份/华纳药厂）→ insufficient · 证据分 0 · 证据 0/0 条 · 成因 source_skipped
+     · as_of=2026-09-11 ≠ 当前交易日 2026-09-13：异动/主力监控只有"当日实时列表"、没有历史接口 → **不做历史回放**，本次按设计跳过（把今天的异动贴到别的日期的类上等于凭空造证据）
+     · 素材 0 条（来源：无）
+     · 缺失源：belong_board、kline、market_monitor、unusual
+
+[5] 附带信息（不影响退出码）
+  ℹ️ AI：HTTP 200 {"ok":true,"available":true,"provider":"deepseek-official","model":"deepseek-v4-flash-vision-exp"}
+  ℹ️ 行情（server_info）：HTTP 200 {"ok":true,"data":{"count":1,"flags":"000000ffffffffff","tag":"-1","today":"2026-09-13","ts1":185116,"sessions_1":[{"open":"9:30","close":"11:30"},{"open":"13:00","close":"15:00"},{"open":"15:00","clo
+
+[verify-live] 1 项未通过
+[verify-live] 提示：host 半改动必须重启 `dsh web`；client 半改动只需浏览器硬刷新。
+

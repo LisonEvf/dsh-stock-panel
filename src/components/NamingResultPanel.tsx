@@ -13,6 +13,15 @@
  */
 import { AlertTriangle } from 'lucide-react'
 import { degradedLabel, verdictLabel, type NamingOutcome } from '@/lib/naming'
+import { SOURCE_STATUS_LABEL, type SourceStatus } from '@/host/naming/types'
+
+/** 状态色：失败要显眼，按设计跳过是"中性事实"（不是问题）。 */
+const SOURCE_STATUS_TONE: Record<SourceStatus, string> = {
+  used: 'bg-emerald-50 text-emerald-600',
+  skipped_by_design: 'bg-slate-100 text-slate-500',
+  no_material: 'bg-amber-50 text-amber-600',
+  failed: 'bg-red-50 text-red-600',
+}
 
 interface Props {
   outcome: NamingOutcome
@@ -25,7 +34,7 @@ export function NamingResultPanel({ outcome, onRefresh, refreshing }: Props) {
     const head =
       outcome.reason === 'weak_chain' ? '拒绝命名：' : outcome.reason === 'no_class' ? '无法命名：' : '引擎不可用：'
     return (
-      <div className="mt-1 flex items-start gap-1 rounded bg-amber-50 px-1.5 py-1 text-[10px] text-amber-700">
+      <div className="mt-1 flex items-start gap-1 rounded bg-amber-50 px-1.5 py-1 dc-t-data text-amber-700">
         <AlertTriangle size={10} className="mt-px shrink-0" />
         <span>
           {head}
@@ -39,12 +48,12 @@ export function NamingResultPanel({ outcome, onRefresh, refreshing }: Props) {
   return (
     <div className="mt-1 rounded bg-white px-1.5 py-1" data-testid="naming-result">
       <div className="flex items-baseline gap-1">
-        <span className="text-[9px] text-slate-400">模型归纳</span>
-        <span className={`text-[12px] font-medium ${r.verdict === 'named' ? 'text-violet-700' : 'text-slate-500'}`}>
+        <span className="dc-t-micro text-slate-400">模型归纳</span>
+        <span className={`dc-t-data font-medium ${r.verdict === 'named' ? 'text-violet-700' : 'text-slate-500'}`}>
           {r.verdict === 'named' ? `「${r.theme}」` : verdictLabel(r.verdict)}
         </span>
         <span
-          className="ml-auto font-mono text-[9px] text-slate-400"
+          className="ml-auto font-mono dc-t-micro text-slate-400"
           title="可计算证据分 = 0.40×覆盖度 + 0.25×命中票数 + 0.20×窗口内比例 + 0.15×条数（3 条封顶）；模型自报置信度只作展示，不参与门控"
         >
           证据分 {r.evidenceScore.toFixed(2)}
@@ -53,19 +62,45 @@ export function NamingResultPanel({ outcome, onRefresh, refreshing }: Props) {
       </div>
 
       {(r.verdict !== 'named' || r.degradedReason !== 'none') && (
-        <div className="mt-0.5 text-[9px] text-amber-600">
+        <div className="mt-0.5 dc-t-micro text-amber-600">
           成因：{degradedLabel(r.degradedReason) || r.degradedReason}
           {r.degradedReason === 'guard_rejected' && '（引文没能逐字对上素材，已丢弃）'}
         </div>
       )}
 
-      {r.alternatives.length > 0 && <div className="mt-0.5 text-[9px] text-slate-400">备选：{r.alternatives.join('、')}</div>}
-      {r.reasoning !== '' && <div className="mt-0.5 text-[10px] leading-snug text-slate-500">{r.reasoning}</div>}
+      {/* 素材来源状态：**逐源四态**（已采用 / 按设计跳过 / 无产出 / 采集失败）。
+          为什么不能只写一句"缺失源"：三种完全不同的情形（按设计跳过、没产出、真失败）
+          处置方式不同，混成一句会让用户和模型都把"没产出"读成"采集失败"（实测事故）。 */}
+      {r.sourceStatus.length > 0 && (
+        <div className="mt-1 rounded bg-slate-50/70 px-1.5 py-1">
+          <div className="dc-t-micro font-medium text-slate-500">素材来源（系统归因）</div>
+          <ul className="mt-0.5 space-y-0.5">
+            {r.sourceStatus.map((s) => (
+              <li key={s.source} className="dc-t-micro leading-snug">
+                <span className={`mr-1 rounded px-1 font-mono ${SOURCE_STATUS_TONE[s.status]}`}>
+                  {SOURCE_STATUS_LABEL[s.status]}
+                </span>
+                <span className="font-mono text-slate-500">{s.source}</span>
+                <span className="text-slate-400">· {s.detail}</span>
+              </li>
+            ))}
+          </ul>
+          {r.causeNote !== '' && <div className="mt-0.5 dc-t-micro leading-snug text-slate-500">{r.causeNote}</div>}
+        </div>
+      )}
+
+      {r.alternatives.length > 0 && <div className="mt-0.5 dc-t-micro text-slate-400">备选：{r.alternatives.join('、')}</div>}
+      {r.reasoning !== '' && (
+        <div className="mt-0.5 dc-t-data leading-snug text-slate-500">
+          <span className="dc-t-micro text-slate-400">模型说明（模型自述，非系统归因）</span>
+          <div>{r.reasoning}</div>
+        </div>
+      )}
 
       {r.evidence.length > 0 && (
         <ul className="mt-1 space-y-0.5">
           {r.evidence.map((e, i) => (
-            <li key={`${e.stock}-${i}`} className="text-[9px] leading-snug text-slate-400">
+            <li key={`${e.stock}-${i}`} className="dc-t-micro leading-snug text-slate-400">
               <span className="text-slate-500">{e.stock}</span>
               <span className="ml-1 rounded bg-slate-100 px-1 font-mono">{e.source}</span>
               <span className="ml-1 font-mono">{e.ts}</span>
@@ -78,7 +113,7 @@ export function NamingResultPanel({ outcome, onRefresh, refreshing }: Props) {
         </ul>
       )}
 
-      <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px] text-slate-400">
+      <div className="mt-1 flex flex-wrap items-center gap-1 dc-t-micro text-slate-400">
         <span>
           素材 {r.materialCount} 条 · 有效证据 {r.evidenceCount} 条 · 覆盖 {(r.evidenceCoverage * 100).toFixed(0)}%
         </span>
@@ -91,7 +126,7 @@ export function NamingResultPanel({ outcome, onRefresh, refreshing }: Props) {
             disabled={refreshing === true}
             onClick={onRefresh}
             title="忽略缓存重新命名（会真的再调一次模型）"
-            className="ml-auto rounded px-1 py-0.5 text-[9px] text-slate-400 hover:bg-slate-50 disabled:opacity-40"
+            className="ml-auto rounded px-1 py-0.5 dc-t-micro text-slate-400 hover:bg-slate-50 disabled:opacity-40"
           >
             {refreshing === true ? '重算中…' : '重算'}
           </button>
@@ -100,10 +135,10 @@ export function NamingResultPanel({ outcome, onRefresh, refreshing }: Props) {
 
       {outcome.collectNotes.length > 0 && (
         <details className="mt-0.5">
-          <summary className="cursor-pointer text-[9px] text-slate-400">采集说明（含口径偏差）</summary>
+          <summary className="cursor-pointer dc-t-micro text-slate-400">采集说明（含口径偏差）</summary>
           <ul className="mt-0.5 space-y-0.5">
             {outcome.collectNotes.map((n, i) => (
-              <li key={i} className="text-[9px] leading-snug text-slate-400">
+              <li key={i} className="dc-t-micro leading-snug text-slate-400">
                 · {n}
               </li>
             ))}
@@ -111,7 +146,7 @@ export function NamingResultPanel({ outcome, onRefresh, refreshing }: Props) {
         </details>
       )}
 
-      <div className="mt-0.5 text-[9px] text-slate-300">
+      <div className="mt-0.5 dc-t-micro text-slate-300">
         自挖类 ≠ 官方概念/行业：这是「市场今天自己认定的班」的候选标签（as_of {r.asOf} · 模型 {r.modelVersion}），
         仅供复盘参考，不会改写你的结论。
       </div>

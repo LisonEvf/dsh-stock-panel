@@ -23,6 +23,10 @@
 import { TdxClient, Market, ExMarket, Period, Adjust, Category, SortType, SortOrder } from './vendor/opentdx.js'
 import { hostEmbeddedEnabled } from '../lib/endpoints'
 import { callHistTool } from './hist-data'
+import { EMBEDDED_TOOL_NAMES, isExtendedMarketTool } from '../lib/tool-names'
+import { boundedInt, positiveInt, requireArgsObject, resolveEnum } from './tool-args'
+import { createSerialQueue, QueueTimeoutError } from './serial-queue'
+import { orderBoardRows } from './board-order'
 
 /** 业务参数错误（如实抛给调用方，不触发回退）。 */
 export class TdxToolError extends Error {}
@@ -31,35 +35,121 @@ export class TdxUnavailableError extends Error {}
 /** 明确不支持的工具（未知工具名）→ 如实上抛（无远端兜底）。 */
 export class UnsupportedToolError extends Error {}
 
+/** 参数错误统一映射成业务错（保持既有 kind='business' 契约）。 */
+function argError(message: string): Error {
+  return new TdxToolError(message)
+}
+
 // ── 单例 + 串行队列（TDX 长连接协议帧不允许并发交错） ──
+//
+// 分链原则：**按连接分**（A 股 7709 / 扩展市场 7727）。2026-09-12 实测过一次
+// `goods_varieties`（扩展市场）挂死后，连 `quote`/`server_info` 都一起 10s+ 无响应 ——
+// 同一条链上的死请求会把整个面板拖住，直到重启 dsh web。分链 + 单次超时 + 重连，
+// 三者缺一不可（原因与设计见 src/host/serial-queue.ts 头部）。
 
 let client: any = null
 let clientPromise: Promise<any> | null = null
-let queue: Promise<unknown> = Promise.resolve()
 let lastError = ''
 
+/** 传输通道：a = A 股行情（7709），ex = 扩展市场（7727）。 */
+export type TdxTransport = 'a' | 'ex'
+
+function intEnv(name: string, fallback: number): number {
+  const raw = typeof process !== 'undefined' ? process.env?.[name] : undefined
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback
+}
+
+/** 单次调用超时：A 股 8s（行情工具最慢的涨停梯队单轮也就数秒）；扩展市场 12s。 */
+const TIMEOUT_MS: Record<TdxTransport, number> = {
+  a: intEnv('DSH_TDX_TIMEOUT_MS', 8_000),
+  ex: intEnv('DSH_TDX_EX_TIMEOUT_MS', 12_000),
+}
+
+/**
+ * HIST 自挖概念工具的**单独预算**：首次调用要建快照（拉数百只 K 线），实测超过 8s。
+ *
+ * 超时是"防挂死"的闸门，不是"催命符"：慢而正常的调用不该被砍掉 —— 实测第一次把
+ * `hist_concept_classes` 砍在 8s 上（冷启动建快照），自挖板块会直接不可用。
+ * 仍然有限：真挂死时 90s 后同样丢连接重连，不会像从前那样永久堵死队列。
+ */
+const HIST_TIMEOUT_MS = intEnv('DSH_TDX_HIST_TIMEOUT_MS', 90_000)
+
+/** 某工具走哪条链时的超时预算。 */
+function timeoutOf(name: string, which: TdxTransport): number {
+  return name.startsWith('hist_concept_') ? HIST_TIMEOUT_MS : TIMEOUT_MS[which]
+}
+
+/** 重连计数（诊断面板展示"自愈过几次"）。 */
+const reconnects: Record<TdxTransport | 'all', number> = { a: 0, ex: 0, all: 0 }
+
+/** 单条连接正在重建中的 promise（避免并发重连打架）。 */
+const connecting: Partial<Record<TdxTransport, Promise<void>>> = {}
+
+/** 队列内的任务：`dispatch` 在链上执行，超时由链负责（见 serial-queue.ts）。 */
+const queues: Record<TdxTransport, ReturnType<typeof createSerialQueue>> = {
+  a: createSerialQueue({
+    label: 'A股行情(7709)',
+    timeoutMs: TIMEOUT_MS.a,
+    onTimeout: () => { scheduleRecovery('a') },
+  }),
+  ex: createSerialQueue({
+    label: '扩展市场(7727)',
+    timeoutMs: TIMEOUT_MS.ex,
+    onTimeout: () => { scheduleRecovery('ex') },
+  }),
+}
+
+/** 工具名 → 传输通道。 */
+export function transportOf(name: string): TdxTransport {
+  return isExtendedMarketTool(name) ? 'ex' : 'a'
+}
+
 function mkt(s: unknown) {
-  const name = String(s ?? '').toUpperCase()
-  if (!(name in Market)) throw new TdxToolError(`invalid market: ${s}`)
-  return Market[name]
+  return resolveEnum(Market, s, { label: 'market', makeError: argError })
 }
 
 function exMkt(s: unknown) {
-  const name = String(s ?? '').toUpperCase()
-  if (!(name in ExMarket)) throw new TdxToolError(`invalid ex market: ${s}`)
-  return ExMarket[name]
+  return resolveEnum(ExMarket, s, { label: 'ex market', makeError: argError })
 }
 
 function periodOf(s: unknown) {
-  const name = String(s ?? 'DAILY').toUpperCase()
-  if (!(name in Period)) throw new TdxToolError(`invalid period: ${s}`)
-  return Period[name]
+  return resolveEnum(Period, s, { label: 'period', fallback: Period.DAILY, makeError: argError })
 }
 
 function adjustOf(s: unknown) {
-  const name = String(s ?? 'NONE').toUpperCase()
-  if (!(name in Adjust)) throw new TdxToolError(`invalid adjust: ${s}`)
-  return Adjust[name]
+  return resolveEnum(Adjust, s, { label: 'adjust', fallback: Adjust.NONE, makeError: argError })
+}
+
+/**
+ * 排序键/方向：**未知值一律报错**（旧实现静默回落 CHANGE_PCT/DESC，
+ * 于是 `sort_type:'AMOUNT'` 会悄悄给出按涨幅排的数据 —— 见 tool-args.ts 头部）。
+ *
+ * 同时给出**规范名**（数字枚举的反向映射）：适配层要用它做本地复算排序
+ * （board-order.ts），所以名字必须来自枚举本身，不能来自用户输入的大小写变体。
+ */
+function sortOf(args: Record<string, unknown>): {
+  type: number
+  typeName: string
+  order: number
+  orderName: string
+} {
+  const type = resolveEnum(SortType, args.sort_type, {
+    label: 'sort_type',
+    fallback: SortType.CHANGE_PCT,
+    makeError: argError,
+  })
+  const order = resolveEnum(SortOrder, args.sort_order, {
+    label: 'sort_order',
+    fallback: SortOrder.DESC,
+    makeError: argError,
+  })
+  return {
+    type,
+    typeName: String((SortType as Record<number, unknown>)[type] ?? ''),
+    order,
+    orderName: String((SortOrder as Record<number, unknown>)[order] ?? ''),
+  }
 }
 
 async function getClient(): Promise<any> {
@@ -80,11 +170,88 @@ async function getClient(): Promise<any> {
   }
 }
 
-/** 让所有 TDX 调用串行（协议帧级互斥）。 */
-function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const run = queue.then(fn, fn)
-  queue = run.catch(() => undefined)
-  return run
+/** 取某条连接的子客户端（node-tdx 的 TdxClient 内部持有两条连接）。 */
+function subClientOf(c: any, which: TdxTransport): any {
+  return which === 'a' ? c?.qClient?.() : c?.eqClient?.()
+}
+
+/**
+ * 确保某条连接可用（**重连后单独补连**用）。
+ *
+ * 为什么需要它：`TdxClient.connect()` 一次性连两条连接。我们为了"一条挂住不连坐"，
+ * 重连时只把**那一条**子连接断掉置空（见 resetConnection），于是下次用到它时必须
+ * 自己补一次 connect/login —— 否则会得到"not connected"这种二次故障。
+ */
+async function ensureTransport(which: TdxTransport): Promise<void> {
+  const c = await getClient()
+  const sub = subClientOf(c, which)
+  if (!sub || sub.isConnected) return
+  const pending = connecting[which]
+  if (pending) return pending
+  const task = (async () => {
+    try {
+      await sub.connect()
+      await sub.login?.()
+    } finally {
+      delete connecting[which]
+    }
+  })()
+  connecting[which] = task
+  return task
+}
+
+/** 断开并丢弃某一条子连接（下次用到时由 ensureTransport 重连）。 */
+async function resetConnection(which: TdxTransport): Promise<void> {
+  const c = client
+  if (!c) return
+  const field = which === 'a' ? '_quotationClient' : '_exQuotationClient'
+  const sub = c[field]
+  try {
+    if (sub?.isConnected && sub.disconnect) {
+      // 卡死的 socket 连断链也可能不返回：给它 2s，超时就当断掉了
+      await Promise.race([
+        Promise.resolve(sub.disconnect()).catch(() => undefined),
+        new Promise((r) => setTimeout(r, 2_000)),
+      ])
+    }
+  } catch {
+    /* 断链失败也要继续置空 */
+  }
+  try {
+    c[field] = null
+  } catch {
+    /* 只读属性等：忽略 */
+  }
+}
+
+/**
+ * 自愈：超时后**先丢这条链 + 丢这条连接**，下次调用自动重连。
+ *
+ * 为什么这么激进（而不是"再等等看"）：卡住的 socket 不会自己好 —— 实测挂死 20 分钟
+ * 依然全部超时，而新连接只要 216ms。丢掉重连的代价远小于"整个面板不能取数"。
+ * 连续两次超时则连整个 client 一起重建（可能是更上层的状态坏了）。
+ * 用 setTimeout(0) 排到链外，避免在链内的 finally 里做网络动作造成自锁。
+ */
+function scheduleRecovery(which: TdxTransport): void {
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const consecutive = queues[which].stats().consecutiveTimeouts
+        await resetConnection(which)
+        queues[which].reset()
+        reconnects[which] += 1
+        if (consecutive >= 2) {
+          await disposeTdxClient()
+          reconnects.all += 1
+        }
+        console.warn(
+          `[stock-panel] TDX ${which === 'a' ? 'A股' : '扩展市场'} 连接超时 → 已丢弃重连（连续 ${consecutive} 次）`,
+        )
+      } catch (err) {
+        console.warn('[stock-panel] TDX 自愈失败：', (err as Error)?.message ?? err)
+      }
+    })()
+  }, 0)
 }
 
 /** 主动断开（进程退出/插件卸载清理用）。 */
@@ -92,7 +259,10 @@ export async function disposeTdxClient(): Promise<void> {
   const c = client
   client = null
   clientPromise = null
-  queue = Promise.resolve()
+  queues.a.reset()
+  queues.ex.reset()
+  delete connecting.a
+  delete connecting.ex
   if (c?.disconnect) {
     try { await c.disconnect() } catch { /* ignore */ }
   }
@@ -172,23 +342,49 @@ const A_SHARE_MARKETS = new Set(['SZ', 'SH', 'BJ'])
 
 export async function callEmbeddedTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   if (!hostEmbeddedEnabled()) throw new TdxUnavailableError('embedded TDX disabled (DSH_TDX_EMBEDDED=0)')
+  // 工具名白名单：未知工具在**碰网络之前**就拒掉（旧实现要先建连再抛，纯粹浪费一次连接预算）
+  if (!EMBEDDED_TOOL_NAMES.includes(name)) {
+    throw new UnsupportedToolError(
+      `unknown tool: ${name}（内置 ${EMBEDDED_TOOL_NAMES.length} 个：${EMBEDDED_TOOL_NAMES.join('/')}）`,
+    )
+  }
+  const safeArgs = requireArgsObject(args, 'args') as Record<string, unknown>
+  const which = transportOf(name)
+  try {
+    await ensureTransport(which)
+  } catch (err) {
+    throw new TdxUnavailableError(`TDX connect failed: ${(err as Error)?.message ?? String(err)}`)
+  }
   const fn = await getClient()
-  return serial(async () => {
+  const task = async (): Promise<unknown> => {
     try {
-      return await dispatch(fn, name, args ?? {})
+      return await dispatch(fn, name, safeArgs)
     } catch (err) {
       if (err instanceof TdxToolError || err instanceof UnsupportedToolError) throw err
       if (err instanceof TdxUnavailableError) throw err
       const msg = (err as Error)?.message ?? String(err)
       lastError = msg
-      // 连接被重置/超时等传输级失败 → 视为不可用（下个请求会自动重连/回退）
+      // 连接被重置/超时等传输级失败 → 视为不可用（该连接已被自愈逻辑丢弃，下个请求会重连）
       if (/connect|ECONN|socket|timeout|reset/i.test(msg)) throw new TdxUnavailableError(msg)
       throw new TdxToolError(`${name}: ${msg}`)
     }
-  })
+  }
+  try {
+    return await queues[which].run(task, { timeoutMs: timeoutOf(name, which) })
+  } catch (err) {
+    // 单次调用超时：如实上抛（并已由队列回调触发丢弃重连），而不是让调用方无限等
+    if (err instanceof QueueTimeoutError) {
+      lastError = err.message
+      throw new TdxUnavailableError(`${err.message} —— 已丢弃该连接并自动重连，请重试`)
+    }
+    throw err
+  }
 }
 
-async function dispatch(fn: any, name: string, args: Record<string, unknown>): Promise<unknown> {
+/**
+ * 工具分发（**导出以便离线单测**：注入假 fn 即可覆盖参数校验与排序契约，不触网）。
+ */
+export async function dispatch(fn: any, name: string, args: Record<string, unknown>): Promise<unknown> {
   const market = (args.market ?? '').toString().toUpperCase()
   const code = String(args.code ?? '')
 
@@ -227,12 +423,22 @@ async function dispatch(fn: any, name: string, args: Record<string, unknown>): P
       const raw = String(args.board_symbol ?? '881001')
       const special = raw.toUpperCase()
       const board = special in Category && !/^\d+$/.test(raw) ? Category[special] : raw
+      // 排序键/方向先过白名单（未知值报错，不再静默回落 CHANGE_PCT/DESC）
+      const sort = sortOf(args)
+      const count = boundedInt(args.count, { label: 'count', min: 1, max: 20_000, fallback: 50 })
       const rows = await fn.stockBoardMembers(
-        board, Number(args.count ?? 50) || 50,
-        String(args.sort_type ?? 'CHANGE_PCT').toUpperCase() in SortType ? SortType[String(args.sort_type).toUpperCase()] : SortType.CHANGE_PCT,
-        String(args.sort_order ?? 'DESC').toUpperCase() in SortOrder ? SortOrder[String(args.sort_order).toUpperCase()] : SortOrder.DESC,
+        board, count,
+        sort.type,
+        sort.order,
       )
-      return normalizeRows(rows, normalizeQuoteRow)
+      const normalized = normalizeRows(rows, normalizeQuoteRow)
+      // 契约兜底：文档写着"含排序"，就不该依赖下游是否守约（node-tdx 多页拼接曾把页序反过来，
+      // 导致全 A 榜单整体升序 —— 见 board-order.ts 头部实测）。本地能复算的键一律重排一遍。
+      const ordered = orderBoardRows(normalized, sort.typeName, sort.orderName)
+      if (!ordered.enforced && sort.orderName !== 'NONE') {
+        console.warn(`[stock-panel] board_members 排序未本地复算：${ordered.reason ?? '未知'}`)
+      }
+      return ordered.rows
     }
     case 'belong_board': {
       const rows = await fn.stockBelongBoard(mkt(market), code)
@@ -272,13 +478,22 @@ async function dispatch(fn: any, name: string, args: Record<string, unknown>): P
       return normalizeRows(rows, normalizeQuoteRow)
     }
     case 'goods_kline': {
-      const rows = await fn.goodsKline(exMkt(args.market), code, periodOf(args.period), 0, Number(args.count ?? 10), 1)
+      const rows = await fn.goodsKline(
+        exMkt(args.market), code, periodOf(args.period), 0,
+        boundedInt(args.count, { label: 'count', min: 1, max: 2_000, fallback: 10 }), 1,
+      )
       return normalizeKlineRows(rows)
     }
     case 'goods_varieties':
       // 商品品种列表（期货/期权合约）：market_id 为商品市场号（int，如 1=大商所）。
-      // node-tdx goodsVarieties 与 python opentdx goods_varieties 输出字段一致。
-      return fn.goodsVarieties(Number(args.market_id) || 0, 0, Number(args.count) || 20)
+      // ⚠️ 必须校验：旧实现 `Number(args.market_id) || 0` 会把"没给/给错"静默变成市场号 0，
+      // 而 0 号在扩展市场服务端**不返回**（实测 35s+ 无响应）→ 挂住整条连接（含 A 股）。
+      // 这类"缺省值恰好是非法值"的写法，是本次事故链的起点之一。
+      return fn.goodsVarieties(
+        positiveInt(args.market_id, { label: 'market_id', min: 1, max: 999, makeError: argError }),
+        0,
+        boundedInt(args.count, { label: 'count', min: 1, max: 600, fallback: 20 }),
+      )
     // ── HIST 自挖概念引擎（进程内 HistEngine，替代远端 Python MCP） ──
     case 'hist_concept_query':
     case 'hist_concept_classes':
@@ -290,11 +505,13 @@ async function dispatch(fn: any, name: string, args: Record<string, unknown>): P
   }
 }
 
-/** 诊断：当前内置服务状态。 */
+/** 诊断：当前内置服务状态（连接 + 每条链的排队/超时/自愈计数）。 */
 export function tdxEmbeddedDiagnostics(): Record<string, unknown> {
   return {
     enabled: hostEmbeddedEnabled(),
     connected: Boolean(client),
     lastError: lastError || undefined,
+    reconnects: { ...reconnects },
+    queues: { a: queues.a.stats(), ex: queues.ex.stats() },
   }
 }

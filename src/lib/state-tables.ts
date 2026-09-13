@@ -53,6 +53,25 @@ export const STATE_TABLES: readonly StateTableMeta[] = [
     shape: 'array',
   },
   {
+    /**
+     * N10：复盘草稿（未存档的「次日预期清单」+ 亏钱共性 + 风向标）。
+     *
+     * 为什么单开一张表而不是塞进 `review`：草稿是**每次编辑都在变**的高频临时态
+     * （`review-draft.ts` 每次编辑写 localStorage、1s 防抖推 host），而 `review` 是
+     * 按日归档的正式产出物（一天一条）。混在一起会让"编辑中的草稿"污染
+     * 「按日归档 + v2→v3 迁移」的既有契约，也会让次日竞价对照读到没存档的半成品。
+     *
+     * 加表**不动 `STATE_DOMAIN_VERSION`**（固定 1）：改介质版本号会让已有域的 `open`
+     * 直接抛 version-mismatch 且不做迁移 = 用户既有数据全废。新表在旧域里不存在，
+     * 启动时 `host-state.ts` 会走「域里为空 + 本地有数据 → 首迁上传」，无需迁移代码。
+     */
+    table: 'review_draft',
+    storageKey: 'dsh-stock-panel:review-draft:v1',
+    keyOf: '2026-09-12（交易日；同一天只留一条）',
+    label: '复盘草稿（自动保存·未存档）',
+    shape: 'array',
+  },
+  {
     table: 'dayrun',
     storageKey: 'dsh-stock-panel:dayrun:v1',
     keyOf: '2026-09-12（交易日）',
@@ -94,6 +113,29 @@ export const STATE_TABLES: readonly StateTableMeta[] = [
     label: '看过的个股（左栏「个股」分组）',
     shape: 'array',
   },
+  {
+    /**
+     * 监控规则（价格/涨跌幅/关键词）。
+     *
+     * 为什么补进 host 域：盘前设好的规则是**跨日资产**（次日开盘还要用），却一直只写
+     * localStorage —— 清一次浏览器缓存/换台机器就全没了，与"用户可见的本地资产都在
+     * host 侧"的口径不符。命中记录同理（复盘要看"今天触发过什么"）。
+     *
+     * 加表**不动 `STATE_DOMAIN_VERSION`**（固定 1，理由见 review_draft 上方注释）。
+     */
+    table: 'alert_rules',
+    storageKey: 'dsh-stock-panel:alerts:rules:v1',
+    keyOf: '规则 id',
+    label: '监控规则（价格/涨跌幅/关键词）',
+    shape: 'array',
+  },
+  {
+    table: 'alert_hits',
+    storageKey: 'dsh-stock-panel:alerts:hits:v1',
+    keyOf: '命中 id',
+    label: '监控命中记录（环形 ≤200）',
+    shape: 'array',
+  },
 ] as const
 
 /** 表名 → 元信息。 */
@@ -127,6 +169,9 @@ export function keyOfRecord(table: string, value: unknown): string | null {
     }
     case 'review':
     case 'dayrun':
+    // N10：草稿的自然键同样是 `day`（同一天只留一条 → 编辑覆盖同一条记录，
+    // 不会在 host 里堆出一串历史草稿）。
+    case 'review_draft':
       return str(v.day)
     case 'positions':
       return str(v.symbol)
@@ -139,6 +184,9 @@ export function keyOfRecord(table: string, value: unknown): string | null {
     }
     case 'events':
       return str(v.key)
+    case 'alert_rules':
+    case 'alert_hits':
+      return str(v.id)
     default:
       return null
   }

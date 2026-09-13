@@ -22,9 +22,10 @@ import type { PrevPoolPerf } from '@/lib/review-metrics'
 import type { WindFlagRef, WindFlagTag } from '@/lib/review-store'
 import { inferMarket, type MarketTag } from '@/lib/symbol'
 import type { OpenStock } from '@/panel/PanelApp'
+import { fmtAmount } from '@/lib/format'
 
-const UP = '#c74040'
-const DOWN = '#2d9b65'
+const UP = 'var(--dc-up)'
+const DOWN = 'var(--dc-down)'
 
 /** 风向标类型（六步法第 6 步语义）+ 说明。 */
 export const WIND_TAGS: { v: WindFlagTag; l: string; desc: string }[] = [
@@ -45,8 +46,8 @@ export function PrevPoolPerfBlock({ perf }: { perf: PrevPoolPerf | null }) {
   if (!perf || perf.samples === 0) {
     return (
       <div className="mb-1.5 rounded-md border border-amber-100 bg-amber-50/50 px-2 py-1.5">
-        <div className="text-[10px] font-medium text-amber-600">昨日涨停今日表现 · 暂无数据</div>
-        <div className="mt-0.5 text-[9px] leading-snug text-slate-500">
+        <div className="dc-t-data font-medium text-amber-600">昨日涨停今日表现 · 暂无数据</div>
+        <div className="mt-0.5 dc-t-micro leading-snug text-slate-500">
           需上一交易日已存档复盘（涨停池建档 v3）。先完成上一日复盘并存档，本卡才有对照样本。
         </div>
       </div>
@@ -65,14 +66,14 @@ export function PrevPoolPerfBlock({ perf }: { perf: PrevPoolPerf | null }) {
 
   return (
     <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
-      <div className="mb-1 text-[10px] font-semibold text-slate-500">昨日涨停整体表现（{perf.samples} 样本）· 先看天气再看衣服</div>
+      <div className="mb-1 dc-t-data font-semibold text-slate-500">昨日涨停整体表现（{perf.samples} 样本）· 先看天气再看衣服</div>
       <div className="flex items-baseline gap-2">
         <span className="font-mono text-[18px] font-bold leading-none tabular-nums" style={{ color: upColor }}>
           {avg > 0 ? '+' : ''}{avg.toFixed(2)}%
         </span>
-        <span className="text-[9px] text-slate-400">红盘 {perf.redCount}/{perf.samples} · 晋级 {perf.againLimit} · 大面(≤-5%) {perf.bigLoseCount} · 跌停 {perf.limitDownCount}</span>
+        <span className="dc-t-micro text-slate-400">红盘 {perf.redCount}/{perf.samples} · 晋级 {perf.againLimit} · 大面(≤-5%) {perf.bigLoseCount} · 跌停 {perf.limitDownCount}</span>
       </div>
-      <div className="mt-1 rounded bg-white/70 px-1.5 py-0.5 text-[9px] leading-snug" style={{ color: avg >= 0 ? '#c74040' : '#2d9b65' }}>
+      <div className="mt-1 rounded bg-white/70 px-1.5 py-0.5 dc-t-micro leading-snug" style={{ color: avg >= 0 ? 'var(--dc-up)' : 'var(--dc-down)' }}>
         {verdict}
       </div>
     </div>
@@ -86,25 +87,25 @@ export function SurgeBoardsBlock({ boards, onOpenStock }: { boards: BoardStat[];
   return (
     <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[10px] font-medium text-slate-400">③ 板块结构 · 涨停潮 ≥3（资金阵地）</span>
-        <span className="text-[8px] text-slate-300" title="板块内领涨龙头可直接点开">单兵是涨停，板块才是阵地</span>
+        <span className="dc-t-data font-medium text-slate-400">③ 板块结构 · 涨停潮 ≥3（资金阵地）</span>
+        <span className="dc-t-micro text-slate-300" title="板块内领涨龙头可直接点开">单兵是涨停，板块才是阵地</span>
       </div>
       {surge.length === 0 ? (
-        <div className="rounded bg-white/60 px-1.5 py-1 text-[9px] text-slate-400">
+        <div className="rounded bg-white/60 px-1.5 py-1 dc-t-micro text-slate-400">
           无板块涨停潮（≥3 只）——资金没形成阵地，超短降级做或空仓
         </div>
       ) : (
         <ul className="space-y-0.5">
           {surge.map((b) => (
             <li key={b.boardSymbol} className="flex items-center gap-1.5 rounded bg-white px-1.5 py-1">
-              <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-700">{b.name}</span>
-              <span className="shrink-0 rounded bg-red-50 px-1 font-mono text-[8px] font-bold text-red-500">{b.limitUpCount} 涨停</span>
-              <span className="shrink-0 font-mono text-[8px] tabular-nums" style={{ color: b.pct > 0 ? UP : b.pct < 0 ? DOWN : '#94a3b8' }}>
+              <span className="min-w-0 flex-1 truncate dc-t-note font-medium text-slate-700">{b.name}</span>
+              <span className="shrink-0 rounded bg-red-50 px-1 font-mono dc-t-micro font-bold text-red-500">{b.limitUpCount} 涨停</span>
+              <span className="shrink-0 font-mono dc-t-micro tabular-nums" style={{ color: b.pct > 0 ? UP : b.pct < 0 ? DOWN : '#94a3b8' }}>
                 {b.pct > 0 ? '+' : ''}{b.pct.toFixed(1)}%
               </span>
               <button
                 onClick={() => b.repCode && onOpenStock({ market: inferMarket(b.repCode), code: b.repCode, name: b.rep })}
-                className="shrink-0 rounded bg-slate-100 px-1 text-[8px] text-slate-500 hover:bg-slate-200"
+                className="shrink-0 rounded bg-slate-100 px-1 dc-t-micro text-slate-500 hover:bg-slate-200"
                 title={`${b.rep} · 领涨龙头`}
               >
                 龙头 {b.rep.slice(0, 4)}
@@ -140,8 +141,8 @@ export function AmountTopBlock({ rows, onOpenStock }: { rows: AShareRow[]; onOpe
   if (top.length === 0) {
     return (
       <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
-        <div className="mb-0.5 text-[10px] font-medium text-slate-400">成交额前 20 · 大票资金</div>
-        <div className="text-[9px] text-slate-400">无行情数据（休市 / 数据源不可用）</div>
+        <div className="mb-0.5 dc-t-data font-medium text-slate-400">成交额前 20 · 大票资金</div>
+        <div className="dc-t-micro text-slate-400">无行情数据（休市 / 数据源不可用）</div>
       </div>
     )
   }
@@ -154,8 +155,8 @@ export function AmountTopBlock({ rows, onOpenStock }: { rows: AShareRow[]; onOpe
   return (
     <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[10px] font-medium text-slate-400">④ 资金流向 · 成交额前 20 大票</span>
-        <span className="font-mono text-[9px] tabular-nums text-slate-500">
+        <span className="dc-t-data font-medium text-slate-400">④ 资金流向 · 成交额前 20 大票</span>
+        <span className="font-mono dc-t-micro tabular-nums text-slate-500">
           涨 <span style={{ color: UP }}>{up}</span> · 跌 <span style={{ color: DOWN }}>{down}</span>
         </span>
       </div>
@@ -166,17 +167,19 @@ export function AmountTopBlock({ rows, onOpenStock }: { rows: AShareRow[]; onOpe
               onClick={() => onOpenStock({ market: t.market, code: t.code, name: t.name })}
               className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-white"
             >
-              <span className="min-w-0 flex-1 truncate text-[11px] text-slate-600">{t.name}</span>
-              <span className="shrink-0 font-mono text-[8px] tabular-nums" style={{ color: t.pct > 0 ? UP : t.pct < 0 ? DOWN : '#94a3b8' }}>
+              <span className="min-w-0 flex-1 truncate dc-t-note text-slate-600">{t.name}</span>
+              <span className="shrink-0 font-mono dc-t-micro tabular-nums" style={{ color: t.pct > 0 ? UP : t.pct < 0 ? DOWN : '#94a3b8' }}>
                 {t.pct > 0 ? '+' : ''}{t.pct.toFixed(1)}%
               </span>
-              <span className="shrink-0 font-mono text-[8px] text-slate-300">{(t.amount / 1e8).toFixed(0)}亿</span>
+              {/* 单位走唯一入口（fmtAmount）：原实现手算 (x/1e8).toFixed(0)+'亿'，
+                  与其它页面的"万亿"口径不一致。 */}
+              <span className="shrink-0 font-mono dc-t-micro text-slate-300">{fmtAmount(t.amount)}</span>
             </button>
           </li>
         ))}
       </ul>
-      <div className="mt-1 rounded bg-white/70 px-1.5 py-0.5 text-[9px] leading-snug text-slate-500">{verdict}</div>
-      <div className="mt-0.5 text-[8px] text-slate-300">⚠️ 龙虎榜（机构/游资席位）不在当前 MCP 数据源，本卡以成交额榜替代；资金细节可点个股看资金流</div>
+      <div className="mt-1 rounded bg-white/70 px-1.5 py-0.5 dc-t-micro leading-snug text-slate-500">{verdict}</div>
+      <div className="mt-0.5 dc-t-micro text-slate-300">⚠️ 龙虎榜（机构/游资席位）不在当前 MCP 数据源，本卡以成交额榜替代；资金细节可点个股看资金流</div>
     </div>
   )
 }
@@ -203,19 +206,19 @@ export function LossBlock({
     <div className="mb-1.5 rounded-md border border-slate-100 bg-green-50/40 px-2 py-1.5">
       <div className="mb-1 flex items-center gap-1">
         <TrendingDown className="h-3 w-3 text-green-600" />
-        <span className="text-[10px] font-medium text-slate-400">⑤ 亏钱效应 · 昨日涨停今日大面/跌停（雷区样本）</span>
+        <span className="dc-t-data font-medium text-slate-400">⑤ 亏钱效应 · 昨日涨停今日大面/跌停（雷区样本）</span>
       </div>
       {samples.length === 0 ? (
-        <div className="rounded bg-white/60 px-1.5 py-1 text-[9px] text-slate-400">
+        <div className="rounded bg-white/60 px-1.5 py-1 dc-t-micro text-slate-400">
           无样本（需昨日存档；或昨涨停今日无大跌——亏钱效应收敛，才是该出手的时候）
         </div>
       ) : (
         <ul className="space-y-0.5">
           {samples.slice(0, 10).map((s) => (
             <li key={s.symbol} className="flex items-center gap-1.5 rounded bg-white px-1.5 py-0.5">
-              <span className="min-w-0 flex-1 truncate text-[10px] text-slate-600">{s.name}</span>
-              <span className="shrink-0 rounded bg-green-600 px-1 py-px text-[8px] font-medium text-white">{s.atLimitDown ? '今跌停' : '大面'}</span>
-              <span className="shrink-0 font-mono text-[9px] tabular-nums" style={{ color: s.pct > 0 ? UP : DOWN }}>
+              <span className="min-w-0 flex-1 truncate dc-t-data text-slate-600">{s.name}</span>
+              <span className="shrink-0 rounded bg-green-600 px-1 py-px dc-t-micro font-medium text-white">{s.atLimitDown ? '今跌停' : '大面'}</span>
+              <span className="shrink-0 font-mono dc-t-micro tabular-nums" style={{ color: s.pct > 0 ? UP : DOWN }}>
                 {s.pct > 0 ? '+' : ''}{s.pct.toFixed(1)}%
               </span>
             </li>
@@ -223,17 +226,17 @@ export function LossBlock({
         </ul>
       )}
       <label className="mt-1 block">
-        <div className="mb-0.5 text-[8px] text-slate-300">共性记录（高位补跌 / 板块退潮 / 业绩雷…；写下来=明天的回避清单）</div>
+        <div className="mb-0.5 dc-t-micro text-slate-300">共性记录（高位补跌 / 板块退潮 / 业绩雷…；写下来=明天的回避清单）</div>
         <textarea
           value={riskNote}
           onChange={(e) => onRiskNote(e.target.value)}
           rows={2}
           maxLength={200}
           placeholder="例：跌停多为高位 3 板以上补跌 + 昨日涨停今日跌停 3 只 → 明日禁追高位、禁碰该板块"
-          className="w-full resize-none rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] text-slate-700 outline-none placeholder:text-slate-300 focus:border-emerald-400"
+          className="w-full resize-none rounded border border-slate-200 bg-white px-1.5 py-1 dc-t-data text-slate-700 outline-none placeholder:text-slate-300 focus:border-emerald-400"
         />
       </label>
-      <div className="mt-0.5 text-[8px] text-slate-300">盯着赚钱效应会冲动，盯着亏钱效应会冷静；扩散期管住手，收敛期才出手</div>
+      <div className="mt-0.5 dc-t-micro text-slate-300">盯着赚钱效应会冲动，盯着亏钱效应会冷静；扩散期管住手，收敛期才出手</div>
     </div>
   )
 }
@@ -266,19 +269,19 @@ export function WindFlagBlock({
   return (
     <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
       <div className="mb-1 flex items-center justify-between">
-        <span className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
+        <span className="flex items-center gap-1 dc-t-data font-medium text-slate-400">
           <Flag className="h-3 w-3 text-red-500" />⑥ 风向标 · 明日观察（{marked.length}/8）
         </span>
-        <span className="text-[8px] text-slate-300">自选池不是股票池，是你的风向标</span>
+        <span className="dc-t-micro text-slate-300">自选池不是股票池，是你的风向标</span>
       </div>
 
       {/* 已标记 */}
       {marked.length > 0 && (
         <div className="mb-1.5 flex flex-wrap gap-0.5">
           {marked.map((m) => (
-            <span key={m.symbol} className="flex items-center gap-0.5 rounded bg-red-50 px-1 py-px text-[8px] text-red-600">
+            <span key={m.symbol} className="flex items-center gap-0.5 rounded bg-red-50 px-1 py-px dc-t-micro text-red-600">
               {m.name}
-              <span className="font-mono text-[7px] opacity-70">{windTagLabel(m.tag)}</span>
+              <span className="font-mono dc-t-micro opacity-70">{windTagLabel(m.tag)}</span>
               <button onClick={() => onUnmark(m.symbol)} className="text-red-300 hover:text-red-600" title="取消标记">×</button>
             </span>
           ))}
@@ -287,7 +290,7 @@ export function WindFlagBlock({
 
       {/* 候选列表（今日有特点的票） */}
       {candidates.length === 0 ? (
-        <div className="rounded bg-white/60 px-1.5 py-1 text-[9px] text-slate-400">无候选（无行情 / 数据源不可用）</div>
+        <div className="rounded bg-white/60 px-1.5 py-1 dc-t-micro text-slate-400">无候选（无行情 / 数据源不可用）</div>
       ) : (
         <ul className="space-y-0.5">
           {candidates.map((c) => {
@@ -298,22 +301,22 @@ export function WindFlagBlock({
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => onOpenStock({ market: c.market, code: c.code, name: c.name })}
-                    className="min-w-0 flex-1 truncate text-left text-[11px] text-slate-700 hover:text-emerald-600"
+                    className="min-w-0 flex-1 truncate text-left dc-t-note text-slate-700 hover:text-emerald-600"
                     title={`${c.name} ${c.code} · ${c.hint}`}
                   >
                     {c.name}
-                    <span className="ml-1 font-mono text-[8px] text-slate-300">{c.code.slice(-4)}</span>
+                    <span className="ml-1 font-mono dc-t-micro text-slate-300">{c.code.slice(-4)}</span>
                   </button>
-                  <span className="shrink-0 rounded bg-slate-100 px-1 text-[8px] text-slate-500">{c.hint}</span>
+                  <span className="shrink-0 rounded bg-slate-100 px-1 dc-t-micro text-slate-500">{c.hint}</span>
                   {already ? (
-                    <button onClick={() => onUnmark(sym)} className="shrink-0 text-[8px] text-emerald-600 hover:text-red-500" title="取消风向标">
+                    <button onClick={() => onUnmark(sym)} className="shrink-0 dc-t-micro text-emerald-600 hover:text-red-500" title="取消风向标">
                       <Check className="h-3 w-3" />已标
                     </button>
                   ) : (
                     <button
                       onClick={() => setOpen(open === sym ? null : sym)}
                       disabled={marked.length >= 8}
-                      className="flex shrink-0 items-center gap-0.5 rounded bg-slate-100 px-1 py-0.5 text-[8px] text-slate-600 hover:bg-slate-200 disabled:opacity-40"
+                      className="flex shrink-0 items-center gap-0.5 rounded bg-slate-100 px-1 py-0.5 dc-t-micro text-slate-600 hover:bg-slate-200 disabled:opacity-40"
                       title={marked.length >= 8 ? '风向标已达 8 只上限' : '标记为风向标'}
                     >
                       <Flag className="h-2.5 w-2.5" />标
@@ -327,7 +330,7 @@ export function WindFlagBlock({
                       <button
                         key={t.v}
                         onClick={() => { onMark(c, t.v); setOpen(null) }}
-                        className="rounded border border-slate-200 bg-white px-1 py-px text-[8px] text-slate-600 hover:bg-emerald-50 hover:text-emerald-600"
+                        className="rounded border border-slate-200 bg-white px-1 py-px dc-t-micro text-slate-600 hover:bg-emerald-50 hover:text-emerald-600"
                         title={t.desc}
                       >
                         {t.l}
@@ -340,7 +343,7 @@ export function WindFlagBlock({
           })}
         </ul>
       )}
-      <div className="mt-1 text-[8px] leading-snug text-slate-300">
+      <div className="mt-1 dc-t-micro leading-snug text-slate-300">
         有特点 = 率先涨停的日内龙头 · 断板反包的弱转强 · 低位放量新突破 · 逆势抗跌强势股。它们强板块就强，弱板块就弱。
       </div>
     </div>

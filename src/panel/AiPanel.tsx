@@ -4,13 +4,15 @@
  * 两条通道（用户选定的双通道方案）：
  *   1. **一键研判（主）**：host 半用官方 ctx.llm 直调当前默认模型，要求严格 JSON，
  *      结论结构化回填——方向/把握分/要点/风险/**关键价位**（价位由 WatchView 画到主图）。
- *   2. **深入对话（副）**：把已取到的上下文 + 模型初判一起注入当前对话输入框并发送，
+ *   2. **深入对话（副）**：把已取到的上下文 + 模型初判一起注入当前对话并发送，
  *      由对话里的 agent 自己调行情工具做多轮复核（结果在对话流里，不抢本视图）。
+ *      注意：工作台**不显示**底部输入框（见 `lib/host-chrome.ts`），所以发完给一条会自己消失的
+ *      回执，明确"去哪看回复"——否则点了按钮界面毫无反应。
  *
  * 两条通道都是「一键」：不需要复制粘贴、不需要切视图。
  * 上下文由 use-ai.ts 提供（与主图共享缓存，不额外发请求）。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Sparkles, MessageSquareText, RefreshCw, X, AlertTriangle, Send } from 'lucide-react'
 import type { AiRunner } from './use-ai'
 import type { StockVerdict } from '@/lib/ai-contract'
@@ -76,7 +78,21 @@ export function buildDeepDivePrompt(input: {
 
 export function AiPanel({ symbol, name, days, ai, chat }: Props) {
   const [ask, setAsk] = useState('')
+  /**
+   * 「深入对话」的**回执**（时间戳；0 = 本次没发过）。
+   *
+   * 为什么必须有：工作台里**不显示底部对话框**（`host-chrome.ts`：那是盯盘台，输入框让位给主区），
+   * 所以点完这个按钮在界面上**什么都看不到** —— 用户会以为没生效。这里给一条会自己消失的回执，
+   * 明确"已发到对话页，去那儿看回复"。
+   */
+  const [deepSent, setDeepSent] = useState(0)
   const { state, record, availability, busy } = ai
+
+  useEffect(() => {
+    if (deepSent === 0) return
+    const timer = window.setTimeout(() => setDeepSent(0), 8_000)
+    return () => window.clearTimeout(timer)
+  }, [deepSent])
 
   // 展示优先级：本次运行结果 > 当日存档 > 空态
   const verdict: StockVerdict | null = state.verdict ?? record?.verdict ?? null
@@ -123,8 +139,15 @@ export function AiPanel({ symbol, name, days, ai, chat }: Props) {
           type="button"
           className="dc-btn"
           disabled={!chat.available}
-          title={chat.available ? '把上下文与初判注入当前对话，用 agent 复核（不切视图）' : chat.reason ?? '对话通道不可用'}
-          onClick={() => chat.send(buildDeepDivePrompt({ symbol, name, verdict }))}
+          title={
+            chat.available
+              ? '把上下文与初判注入当前对话并发送（不切视图）。工作台里不显示输入框，点完顶部「对话」标签看回复'
+              : chat.reason ?? '对话通道不可用'
+          }
+          onClick={() => {
+            chat.send(buildDeepDivePrompt({ symbol, name, verdict }))
+            setDeepSent(Date.now())
+          }}
         >
           <MessageSquareText size={12} />
           深入对话
@@ -266,7 +289,13 @@ export function AiPanel({ symbol, name, days, ai, chat }: Props) {
         </div>
       ) : null}
 
-      {chat.available && verdict !== null ? (
+      {/* 「深入对话」回执（8s 自动消失）：工作台里看不到输入框，必须明确告诉用户"发出去了、去哪看" */}
+      {deepSent > 0 ? (
+        <div className="dc-ai-note" role="status">
+          <Send size={10} /> 已把 prompt 发到对话 —— 切顶部「对话」标签看 agent 的复核。
+          （工作台不显示输入框；要自己打字也在「对话」标签里）
+        </div>
+      ) : chat.available && verdict !== null ? (
         <div className="dc-ai-note">
           <Send size={10} /> 「深入对话」只注入 prompt，不切换视图 —— 复核结果在对话页，切上面的标签过去看。
         </div>

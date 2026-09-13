@@ -1,0 +1,23 @@
+[smoke-embedded] 内置 TDX 服务冒烟开始
+  覆盖面：数据层 19 个 = 本脚本 15 个行情 + 4 个 HIST（由 smoke-concept-classes 覆盖）
+  [PASS] quote
+  [PASS] kline
+  [PASS] tick_chart
+  [PASS] transaction
+  [PASS] unusual
+  [PASS] market_monitor
+  [PASS] board_members
+  [PASS] belong_board
+  [PASS] capital_flow
+  [PASS] symbol_info
+  [PASS] server_info
+  [PASS] auction
+  [PASS] goods_quotes
+  [PASS] goods_kline
+  [PASS] goods_varieties
+  [PASS] 排序契约 DESC 跨页（count=200）
+  [PASS] 排序契约 ASC 跨页（count=200）
+  [PASS] 未知 sort_type 如实报错：invalid sort_type: "AMOUNT"（允许：ACTIVITY/AMOUNT_2M/AMPLITUDE_PCT/ASK/ASK_VOLUME/A
+
+[smoke-embedded] RESULT: ALL PASSED
+

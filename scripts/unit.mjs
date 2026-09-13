@@ -69,7 +69,11 @@ for (const file of files) {
       platform: 'node',
       format: 'esm',
       target: 'node20',
-      // `node:*` 由 platform:node 自动置为 external；我们的源码只 import 相对路径与 node:*
+      // `node:*` 由 platform:node 自动置为 external；我们的源码只 import 相对路径与 node:*。
+      // 例外：vendored node-tdx（src/host/vendor/opentdx.js）会 require('iconv-lite')，
+      // 它的 CJS 依赖链（safer-buffer）被 esbuild 内联后会在运行时报错 —— 置为 external，
+      // 运行时从 node_modules 正常解析（与真实 host 半的加载方式一致）。
+      external: ['iconv-lite'],
       logLevel: 'error',
     })
   } catch (err) {

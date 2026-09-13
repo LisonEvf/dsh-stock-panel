@@ -175,9 +175,9 @@ export function verdictLabel(v: Verdict): string {
 export function verdictColor(v: Verdict): string {
   switch (v) {
     case 'beatExpect':
-    case 'weak2strong': return '#c74040' // 红：强
+    case 'weak2strong': return 'var(--dc-up)' // 红：强
     case 'falsify':
-    case 'weak2weak': return '#2d9b65' // 绿：弱
+    case 'weak2weak': return 'var(--dc-down)' // 绿：弱
     case 'trap': return '#e85910' // 橙：陷阱
     default: return '#94a3b8' // 灰：符合
   }

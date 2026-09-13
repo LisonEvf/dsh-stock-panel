@@ -21,6 +21,7 @@ import {
   type SignalKind,
 } from '@/lib/positions'
 import { kellyPosition, gateFromBand } from '@/lib/sizing'
+import { ConfirmButton } from '@/components/ConfirmButton'
 import type { RegimeBand } from '@/lib/regime'
 import { getWatchlist, subscribeWatchlist, type WatchItem } from '@/lib/watchlist-store'
 import { today } from '@/lib/review-store'
@@ -120,20 +121,20 @@ export function PositionDesk({ band }: Props) {
   return (
     <div className="rounded-md border border-slate-100 bg-emerald-50/40 px-2 py-1.5">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[10px] font-medium text-slate-400">持仓决策台 · {positions.length} 只</span>
+        <span className="dc-t-data font-medium text-slate-400">持仓决策台 · {positions.length} 只</span>
         <button
           onClick={() => setAdding((v) => !v)}
-          className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-emerald-600 hover:bg-emerald-100/60"
+          className="flex items-center gap-0.5 rounded px-1 py-0.5 dc-t-data text-emerald-600 hover:bg-emerald-100/60"
         >
           <Plus className="h-3 w-3" />
           {adding ? '收起' : '加仓'}
         </button>
       </div>
 
-      {msg && <div className="mb-1 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-600">{msg}</div>}
+      {msg && <div className="mb-1 rounded bg-amber-50 px-1.5 py-0.5 dc-t-micro text-amber-600">{msg}</div>}
 
       {/* 自统计 + 凯利建议 */}
-      <div className="mb-1.5 rounded bg-white px-1.5 py-1 text-[9px] leading-relaxed text-slate-500">
+      <div className="mb-1.5 rounded bg-white px-1.5 py-1 dc-t-micro leading-relaxed text-slate-500">
         <div>交易日志自统计：{statsLabel(stats)}</div>
         {band && (
           <div>
@@ -147,12 +148,12 @@ export function PositionDesk({ band }: Props) {
       {adding && (
         <div className="mb-1.5 space-y-1 rounded bg-white px-1.5 py-1.5">
           {watchlist.length === 0 ? (
-            <div className="text-[9px] text-slate-300">自选为空——先去「自选」加标的，再从下拉选择</div>
+            <div className="dc-t-micro text-slate-300">自选为空——先去「自选」加标的，再从下拉选择</div>
           ) : (
             <select
               value={pickSym}
               onChange={(e) => setPickSym(e.target.value)}
-              className="w-full rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-700 outline-none focus:border-emerald-400"
+              className="w-full rounded border border-slate-200 bg-white px-1 py-0.5 dc-t-data text-slate-700 outline-none focus:border-emerald-400"
             >
               <option value="">选择自选标的…</option>
               {watchlist.map((w) => (
@@ -164,16 +165,16 @@ export function PositionDesk({ band }: Props) {
           )}
           <div className="grid grid-cols-3 gap-1">
             <input value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} placeholder="成本价" inputMode="decimal"
-              className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] outline-none placeholder:text-slate-300 focus:border-emerald-400" />
+              className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 dc-t-data outline-none placeholder:text-slate-300 focus:border-emerald-400" />
             <input value={shares} onChange={(e) => setShares(e.target.value)} placeholder="股数" inputMode="numeric"
-              className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] outline-none placeholder:text-slate-300 focus:border-emerald-400" />
+              className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 dc-t-data outline-none placeholder:text-slate-300 focus:border-emerald-400" />
             <input value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} placeholder="止损价(可选)" inputMode="decimal"
-              className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] outline-none placeholder:text-slate-300 focus:border-emerald-400" />
+              className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 dc-t-data outline-none placeholder:text-slate-300 focus:border-emerald-400" />
           </div>
           <input value={failIf} onChange={(e) => setFailIf(e.target.value)} placeholder="失败条件（断板/破位/退潮，复盘口径）"
-            className="w-full rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] outline-none placeholder:text-slate-300 focus:border-emerald-400" />
+            className="w-full rounded border border-slate-200 bg-white px-1 py-0.5 dc-t-data outline-none placeholder:text-slate-300 focus:border-emerald-400" />
           <button onClick={submitAdd}
-            className="w-full rounded bg-emerald-500 py-1 text-[10px] font-medium text-white hover:bg-emerald-600">
+            className="w-full rounded bg-emerald-500 py-1 dc-t-data font-medium text-white hover:bg-emerald-600">
             加入持仓（T+1：开仓即持有到次日）
           </button>
         </div>
@@ -188,39 +189,47 @@ export function PositionDesk({ band }: Props) {
                 <div className="flex items-center justify-between gap-1">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-1">
-                      <span className="truncate text-[11px] font-semibold text-slate-700">{p.name}</span>
-                      <span className="shrink-0 font-mono text-[8px] text-slate-300">{p.code}</span>
+                      <span className="truncate dc-t-note font-semibold text-slate-700">{p.name}</span>
+                      <span className="shrink-0 font-mono dc-t-micro text-slate-300">{p.code}</span>
                     </div>
-                    <div className="mt-0.5 truncate text-[9px] text-slate-500">
+                    <div className="mt-0.5 truncate dc-t-micro text-slate-500">
                       成本 {p.entryPrice.toFixed(2)} · {p.shares}股 · 止损 {p.plan.stopLoss.toFixed(2)}
                       {p.plan.failIf && <span className="text-amber-600"> · 失败：{p.plan.failIf}</span>}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <button onClick={() => { setClosingSym(p.symbol); setExitPrice(String(p.entryPrice)) }}
-                      className="rounded bg-red-50 px-1.5 py-0.5 text-[9px] font-medium text-red-600 hover:bg-red-100">
+                      className="rounded bg-red-50 px-1.5 py-0.5 dc-t-micro font-medium text-red-600 hover:bg-red-100">
                       平仓
                     </button>
-                    <button onClick={() => removePosition(p.symbol)} title="删除（不记日志）"
-                      className="rounded p-0.5 text-slate-300 hover:text-slate-500">
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    {/* 审计 I8（原 `onClick={() => removePosition(p.symbol)}`，且与「平仓」
+                        只隔 4px —— 盘中手滑就是删掉一条持仓）：二次确认。
+                        确认文案点出真正的代价："不记日志"意味着这笔交易不进 p̂/b̂ 自统计
+                        （见本文件顶部 WATCH-METHODOLOGY §7 的凯利口径），删除后无法补账。 */}
+                    <ConfirmButton
+                      label={<Trash2 className="h-3 w-3" />}
+                      ariaLabel={`删除 ${p.name} 的持仓记录`}
+                      confirmLabel="确认删除（不记日志）？"
+                      title="删除（不记日志）"
+                      onConfirm={() => removePosition(p.symbol)}
+                      className="rounded p-0.5 dc-t-micro text-slate-300 hover:text-slate-500"
+                    />
                   </div>
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <div className="text-[9px] text-slate-400">平仓 {p.name}（将记入交易日志）</div>
+                  <div className="dc-t-micro text-slate-400">平仓 {p.name}（将记入交易日志）</div>
                   <div className="grid grid-cols-[1fr_auto] gap-1">
                     <input value={exitPrice} onChange={(e) => setExitPrice(e.target.value)} placeholder="退出价" inputMode="decimal"
-                      className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] outline-none focus:border-emerald-400" />
+                      className="w-full min-w-0 rounded border border-slate-200 bg-white px-1 py-0.5 dc-t-data outline-none focus:border-emerald-400" />
                     <select value={signal} onChange={(e) => setSignal(e.target.value as SignalKind)}
-                      className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-700 outline-none focus:border-emerald-400">
+                      className="rounded border border-slate-200 bg-white px-1 py-0.5 dc-t-data text-slate-700 outline-none focus:border-emerald-400">
                       {SIGNS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
                     </select>
                   </div>
                   <div className="flex items-center gap-1">
                     <button onClick={() => submitClose(p)}
-                      className="flex-1 rounded bg-red-500 py-0.5 text-[10px] font-medium text-white hover:bg-red-600">
+                      className="flex-1 rounded bg-red-500 py-0.5 dc-t-data font-medium text-white hover:bg-red-600">
                       确认平仓
                     </button>
                     <button onClick={() => setClosingSym(null)} className="rounded p-0.5 text-slate-400 hover:bg-slate-100" title="取消">
@@ -233,7 +242,7 @@ export function PositionDesk({ band }: Props) {
           ))}
         </ul>
       ) : (
-        <div className="rounded bg-white px-1.5 py-2 text-center text-[9px] text-slate-300">
+        <div className="rounded bg-white px-1.5 py-2 text-center dc-t-micro text-slate-300">
           暂无持仓 —— 空仓也是仓位决策
         </div>
       )}

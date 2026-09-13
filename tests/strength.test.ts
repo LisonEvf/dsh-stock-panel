@@ -96,7 +96,8 @@ test('标签与颜色覆盖全部类别（界面不出现英文枚举）', () =>
   assert.equal(new Set(labels).size, kinds.length, `标签互不相同（${labels.join('/')}）`)
   for (const k of kinds) {
     assert.ok(strongKindLabel(k).length > 0 && !strongKindLabel(k).includes(k), `${k} → ${strongKindLabel(k)}`)
-    assert.match(strongKindColor(k), /^#[0-9a-f]{6}$/i, `${k} 颜色为 hex`)
+    // B2 令牌收口：颜色由字面量 hex 改为语义 token（见 tests/situation.test.ts 的同款说明）。
+    assert.match(strongKindColor(k), /^(#[0-9a-f]{6}|var\(--dc-[a-z-]+\))$/i, `${k} 颜色为语义色`)
   }
   // A 股语义：转弱用绿（跌色），不得跟着真强写成红
   assert.notEqual(strongKindColor('weakening'), strongKindColor('trueStrong'), '转弱与真强必须不同色')

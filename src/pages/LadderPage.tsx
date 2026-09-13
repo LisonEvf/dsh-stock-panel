@@ -12,8 +12,8 @@ import { fmtBigNum } from '@/lib/format'
 import { inferMarket, type MarketTag } from '@/lib/symbol'
 import type { OpenStock } from '@/panel/PanelApp'
 
-const UP = '#c74040'
-const DOWN = '#2d9b65'
+const UP = 'var(--dc-up)'
+const DOWN = 'var(--dc-down)'
 const REFRESH_MS = 30_000
 
 function pctColor(v: number): string {
@@ -113,13 +113,13 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
     <div className={embedded ? 'px-2 pb-2' : 'h-full overflow-y-auto px-2.5 pb-3'}>
       {!embedded && (
         <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
-          <span className="flex items-center gap-1 text-[13px] font-semibold text-slate-800">
+          <span className="flex items-center gap-1 text-sm font-semibold text-slate-800">
             <Flame className="h-3.5 w-3.5 text-red-500" />
             涨停梯队
           </span>
           <div className="flex items-center gap-2">
             {snap && (
-              <span className="text-[10px] text-slate-300">
+              <span className="dc-t-data text-slate-300">
                 {new Date(snap.fetchedAt).toLocaleTimeString('zh-CN', { hour12: false })}
               </span>
             )}
@@ -137,7 +137,7 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
         </div>
       )}
 
-      {error && <div className="mb-1.5 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-500">{error}</div>}
+      {error && <div className="mb-1.5 rounded bg-red-50 px-2 py-1.5 dc-t-note text-red-500">{error}</div>}
 
       {/* 速览（2×2 纵排） */}
       {snap && (
@@ -153,16 +153,16 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
       {tiers.length > 0 && (
         <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] font-medium text-slate-400">连板梯队（{known.length} 只）</span>
+            <span className="dc-t-data font-medium text-slate-400">连板梯队（{known.length} 只）</span>
             {unknown.length > 0 && (
-              <span className="text-[9px] text-amber-500/80">{unknown.length} 只连板待确认</span>
+              <span className="dc-t-micro text-amber-500/80">{unknown.length} 只连板待确认</span>
             )}
           </div>
           <div className="space-y-1">
             {tiers.map(([n, c]) => (
               <div key={n} className="grid grid-cols-[34px_1fr_26px] items-center gap-1.5">
                 <span
-                  className={`font-mono text-[11px] font-bold ${n >= 5 ? 'text-red-500' : n >= 3 ? 'text-amber-500' : 'text-slate-500'}`}
+                  className={`font-mono dc-t-note font-bold ${n >= 5 ? 'text-red-500' : n >= 3 ? 'text-amber-500' : 'text-slate-500'}`}
                 >
                   {n}板
                 </span>
@@ -172,7 +172,7 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
                     style={{ width: `${Math.max(8, (c / maxTierCount) * 100)}%`, background: n >= 3 ? 'rgba(199,64,64,0.7)' : 'rgba(148,163,184,0.6)' }}
                   />
                 </div>
-                <span className="text-right font-mono text-[11px] text-slate-500">{c}</span>
+                <span className="text-right font-mono dc-t-note text-slate-500">{c}</span>
               </div>
             ))}
           </div>
@@ -186,7 +186,7 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
             const group = known.filter((s) => s.streak === n)
             return (
               <div key={n} className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-                <div className="mb-1 text-[10px] font-semibold text-slate-400">
+                <div className="mb-1 dc-t-data font-semibold text-slate-400">
                   {n}板 · {count}只
                 </div>
                 <ul className="space-y-0.5">
@@ -198,14 +198,14 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
                         title={`${s.name} ${s.code} · 涨停 ${s.dates.length} 连板`}
                       >
                         {s.oneWord && (
-                          <span className="shrink-0 rounded bg-red-100 px-1 text-[8px] font-medium text-red-600">一字</span>
+                          <span className="shrink-0 rounded bg-red-100 px-1 dc-t-micro font-medium text-red-600">一字</span>
                         )}
-                        <span className="min-w-0 flex-1 truncate text-[11px] text-slate-700">{s.name}</span>
-                        <span className="shrink-0 font-mono text-[8px] text-slate-300">{s.code}</span>
-                        <span className="w-10 shrink-0 text-right font-mono text-[9px] text-slate-400 tabular-nums">
+                        <span className="min-w-0 flex-1 truncate dc-t-note text-slate-700">{s.name}</span>
+                        <span className="shrink-0 font-mono dc-t-micro text-slate-300">{s.code}</span>
+                        <span className="w-10 shrink-0 text-right font-mono dc-t-micro text-slate-400 tabular-nums">
                           {s.turnover ? `${s.turnover.toFixed(1)}%` : '—'}
                         </span>
-                        <span className="w-12 shrink-0 text-right font-mono text-[9px] text-slate-500 tabular-nums">
+                        <span className="w-12 shrink-0 text-right font-mono dc-t-micro text-slate-500 tabular-nums">
                           {fmtBigNum(s.amount)}
                         </span>
                       </button>
@@ -219,7 +219,7 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
           {/* 连板待确认（数据拉取失败/超时的涨停股） */}
           {unknown.length > 0 && (
             <div className="rounded-md border border-dashed border-amber-200 bg-amber-50/30 px-2 py-1.5">
-              <div className="mb-1 text-[10px] font-semibold text-amber-500/80">连板待确认 · {unknown.length} 只</div>
+              <div className="mb-1 dc-t-data font-semibold text-amber-500/80">连板待确认 · {unknown.length} 只</div>
               <ul className="space-y-0.5">
                 {unknown.map((s) => (
                   <li key={`${s.market}${s.code}`}>
@@ -228,8 +228,8 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
                       className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-white"
                       title={`${s.name} ${s.code}`}
                     >
-                      <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">{s.name}</span>
-                      <span className="shrink-0 font-mono text-[9px] text-slate-300">{s.code}</span>
+                      <span className="min-w-0 flex-1 truncate dc-t-note text-slate-500">{s.name}</span>
+                      <span className="shrink-0 font-mono dc-t-micro text-slate-300">{s.code}</span>
                     </button>
                   </li>
                 ))}
@@ -249,8 +249,8 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
       {snap && snap.boards.length > 0 && (
         <div className="rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] font-medium text-slate-400">涨停板块热度</span>
-            <span className="text-[8px] text-slate-300">按板块当日涨停家数</span>
+            <span className="dc-t-data font-medium text-slate-400">涨停板块热度</span>
+            <span className="dc-t-micro text-slate-300">按板块当日涨停家数</span>
           </div>
           <ul className="space-y-0.5">
             {snap.boards.map((b) => (
@@ -260,11 +260,11 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
                   className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-white"
                   title={`${b.name} · 代表 ${b.rep}（${b.repCode}）`}
                 >
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-slate-600">{b.name}</span>
-                  <span className="shrink-0 rounded bg-red-50 px-1 py-px font-mono text-[9px] font-medium text-red-500">
+                  <span className="min-w-0 flex-1 truncate dc-t-note text-slate-600">{b.name}</span>
+                  <span className="shrink-0 rounded bg-red-50 px-1 py-px font-mono dc-t-micro font-medium text-red-500">
                     {b.limitUpCount} 涨停
                   </span>
-                  <span className="w-11 shrink-0 text-right font-mono text-[10px] tabular-nums" style={{ color: pctColor(b.pct) }}>
+                  <span className="w-11 shrink-0 text-right font-mono dc-t-data tabular-nums" style={{ color: pctColor(b.pct) }}>
                     {b.pct >= 0 ? '+' : ''}
                     {b.pct.toFixed(2)}%
                   </span>
@@ -283,9 +283,9 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
 function StatCell({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
   return (
     <div className="min-w-0 rounded-md border border-slate-100 bg-slate-50/80 px-2 py-1.5">
-      <div className="truncate text-[10px] text-slate-400">{label}</div>
-      <div className="mt-0.5 font-mono text-[14px] font-bold leading-none text-slate-700 tabular-nums">{value}</div>
-      {sub && <div className="mt-1 truncate text-[9px] text-slate-300">{sub}</div>}
+      <div className="truncate dc-t-data text-slate-400">{label}</div>
+      <div className="mt-0.5 font-mono dc-t-decision font-bold leading-none text-slate-700 tabular-nums">{value}</div>
+      {sub && <div className="mt-1 truncate dc-t-micro text-slate-300">{sub}</div>}
     </div>
   )
 }

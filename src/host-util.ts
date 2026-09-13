@@ -7,6 +7,7 @@
  */
 
 import { callEmbeddedTool, TdxToolError, TdxUnavailableError, UnsupportedToolError } from './host/tdx-data'
+import { requireArgsObject } from './host/tool-args'
 import { EMBEDDED_CALL_ROUTE } from './lib/endpoints'
 
 /** host 半可用的 Cordis ctx 形状（仅列出本插件用到的面）。 */
@@ -81,12 +82,22 @@ export function registerEmbeddedTdxBridge(webServer: {
         }
         try {
           const body = await readBody(req)
-          const payload = body.payload as { tool?: string; args?: Record<string, unknown> }
+          const payload = body.payload as { tool?: string; args?: unknown }
           if (!payload || typeof payload.tool !== 'string') {
             send(400, { ok: false, kind: 'business', error: 'body must be {"tool": "...", "args": {...}}' })
             return
           }
-          const data = await callEmbeddedTool(payload.tool, payload.args ?? {})
+          // `args` 形状先校验：透传一个字符串进来（例如被序列化成 "market=US_STOCK"）
+          // 会让每个字段都读到 undefined，最后报出「invalid ex market: undefined」这种
+          // 指向完全错误方向的错 —— 参数问题就该在边界上说清楚。
+          let args: Record<string, unknown>
+          try {
+            args = requireArgsObject(payload.args, 'args')
+          } catch (err) {
+            send(400, { ok: false, kind: 'business', error: (err as Error)?.message ?? String(err) })
+            return
+          }
+          const data = await callEmbeddedTool(payload.tool, args)
           send(200, { ok: true, data: data ?? null })
         } catch (err) {
           if (err instanceof TdxToolError) {

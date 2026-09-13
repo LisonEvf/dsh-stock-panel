@@ -17,12 +17,15 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { computeBuildId, pluginVersion } from './build-id.mjs'
 
 const BASE = (process.argv[2] ?? 'http://127.0.0.1:3080').replace(/\/$/, '')
 const ROOT = join(import.meta.dirname, '..')
 const pkgVersion = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 const localBuildId = computeBuildId()
+/** 本仓库构建产物：用它导出的 STATE_TABLES 作为"表清单真源"（脚本不再写死张数）。 */
+const engineModule = await import(pathToFileURL(join(ROOT, 'lib', 'index.js')).href).catch(() => ({}))
 
 let failures = 0
 function assert(cond, msg) {
@@ -118,7 +121,13 @@ if (state.status !== 200) {
     stateTables = b.tables ?? {}
     assert(true, `available=true · 服务来源 ${b.facilitySource ?? '?'}`)
     const names = Object.keys(stateTables)
-    assert(names.length === 8, `8 张表都在（实际 ${names.length}：${names.join(',')}）`)
+    // 与**本仓库声明的表**逐个对齐（此前写死 8 张：代码已 9 张 → 这条真机验收必红）
+    const declared = (engineModule.STATE_TABLES ?? []).map((t) => t.table)
+    const missing = declared.filter((t) => !names.includes(t))
+    assert(
+      declared.length > 0 && names.length === declared.length && missing.length === 0,
+      `${declared.length} 张表都在（实际 ${names.length}：${names.join(',')}${missing.length ? ` · 缺 ${missing.join(',')}` : ''}）`,
+    )
     const counts = b.counts ?? {}
     console.log(
       `  ℹ️ 各表记录数：${Object.entries(counts)
@@ -162,7 +171,9 @@ console.log('\n[4] 自挖板块命名桥接（A2b：口径 + 全链路一次真�
     tool: 'hist_concept_classes',
     args: { window: 90, min_corr: 0.6, pool_n: 200, top_members: 3 },
   })
-  const payload = classes.body?.json ?? classes.body
+  // 桥接路由的信封是 {ok,data}（src/host-util.ts）—— 此前写的是 .json，
+  // 于是 payload.classes 恒空、「可用类 0」→ 这条"真实命名"检查长期被静默跳过（还在 exit 0）。
+  const payload = classes.body?.data ?? classes.body
   const usable = (payload?.classes ?? []).filter((c) => c.weak_chain !== true)
   console.log(`  ℹ️ 引擎：as_of=${payload?.as_of ?? '—'} · 类 ${payload?.classes?.length ?? 0} 个（可用 ${usable.length}） · 孤立 ${payload?.isolated_n ?? '—'}`)
   if (usable.length === 0) {

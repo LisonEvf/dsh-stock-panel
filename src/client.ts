@@ -41,30 +41,17 @@ import { invokeTool } from './lib/mcp'
 import { getTransportMode, endpointDiagnostics, AI_CALL_ROUTE } from './lib/endpoints'
 import { getWatchlist } from './lib/watchlist-store'
 import { hostStateInfo, initHostState } from './lib/host-state'
+import { hostChromeInfo } from './lib/host-chrome'
+import { EMBEDDED_TOOLS } from './lib/tool-names'
 import { createElement } from 'react'
 
-/** 内置 node-tdx 覆盖的全部行情工具（与 python opentdx-mcp 15 工具契约一致）。 */
-const EMBEDDED_TOOLS: Array<{ name: string; description: string }> = [
-  { name: 'quote', description: '获取股票实时报价（含 OHLC/成交量/成交额/量比等）' },
-  { name: 'kline', description: '获取 A 股 K 线（升序，旧→新）' },
-  { name: 'tick_chart', description: '获取分时图' },
-  { name: 'transaction', description: '获取逐笔成交' },
-  { name: 'auction', description: '获取集合竞价数据' },
-  { name: 'unusual', description: '获取市场异动数据' },
-  { name: 'board_members', description: '获取板块成分股行情（含排序）' },
-  { name: 'capital_flow', description: '获取个股资金流向' },
-  { name: 'symbol_info', description: '获取个股简要特征' },
-  { name: 'belong_board', description: '查询个股所属板块列表' },
-  { name: 'market_monitor', description: '获取主力监控数据' },
-  { name: 'server_info', description: '获取服务器交易日、交易时段与状态参数' },
-  { name: 'goods_quotes', description: '获取扩展市场报价（期货/港股/美股）' },
-  { name: 'goods_kline', description: '获取扩展市场 K 线' },
-  { name: 'goods_varieties', description: '获取商品品种列表（期货/期权合约）' },
-  { name: 'hist_concept_query', description: '查一只票的 HIST 自挖概念（所在共动类 + 最近共动邻居）' },
-  { name: 'hist_concept_classes', description: '当天全部 HIST 自挖类概要（类id/大小/类内相关/强边密度）' },
-  { name: 'hist_concept_class', description: '查看某个 HIST 自挖类的完整成员表' },
-  { name: 'hist_concept_status', description: 'HIST 自挖概念引擎状态' },
-]
+/**
+ * 内置 node-tdx 覆盖的全部行情工具（19 个 = 行情 15 + HIST 4）。
+ *
+ * 清单**唯一定义在 `lib/tool-names.ts`**（host 半的 dispatch 与诊断面板同源引用）——
+ * 此前这里、dispatch switch、host-tools、MCP-SETUP、诊断面板各写一份，实测漂移成
+ * "19/15/8/12" 四种口径。
+ */
 
 /**
  * 本插件注册的视图身份（写进文档与 host 半元数据，避免散落字面量）。
@@ -195,6 +182,8 @@ export function apply(ctx: DshClientCtx): void {
       watchlist: () => getWatchlist(),
       /** host 侧持久化状态（availability/reason/counts）——排查「数据到底存哪了」。 */
       hostState: () => hostStateInfo(),
+      /** 宿主会话列外壳适配实况（宽度拖拽条是否藏掉/底部对话框是否关闭）——排查"改了没生效"。 */
+      chrome: () => hostChromeInfo(),
       /** 手动重跑一次 host 持久化接入（诊断用）。 */
       reinitHostState: () => initHostState(),
       ...(panel && typeof panel === 'object' ? panel : {}),

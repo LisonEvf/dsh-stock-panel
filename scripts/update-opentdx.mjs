@@ -31,6 +31,16 @@ const localRepo = join(here, '..', '..', 'node-tdx')
 const useLocal = existsSync(join(localRepo, 'package.json'))
 const work = useLocal ? localRepo : join(tmpdir(), `opentdx-update-${Date.now()}`)
 
+/**
+ * Windows 上 `npm` 是 `npm.cmd`：
+ *   1. `execFileSync('npm', …)` 不走 shell → 不解析 PATHEXT → ENOENT；
+ *   2. 改叫 `npm.cmd` 也不行 —— Node ≥18.20 起禁止直接 spawn .cmd/.bat（CVE-2024-27980），
+ *      会抛 EINVAL。
+ * 因此 Windows 上必须交给 cmd.exe（`shell: true`）。
+ */
+const NPM = 'npm'
+const npmOpts = { cwd: work, stdio: 'inherit', shell: process.platform === 'win32' }
+
 try {
   if (useLocal) {
     console.log(`[update-opentdx] 使用本地克隆 ${work}`)
@@ -38,8 +48,8 @@ try {
     execFileSync('git', ['clone', '--depth', '1', REPO, work], { stdio: 'inherit' })
     execFileSync('git', ['-C', work, 'checkout', GIT_REF], { stdio: 'inherit' })
   }
-  execFileSync('npm', ['install', '--no-audit', '--no-fund'], { cwd: work, stdio: 'inherit' })
-  execFileSync('npm', ['run', 'build'], { cwd: work, stdio: 'inherit' })
+  execFileSync(NPM, ['install', '--no-audit', '--no-fund'], npmOpts)
+  execFileSync(NPM, ['run', 'build'], npmOpts)
 
   const dist = join(work, 'dist', 'index.js')
   if (!existsSync(dist)) throw new Error('dist/index.js 未生成')

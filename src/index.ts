@@ -173,21 +173,38 @@ function namingRuntimeOf(ctx: HostCtx): NamingRuntime {
 
 // 内置 TDX 服务导出（脚本/冒烟/诊断复用同一实现）。
 export { callEmbeddedTool, tdxEmbeddedDiagnostics, disposeTdxClient } from './host/tdx-data'
+// HIST 引擎直调（脚本/冒烟复用：`callHistTool(fn, name, args)` 可注入假数据钩子离线跑，
+// 见 scripts/smoke-concept-classes.mjs —— 类列表的「强度/涨幅/涨停数」就是在这条链路上补的）。
+export { callHistTool } from './host/hist-data'
 
 // AI 直调导出（诊断/脚本复用）。
 export { runAiTask, aiAvailability, resolveAiRuntime, registerAiBridge } from './host-ai'
 // 自挖类命名（A2b）导出：脚本/冒烟复用同一实现（依赖注入，可离线跑）。
 export {
+  DEFAULT_BATCH,
   DEFAULT_NAMING_PARAMS,
   clearNamingCache,
   nameClass,
+  nameClasses,
   namingAvailability,
   namingCacheStats,
+  // 素材源清单（单一真源）：冒烟脚本按它核对"每个源都给出了状态"，
+  // 而不是把 4/5 这种数字各自写一遍（README 的"19 工具"就是这么漂移的）。
+  NAMING_SOURCES,
 } from './host/naming/run'
 export { registerNamingBridge } from './host/naming/route'
 export { DEFAULT_NAMING_GUARD } from './host/naming/types'
 // 构建信息导出（诊断/脚本复用）。
 export { hostBuildInfo, registerBuildInfoRoute } from './host/build-info'
+// 工具清单唯一定义源：冒烟脚本按它核对"是否每个工具都被覆盖"（此前 README 说 19 工具冒烟、
+// 脚本只跑 12 个，两边长期不一致）。
+export {
+  CONVERSATION_TOOLS,
+  CONVERSATION_TOOL_NAMES,
+  EMBEDDED_TOOLS,
+  EMBEDDED_TOOL_NAMES,
+  EXTENDED_MARKET_TOOLS,
+} from './lib/tool-names'
 // host 侧持久化导出（诊断/脚本复用）。
 export {
   buildStateSpec,
@@ -202,5 +219,8 @@ export {
   stateSnapshot,
   stateStatus,
 } from './host/state'
+// 持久化表清单导出：验收脚本按它核对"服务端的表 = 本仓库声明的表"，
+// 而不是各自写死 8/9 张（实测已经漂移过：代码 9 张、verify-live 断言 8 张 → 真机必失败）。
+export { STATE_TABLES, STATE_TABLE_MAP } from './lib/state-tables'
 // AI 契约（prompt 组装 / 容错解析 / 上下文裁剪）导出：供 scripts/smoke-ai-contract.mjs 离线回归。
 export { buildAiPrompt, parseAiResult, extractJsonObject, contextBytes, shrinkContext } from './lib/ai-contract'

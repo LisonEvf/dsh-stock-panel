@@ -15,7 +15,7 @@
  *
  * 数据全部走 useSwr 共享 key（与状态带、右栏 AI 上下文同源，不重复请求）。
  */
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Star, RefreshCw, LineChart, Activity } from 'lucide-react'
 import { useSwr, swrKey } from '@/lib/cache'
 import { fetchKlineRows, fetchQuote } from '@/lib/stock-data'
@@ -28,6 +28,7 @@ import { StockIntraday } from '@/components/StockIntraday'
 import { StockCapitalFlow } from '@/components/StockCapitalFlow'
 import { StockTransactions } from '@/components/StockTransactions'
 import { StockAuctionReview } from '@/components/StockAuctionReview'
+import { ErrorBar } from '@/components/ErrorBar'
 import { pctClass } from '@/panel/StatusStrip'
 
 /** K 线区间预设。 */
@@ -56,9 +57,27 @@ export function WatchView() {
   const code = sel?.code ?? null
   const symbol = sel === null ? null : `${sel.market}${sel.code}`
 
+  const quoteKey = market !== null && code !== null ? swrKey.quote(market, code) : 'swr:quote:none'
+  /**
+   * 报价错误的 **kind 保真**（I3）：审计原文指出旧代码读了 `quote.error` 却从不渲染
+   * （`WatchView.tsx:59-63`），报价区于是永久显示 `—`，用户以为"今天就是没价"。
+   *
+   * 渲染它之前还有个小坑：`useSwr` 只保留**错误字符串**（`lib/cache.ts` 的 `SwrEntry.error`
+   * 只有 string 字段，`mcp.ts` 新挂的 kind 会在那里被丢掉），而那个文件不在本次改动范围。
+   * 所以退一步：在 fetcher 里顺手存一份**原始错误对象**，渲染时优先用它判分类，
+   * 取不到再回退字符串（ErrorBar 内部还有消息特征兜底）。
+   * 连 key 一起存，是为了切标的时不要把上一只票的错误算到这一只头上。
+   */
+  const quoteErrRef = useRef<{ key: string; err: unknown } | null>(null)
   const quote = useSwr(
-    market !== null && code !== null ? swrKey.quote(market, code) : 'swr:quote:none',
-    () => (market !== null && code !== null ? fetchQuote(market, code) : Promise.resolve(null)),
+    quoteKey,
+    () => {
+      if (market === null || code === null) return Promise.resolve(null)
+      return fetchQuote(market, code).catch((e: unknown) => {
+        quoteErrRef.current = { key: quoteKey, err: e }
+        throw e
+      })
+    },
     { ttl: 6000, refreshInterval: 12000, enabled: market !== null && code !== null },
   )
   const kline = useSwr(
@@ -67,6 +86,16 @@ export function WatchView() {
     { ttl: 60000, enabled: symbol !== null && market !== null && code !== null },
   )
   const verdictRec = useVerdict(symbol)
+
+  /** 报价错误：优先用保留的原始对象（带 kind），否则用缓存层给的字符串。 */
+  const quoteError: unknown =
+    quote.error === undefined
+      ? null
+      : quoteErrRef.current !== null && quoteErrRef.current.key === quoteKey
+        ? quoteErrRef.current.err
+        : quote.error
+  /** K 线错误：同 quote 的处理（缓存层同样只留字符串）。 */
+  const klineError: unknown = kline.error ?? null
 
   /** 模型价位 → K 线价位线（这就是「模型反馈完善视图」）。 */
   const priceLines = useMemo<PriceLineSpec[]>(() => {
@@ -154,6 +183,18 @@ export function WatchView() {
         </div>
       </div>
 
+      {/* 报价失败**必须说话**（I3）：facts 区显示 `—` 不是"今天没价"，而是"这一路取数挂了"。
+          错误条给出分类 + 建议 + 重试；`onRetry` 走 quote.refresh()（绕过 ttl 立刻重取）。 */}
+      {quoteError !== null && (
+        <ErrorBar
+          className="mx-1.5 mb-1"
+          error={quoteError}
+          onRetry={() => quote.refresh()}
+          retryLabel="重取报价"
+          extra="下面报价栏里的「—」表示这一路没取到数（缓存层已下线旧报价，不会拿过期价冒充实时价）。"
+        />
+      )}
+
       {/* ── 图区工具条 ── */}
       <div className="dc-chart-bar">
         <div className="dc-seg">
@@ -198,7 +239,8 @@ export function WatchView() {
 
         <span style={{ flex: 1 }} />
         <span className="dc-ai-note">
-          {kline.status === 'loading' ? 'K线加载中…' : kline.error ? `K线失败：${kline.error}` : `${chartRows.length} 根`}
+          {/* 细节交给图区里的 ErrorBar，这里只留状态标记，避免同一句话出现两遍 */}
+          {kline.status === 'loading' ? 'K线加载中…' : klineError !== null ? 'K线失败' : `${chartRows.length} 根`}
         </span>
         <button
           type="button"
@@ -217,8 +259,15 @@ export function WatchView() {
       <div className="dc-chart-area">
         {mode === 'kline' ? (
           chartRows.length === 0 && kline.status !== 'loading' ? (
-            <div className="dc-empty" style={{ flex: 1 }}>
-              <div>{kline.error ? `K 线不可用：${kline.error}` : '暂无 K 线数据（休市/数据源空返回）'}</div>
+            // K 线失败同样不能只留一句话：给出分类 + 重试（此前这里只有一行 `K 线不可用：…`）
+            <div className="w-full p-2">
+              {klineError !== null ? (
+                <ErrorBar error={klineError} onRetry={() => kline.refresh()} retryLabel="重取 K 线" />
+              ) : (
+                <div className="dc-empty">
+                  <div>暂无 K 线数据（休市/数据源空返回）</div>
+                </div>
+              )}
             </div>
           ) : (
             <KlineChart

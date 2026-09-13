@@ -2496,7 +2496,7 @@ var MacQuotationMixin = class {
         const currentCount = Math.min(pageSize, count - start);
         const part = await this.call(new BoardList(market, start, currentCount));
         if (!part) break;
-        if (part.items.length > 0) securityList.unshift(...part.items);
+        if (part.items.length > 0) securityList.push(...part.items);
         if (part.items.length < currentCount) break;
       }
       return securityList;
@@ -2519,7 +2519,7 @@ var MacQuotationMixin = class {
           excludeFlags
         ));
         if (!rs) break;
-        if (rs.stocks.length > 0) securityList.unshift(...rs.stocks);
+        if (rs.stocks.length > 0) securityList.push(...rs.stocks);
         if (rs.stocks.length < currentCount) break;
       }
       return securityList;
@@ -2552,7 +2552,7 @@ var MacQuotationMixin = class {
           excludeFlags
         ));
         if (!rs) break;
-        if (rs.stocks.length > 0) securityList.unshift(...rs.stocks);
+        if (rs.stocks.length > 0) securityList.push(...rs.stocks);
         if (rs.stocks.length < currentCount) break;
       }
       return securityList;
@@ -2601,7 +2601,7 @@ var MacQuotationMixin = class {
           b.float_shares = fs;
           b.turnover = fs && b.vol ? Math.round(b.vol / fs * 100 * 100) / 100 : 0;
         }
-        if (part.length > 0) securityList.unshift(...part);
+        if (part.length > 0) securityList.push(...part);
         if (part.length < currentCount) break;
       }
       return securityList;
@@ -2633,7 +2633,7 @@ var MacQuotationMixin = class {
         const currentCount = Math.min(MAX_TRANSACTION_COUNT, start + count - currentStart);
         const result = await this.call(new SymbolTransaction(market, code, currentCount, currentStart, queryDate));
         if (!result) break;
-        if (result.transactions.length > 0) transactionList.unshift(...result.transactions);
+        if (result.transactions.length > 0) transactionList.push(...result.transactions);
         if (result.transactions.length < currentCount) break;
       }
       return transactionList;

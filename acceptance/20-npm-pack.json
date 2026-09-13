@@ -1,0 +1,52 @@
+npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+[
+  {
+    "id": "@lisonevf/dsh-stock-panel@1.4.0",
+    "name": "@lisonevf/dsh-stock-panel",
+    "version": "1.4.0",
+    "size": 289503,
+    "unpackedSize": 958946,
+    "shasum": "0ca62c39283b0bbbabbc3b03df090811a278ec1f",
+    "integrity": "sha512-nhdQ05lRFjxyYr5ssIFJw3h4CXWlklTgHD5nkvWXEQr8lMDkGKBWoNAZq3Ac94nccEX6DKFCYltsIw1WpShKsg==",
+    "filename": "lisonevf-dsh-stock-panel-1.4.0.tgz",
+    "files": [
+      {
+        "path": "README.md",
+        "size": 29629,
+        "mode": 420
+      },
+      {
+        "path": "cordis.patch.yml",
+        "size": 2013,
+        "mode": 420
+      },
+      {
+        "path": "lib/client.js",
+        "size": 614118,
+        "mode": 420
+      },
+      {
+        "path": "lib/index.js",
+        "size": 309417,
+        "mode": 420
+      },
+      {
+        "path": "lib/types/client/index.d.ts",
+        "size": 527,
+        "mode": 420
+      },
+      {
+        "path": "lib/types/index.d.ts",
+        "size": 195,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 3047,
+        "mode": 420
+      }
+    ],
+    "entryCount": 7,
+    "bundled": []
+  }
+]

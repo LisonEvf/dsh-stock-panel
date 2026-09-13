@@ -26,6 +26,8 @@ import {
   type NamingResult,
   type NamingVerdict,
 } from './types'
+import { describeMaterialCause, pickDegradedReason } from './cause'
+import { SOURCE_NEWS } from './news'
 
 /** 引文最短长度：只抄「所属板块」四个字不构成有效证据。 */
 export const MIN_QUOTE_LEN = 4
@@ -222,10 +224,15 @@ export function applyGuards(args: ApplyGuardsArgs): NamingResult {
     }
     if (reasons.length) {
       notes.push(...reasons)
-      // 有素材但证据不合格 → no_common；完全没素材 → insufficient
+      // 有素材但证据不合格 → no_common；完全没素材 → insufficient（成因按采集事实定档）
       if (corpus.items.length === 0) {
         verdict = 'insufficient'
-        degraded = 'no_material'
+        degraded = pickDegradedReason({
+          sources: corpus.sources,
+          itemCount: 0,
+          missingMemberCount: args.memberLabels.length,
+          legacyMissingSources: corpus.missingSources,
+        })
       } else {
         verdict = 'no_common'
         degraded = 'guard_rejected'
@@ -236,19 +243,41 @@ export function applyGuards(args: ApplyGuardsArgs): NamingResult {
     theme = null
   } else {
     theme = null
-    // 成因必须分层，绝不能留 none
+    // 成因必须分层，绝不能留 none —— 而且**按采集事实定**，不看模型怎么解释（见 cause.ts）
     const stocksWithItems = new Set(corpus.items.map((i) => i.stock))
     const missingMembers = args.memberLabels.filter((label) => !stocksWithItems.has(label))
-    if (corpus.items.length === 0) {
-      degraded = 'no_material'
-    } else if (missingMembers.length > 0) {
-      degraded = 'partial_material'
+    degraded = pickDegradedReason({
+      sources: corpus.sources,
+      itemCount: corpus.items.length,
+      missingMemberCount: missingMembers.length,
+      legacyMissingSources: corpus.missingSources,
+    })
+    if (missingMembers.length > 0) {
       notes.push(`部分成员票窗口内无素材：${missingMembers.join('、')}（源无数据或该票当日无数据）`)
-    } else if (args.sourceFailed || corpus.missingSources.length > 0) {
-      degraded = 'source_failed'
-    } else {
-      degraded = 'llm_insufficient'
     }
+    if (degraded === 'source_skipped') {
+      notes.push('实时源（异动/主力监控）按设计跳过：as_of 不是当前交易日，不做历史回放')
+    }
+    if (degraded === 'source_failed') {
+      notes.push(`源采集失败：${corpus.missingSources.join('、')}`)
+    }
+  }
+
+  const sourceStatus = [...(corpus.sources ?? [])]
+
+  /**
+   * 「事件优先、标签兜底」的**独立核对**。
+   *
+   * 提示词第 0 条要求模型：有快讯事件必须依据事件命名；没有才用板块标签兜底并注明。
+   * 模型可能忘记标注 —— 所以系统**自己算一遍事实**（结论有没有用到快讯），
+   * 作为护栏备注如实显示。归因不能交给被审计者书写（同 `cause.ts` 的立场）。
+   *
+   * 只在"语料里确实有快讯、而结论一条都没用"时提示：语料本来就没有快讯的情况，
+   * 逐源状态已经写明了原因，再加一句只是噪声。
+   */
+  const corpusHasNews = corpus.items.some((i) => i.source === SOURCE_NEWS)
+  if (verdict === 'named' && corpusHasNews && !evidence.some((e) => e.source === SOURCE_NEWS && e.inWindow)) {
+    notes.push('本组命名的证据全部来自板块标签/盘面素材，**没有用到窗口内的快讯事件**（按"事件优先、标签兜底"口径标注）')
   }
 
   return {
@@ -265,6 +294,8 @@ export function applyGuards(args: ApplyGuardsArgs): NamingResult {
     evidence,
     reasoning,
     missingSources: [...corpus.missingSources],
+    sourceStatus,
+    causeNote: describeMaterialCause(sourceStatus, corpus.items.length, args.memberLabels.length),
     degradedReason: degraded,
     guardNotes: notes,
     fingerprint: args.fingerprint,
@@ -299,6 +330,8 @@ export function degradedResult(args: {
     evidence: [],
     reasoning: '素材不足，回退人工命名。',
     missingSources: [...args.corpus.missingSources],
+    sourceStatus: [...(args.corpus.sources ?? [])],
+    causeNote: describeMaterialCause(args.corpus.sources, args.corpus.items.length),
     degradedReason: args.reason,
     guardNotes: [args.note],
     fingerprint: args.fingerprint,

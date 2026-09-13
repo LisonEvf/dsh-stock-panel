@@ -29,7 +29,15 @@ function writeIndexDts() {
       '[postbuild-dts] 未在 lib/ 找到 index 的分片 .d.ts（需要 tsdown 先生成 JS 产物）'
     )
   }
-  const body = `export * from "./${match}";\n`
+  // 两个坑（都实测过，见 acceptance/26-*.log）：
+  //   1) 分片在 lib/ 下、薄壳在 lib/types/ 下 —— 少了 "../" 就永远解析不到；
+  //   2) 说明符必须写 ".js" 而不是 ".d.ts"：写 ".d.ts" 时 TS 报 TS2846
+  //      （declaration file cannot be imported without 'import type'），
+  //      写无扩展名则在 node16/nodenext 下报 TS2834。
+  //      "../index-xxxx.js" 会被 TS 按「声明文件替换」规则解析到 index-xxxx.d.ts，
+  //      在 bundler 与 node16 两种 moduleResolution 下都通过。
+  const specifier = match.replace(/\.d\.ts$/, '.js')
+  const body = `export * from "../${specifier}";\n`
   const content =
     '// 由 scripts/postbuild-dts.mjs 自动生成，勿手改。\n' +
     '// 薄壳：把 tsdown 生成的分片 .d.ts 重新导出为 exports 约定的入口路径。\n\n' +

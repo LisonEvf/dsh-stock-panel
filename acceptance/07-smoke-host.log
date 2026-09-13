@@ -1,0 +1,96 @@
+[1] 路由注册（假 ctx + 假 storageDomain）
+[stock-panel] embedded TDX bridge registered at /api/stock-panel/call
+[stock-panel] build info route registered at /api/stock-panel/build（v1.4.0 · 71ec124e）
+[stock-panel] 持久化路由已注册：GET/POST /api/stock-panel/state（域 'stock_panel'）
+[stock-panel] 对话行情工具已注册 ×8
+[stock-panel] AI bridge registered at /api/stock-panel/ai
+[stock-panel] AI 直调不可用（ctx.llm 不可用（宿主未挂载 LLM 服务））——面板「AI 研判」按钮将置灰，不影响行情。
+[stock-panel] 命名桥接已注册：/api/stock-panel/naming
+  ✅ TDX 桥接路由已注册（/api/stock-panel/call）
+  ✅ 构建信息路由已注册（/api/stock-panel/build）
+  ✅ 持久化路由已注册（/api/stock-panel/state）
+  ✅ 三条路由均为 exact 匹配
+[2] GET /api/stock-panel/build
+[stock-panel] 持久化域 'stock_panel' 已就绪（11 张表 @ json 后端，服务来源 ctx.storageDomain）
+  ✅ HTTP 200（实际 200）
+  ✅ version = package.json（1.4.0）
+  ✅ buildId 是 8 位十六进制（71ec124e）
+[3] 持久化领域的 spec 契约
+  ✅ facility.open 被调用（说明域已初始化）
+  ✅ 领域名合法且无连字符（'stock_panel'）
+  ✅ 领域版本固定为 1（1）—— 避免 version-mismatch 无迁移
+  ✅ layout = per-record（per-record）
+  ✅ 单条坏记录不阻塞整域打开
+  ✅ lib/index.js 导出 STATE_TABLES（11 张）
+  ✅ spec 表 = STATE_TABLES（spec 11 / 声明 11：watchlist,review,review_draft,dayrun,positions,tradelog,verdicts,events,viewed,alert_rules,alert_hits）
+  ✅ 每张表都带 valueSchema.parse（子系统逐条校验要用）
+  ✅ global schema 拒绝 null（null 是介质「从未写入」哨兵，契约要求拒绝）
+  ✅ global 带 schemaVersion（自有迁移用）
+[4] GET / POST /api/stock-panel/state
+  ✅ GET HTTP 200（实际 200）
+  ✅ 可用（available=true）
+  ✅ 域 = stock_panel（stock_panel）
+  ✅ 快照含全部 11 张表（实际 11）
+  ✅ POST 写入成功（written=1）
+  ✅ GET 能读回刚写入的记录（写→读闭环）
+  ✅ 未声明的表被拒（未声明的表 'nope'）
+  ✅ DELETE 语义（delete:true）生效
+[5] 降级：宿主未挂 storageDomain（不得崩溃，且如实说明）
+[stock-panel] embedded TDX bridge registered at /api/stock-panel/call
+[stock-panel] build info route registered at /api/stock-panel/build（v1.4.0 · 71ec124e）
+[stock-panel] 持久化路由已注册：GET/POST /api/stock-panel/state（域 'stock_panel'）
+[stock-panel] 对话行情工具已注册 ×8
+[stock-panel] AI bridge registered at /api/stock-panel/ai
+[stock-panel] AI 直调不可用（ctx.llm 不可用（宿主未挂载 LLM 服务））——面板「AI 研判」按钮将置灰，不影响行情。
+[stock-panel] 命名桥接已注册：/api/stock-panel/naming
+  ✅ apply 不抛异常（GUI/行情链路不受影响）
+  ✅ 降级时路由仍注册（前端可据此显示原因）
+  ✅ 如实地报不可用（available=false）
+  ✅ 给出原因（宿主未挂载存储子系统（ctx.storageDomain / ctx.storage.domain 均取不到（inject 已声明=否，回调已触发=否）））
+[6] 服务晚到：apply 时没有 storageDomain，之后才挂上 → 请求时应自愈
+[stock-panel] embedded TDX bridge registered at /api/stock-panel/call
+[stock-panel] build info route registered at /api/stock-panel/build（v1.4.0 · 71ec124e）
+[stock-panel] 持久化路由已注册：GET/POST /api/stock-panel/state（域 'stock_panel'）
+[stock-panel] 对话行情工具已注册 ×8
+[stock-panel] AI bridge registered at /api/stock-panel/ai
+[stock-panel] AI 直调不可用（ctx.llm 不可用（宿主未挂载 LLM 服务））——面板「AI 研判」按钮将置灰，不影响行情。
+[stock-panel] 命名桥接已注册：/api/stock-panel/naming
+  ✅ 服务未挂时如实报不可用（第一次请求）
+[stock-panel] 持久化域 'stock_panel' 已就绪（11 张表 @ json 后端，服务来源 ctx.storageDomain）
+  ✅ 服务挂上后**无需重启**即自愈（available=true）—— 不可用结论不再被永久缓存
+  ✅ 诊断里能看到服务来源（ctx.storageDomain）
+[7] 服务挂载在 hub 上（ctx.storage.domain）时也能解析
+[stock-panel] embedded TDX bridge registered at /api/stock-panel/call
+[stock-panel] build info route registered at /api/stock-panel/build（v1.4.0 · 71ec124e）
+[stock-panel] 持久化路由已注册：GET/POST /api/stock-panel/state（域 'stock_panel'）
+[stock-panel] 对话行情工具已注册 ×8
+[stock-panel] AI bridge registered at /api/stock-panel/ai
+[stock-panel] AI 直调不可用（ctx.llm 不可用（宿主未挂载 LLM 服务））——面板「AI 研判」按钮将置灰，不影响行情。
+[stock-panel] 命名桥接已注册：/api/stock-panel/naming
+[stock-panel] 持久化域 'stock_panel' 已就绪（11 张表 @ json 后端，服务来源 ctx.storage.domain）
+  ✅ hub 路径可解析（available=true）
+  ✅ 来源=ctx.storage.domain
+[8] 声明式注入：apply 会向 cordis 声明 storageDomain，并用 scoped ctx 打开领域
+[stock-panel] embedded TDX bridge registered at /api/stock-panel/call
+[stock-panel] build info route registered at /api/stock-panel/build（v1.4.0 · 71ec124e）
+[stock-panel] 持久化路由已注册：GET/POST /api/stock-panel/state（域 'stock_panel'）
+[stock-panel] 对话行情工具已注册 ×8
+[stock-panel] AI bridge registered at /api/stock-panel/ai
+[stock-panel] AI 直调不可用（ctx.llm 不可用（宿主未挂载 LLM 服务））——面板「AI 研判」按钮将置灰，不影响行情。
+[stock-panel] 命名桥接已注册：/api/stock-panel/naming
+  ✅ ctx.inject 声明了 storageDomain（实际：[["storageDomain"]]）
+[stock-panel] 持久化域 'stock_panel' 已就绪（11 张表 @ json 后端，服务来源 ctx.storageDomain）
+  ✅ 只挂在 scoped ctx 上的服务也能用（available=true）—— 回调用外层 ctx 就会失败
+  ✅ 来源=ctx.storageDomain
+[9] 真机取证增强：不可用时必须交代 inject 声明与回调触发情况
+[stock-panel] embedded TDX bridge registered at /api/stock-panel/call
+[stock-panel] build info route registered at /api/stock-panel/build（v1.4.0 · 71ec124e）
+[stock-panel] 持久化路由已注册：GET/POST /api/stock-panel/state（域 'stock_panel'）
+[stock-panel] 对话行情工具已注册 ×8
+[stock-panel] AI bridge registered at /api/stock-panel/ai
+[stock-panel] AI 直调不可用（ctx.llm 不可用（宿主未挂载 LLM 服务））——面板「AI 研判」按钮将置灰，不影响行情。
+[stock-panel] 命名桥接已注册：/api/stock-panel/naming
+  ✅ 服务不存在时如实报不可用
+  ✅ 原因里带取证字段（宿主未挂载存储子系统（ctx.storageDomain / ctx.storage.domain 均取不到（inject 已声明=是，回调已触发=是）））
+[smoke-host-state] 全部通过 ✅
+

@@ -32,8 +32,12 @@ export interface NamingAvailability {
   provider?: string
   model?: string
   promptVersion?: string
+  /** 批量提示词版本（与单类分开：两种问法的结论不共享缓存）。 */
+  batchPromptVersion?: string
   defaults?: NamingParams
   guard?: NamingGuardConfig
+  /** 批量预算（host 半给出，界面不硬编码）。 */
+  batch?: { maxClasses: number; maxMembersPerCall: number }
   cache?: number
   today?: string | null
 }
@@ -82,7 +86,14 @@ export type NamingOutcome =
     }
   | { ok: false; reason: 'weak_chain' | 'no_class' | 'tdx_unavailable'; classId: number; asOf?: string; note: string }
 
+/**
+ * 数值归一：**缺失一律 undefined**。
+ *
+ * `Number(null)` / `Number('')` 都是 0 —— 直接 `Number()` 会把"没有数据"变成"平盘 0%"，
+ * 而这类错误在界面上完全看不出来（只表现为强度/涨幅偏低）。所以先把缺失挡在最前面。
+ */
 function num(v: unknown): number | undefined {
+  if (v === null || v === undefined || v === '') return undefined
   const n = Number(v)
   return Number.isFinite(n) ? n : undefined
 }
@@ -214,6 +225,8 @@ export function degradedLabel(reason: string): string {
   switch (reason) {
     case 'no_material':
       return '窗口内没有素材'
+    case 'source_skipped':
+      return '实时源按设计跳过（as_of 不是当前交易日，不做历史回放）'
     case 'partial_material':
       return '部分成员无素材'
     case 'source_failed':
@@ -228,5 +241,212 @@ export function degradedLabel(reason: string): string {
       return '证据未通过护栏（含编造引文）'
     default:
       return ''
+  }
+}
+
+// ─────────────────────────── 类列表（含强度口径） ───────────────────────────
+
+/**
+ * 一个类成员（host 半已判好涨停，前端不再自己算 —— 涨停要 `buy_price_limit` 精确判定，
+ * 而那张全A快照在 host 侧；前端重算必然与状态带广度漂）。
+ */
+export interface ConceptMemberRow {
+  market: string
+  code: string
+  name: string
+  /** 当日涨跌幅（%，null = 无数据）。 */
+  chgPct: number | null
+  /** 当日涨停（收盘触及涨停价）。 */
+  limitUp: boolean
+  /** 与类内其它成员的当日涨幅平均相关（结构指标，不是当日强弱）。 */
+  corr: number | null
+}
+
+/** 类列表的一行：**结构指标（引擎）+ 当日强弱（host 聚合）**。 */
+export interface ConceptClassRow {
+  classId: number
+  size: number
+  intraCorr: number
+  strongDensity: number
+  weakChain: boolean
+  top: string[]
+  members: ConceptMemberRow[]
+  /** 有当日涨跌幅的成员只数（< size 时界面要标注"仅 N/M 只算过"）。 */
+  knownN: number
+  chgMean: number | null
+  chgMax: number | null
+  upN: number
+  limitUpN: number
+  /** 强度分（口径见 `lib/concept-strength.ts`：均涨幅 + 6×涨停数）。 */
+  strength: number
+}
+
+export interface ConceptClassesPayload {
+  ok: boolean
+  asOf: string
+  classes: ConceptClassRow[]
+  isolatedN: number
+  isolatedTop: Array<{ market: string; code: string; name: string; chgPct: number | null; limitUp: boolean }>
+  notes: string[]
+  params: NamingParams
+}
+
+/** 拉类列表（`hist_concept_classes` 已经过 host 半补强度；失败不抛，返回 ok:false + 原因）。 */
+export async function fetchConceptClasses(
+  params: NamingParams = NAMING_PARAMS_FALLBACK,
+  topMembers = 5,
+): Promise<ConceptClassesPayload> {
+  const raw = (await callToolJson('hist_concept_classes', {
+    window: params.window,
+    min_corr: params.minCorr,
+    pool_n: params.poolN,
+    top_members: topMembers,
+  })) as Record<string, unknown> | null
+  if (raw === null || raw.ok === false) {
+    return {
+      ok: false,
+      asOf: str((raw as { as_of?: unknown } | null)?.as_of),
+      classes: [],
+      isolatedN: 0,
+      isolatedTop: [],
+      notes: [str((raw as { error?: unknown } | null)?.error) || '引擎未返回结果'],
+      params,
+    }
+  }
+  const classes: ConceptClassRow[] = []
+  for (const c of (Array.isArray(raw.classes) ? raw.classes : []) as Array<Record<string, unknown>>) {
+    const members: ConceptMemberRow[] = []
+    for (const m of (Array.isArray(c.members) ? c.members : []) as Array<Record<string, unknown>>) {
+      members.push({
+        market: str(m.market).toUpperCase() || 'SZ',
+        code: str(m.code),
+        name: str(m.name),
+        chgPct: num(m.chg_pct) ?? null,
+        limitUp: m.limit_up === true,
+        corr: num(m.corr) ?? null,
+      })
+    }
+    classes.push({
+      classId: Number(c.class_id),
+      size: num(c.size) ?? members.length,
+      intraCorr: num(c.mean_intra_corr) ?? 0,
+      strongDensity: num(c.strong_density) ?? 0,
+      weakChain: Boolean(c.weak_chain),
+      top: (Array.isArray(c.top) ? c.top : []).map((t) => String(t)),
+      members,
+      knownN: num(c.known_n) ?? members.filter((m) => m.chgPct !== null).length,
+      chgMean: num(c.chg_mean) ?? null,
+      chgMax: num(c.chg_max) ?? null,
+      upN: num(c.up_n) ?? 0,
+      limitUpN: num(c.limit_up_n) ?? members.filter((m) => m.limitUp).length,
+      strength: num(c.strength) ?? 0,
+    })
+  }
+  const isolatedTop: ConceptClassesPayload['isolatedTop'] = []
+  for (const s of (Array.isArray(raw.isolated_top) ? raw.isolated_top : []) as Array<Record<string, unknown>>) {
+    isolatedTop.push({
+      market: str(s.market).toUpperCase(),
+      code: str(s.code),
+      name: str(s.name),
+      chgPct: num(s.chg_pct) ?? null,
+      limitUp: s.limit_up === true,
+    })
+  }
+  const meta = (raw.meta ?? {}) as Record<string, unknown>
+  return {
+    ok: true,
+    asOf: str(raw.as_of) || str(meta.as_of),
+    classes,
+    isolatedN: num(raw.isolated_n) ?? 0,
+    isolatedTop,
+    notes: [],
+    params,
+  }
+}
+
+// ─────────────────────────── 批量命名（类列表默认路径） ───────────────────────────
+
+/** 批量结果里的一组。 */
+export interface BatchNamingEntry {
+  classId: number
+  size: number
+  memberCount: number
+  members: Array<{ market: string; code: string; name: string; changePct?: number | null }>
+  /** 该组的命名结论；null = 本轮没算它（弱链/超上限）。 */
+  naming: NamingResult | null
+  skipReason?: 'weak_chain' | 'over_cap' | 'not_found'
+  cached: boolean
+}
+
+export type BatchNamingOutcome =
+  | {
+      ok: true
+      asOf: string
+      entries: BatchNamingEntry[]
+      effective: { asOf: string; window: number; minCorr: number; poolN: number; nClasses: number; meanIntraCorr: number | null }
+      collectNotes: string[]
+      sourcesUsed: string[]
+      /** 本次真的发起了几次模型调用（0 = 全部命中缓存）。 */
+      llmCalls: number
+      targetCount: number
+      /** 整批直接命中 memo（0 采集 + 0 模型调用）。 */
+      memoHit: boolean
+      notes: string[]
+    }
+  | { ok: false; reason: 'tdx_unavailable' | 'no_classes'; note: string }
+
+/**
+ * 批量命名（打开类列表时的默认动作）。
+ *
+ * 与单类的差别只有"问法与批次"：**护栏、缓存、弱链拒绝逐组独立执行**，
+ * 所以批量不会让任何一组的结论变松。`refresh=true` 才绕过缓存与整批 memo
+ * （会真的再调模型）。
+ */
+export async function requestBatchNaming(args: {
+  classIds?: number[]
+  asOf?: string
+  params?: Partial<NamingParams>
+  refresh?: boolean
+} = {}): Promise<BatchNamingOutcome> {
+  const res = await fetch(NAMING_ROUTE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...(args.classIds !== undefined ? { classIds: args.classIds } : { all: true }),
+      ...(args.asOf !== undefined ? { asOf: args.asOf } : {}),
+      ...(args.params ?? {}),
+      ...(args.refresh === true ? { refresh: true } : {}),
+    }),
+  })
+  const text = await res.text()
+  let parsed: unknown = null
+  try {
+    parsed = text ? JSON.parse(text) : null
+  } catch {
+    throw new Error(`批量命名返回非 JSON（HTTP ${res.status}）：${text.slice(0, 200)}`)
+  }
+  if (parsed === null || typeof parsed !== 'object') throw new Error(`批量命名返回空（HTTP ${res.status}）`)
+  const obj = parsed as Record<string, unknown>
+  if (obj.ok === false && typeof obj.error === 'string' && obj.reason === undefined) throw new Error(obj.error)
+  return obj as unknown as BatchNamingOutcome
+}
+
+/**
+ * 把批量里的一组包成 `NamingOutcome`，直接喂给 `NamingResultPanel`。
+ *
+ * 为什么要这层转换：单类与批量的**结论结构必须一致**（三态/证据分/降级成因），
+ * 否则展示层会分叉成两套（一处显示证据分、一处忘了成因），而"看起来差不多"的报告
+ * 正是最容易让人误信的那种。
+ */
+export function entryOutcome(batch: BatchNamingOutcome & { ok: true }, entry: BatchNamingEntry): NamingOutcome | null {
+  if (entry.naming === null) return null
+  return {
+    ok: true,
+    result: entry.naming,
+    members: entry.members,
+    effective: batch.effective,
+    collectNotes: batch.collectNotes,
+    sourcesUsed: batch.sourcesUsed,
+    cached: entry.cached,
   }
 }

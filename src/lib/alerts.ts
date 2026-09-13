@@ -11,6 +11,7 @@
  */
 
 import type { MarketTag } from './symbol'
+import { onHostHydrated, syncTable } from './host-state'
 
 // ===== 类型 =====
 
@@ -91,6 +92,8 @@ function persistRules(): void {
   } catch {
     /* 隐私模式等忽略 */
   }
+  // A1：host 域同步（增量；不可用时自动 no-op）。规则是跨日资产，不能只活在浏览器里。
+  syncTable('alert_rules', rules)
 }
 
 function persistHits(): void {
@@ -99,6 +102,7 @@ function persistHits(): void {
   } catch {
     /* 隐私模式等忽略 */
   }
+  syncTable('alert_hits', hits)
 }
 
 function notify(): void {
@@ -272,3 +276,10 @@ export function evaluateEventRule(rule: AlertRule, ev: { name: string; desc: str
   const kw = rule.keyword.toLowerCase()
   return `${ev.name} ${ev.desc} ${ev.code}`.toLowerCase().includes(kw)
 }
+
+// A1：host 域数据落地后，用权威版本重载并通知 UI（与其它 store 同款收口）。
+onHostHydrated(() => {
+  rules = loadRules()
+  hits = loadHits()
+  notify()
+})

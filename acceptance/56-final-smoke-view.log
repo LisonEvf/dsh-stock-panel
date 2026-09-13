@@ -1,0 +1,34 @@
+[1] bundle 契约
+  ✅ load id = @lisonevf/dsh-stock-panel
+  ✅ inject = ["slots"]（只需 'slots'：注册是声明感知的，无需保序声明）
+  ✅ apply 是函数
+[2] 注册行为（只走官方槽位）
+[stock-panel] apply called, injecting conversation.view → stock-panel
+[stock-panel] 视图「A股工作台」已注册（conversation.view#stock-panel）。
+  ✅ slots.inject 目标 = ["conversation.view"]
+  ✅ 注册条目数 = 1
+  ✅ 条目 name = conversation.view
+  ✅ 条目 id = stock-panel（会被宿主持久化为会话首选视图）
+  ✅ 条目 order = 6（「对话」=0 与「轨迹」=10 之间）
+  ✅ 条目 label = A股工作台
+  ✅ 条目的组件是函数
+  ✅ 未向已废弃的自造槽 `stock` 注册（回归护栏）
+[3] 运行时诊断句柄
+  ✅ __STOCK_PANEL__.viewRegistered = true
+  ✅ __STOCK_PANEL__ view/viewId = conversation.view/stock-panel
+  ✅ viewError 为空（实际：undefined）
+  ✅ version 是语义化版本串 = 1.4.0
+  ✅ version 与 package.json 一致（bundle=1.4.0 pkg=1.4.0）
+  ✅ buildId 是 8 位构建哈希 = 122b9bab（构建可见性 / 旧 bundle 检出依赖它）
+  ✅ AI 路由已暴露 = /api/stock-panel/ai
+[3b] host 侧持久化接入（A1）：fetch 不可用时降级、不得抛
+  ✅ __STOCK_PANEL__.hostState() 存在（可排查数据存哪）
+  ✅ fetch 抛异常 → 降级为不可用（实际 unavailable）
+  ✅ 降级原因非空（持久化不可用：smoke-client-view: 不发网络请求）
+[4] 契约缺失时优雅降级（不得抛异常）
+[stock-panel] ctx.slots.inject 不可用，跳过视图注册（GUI 不受影响）。
+  ✅ ctx.slots 无 inject → 不抛异常（GUI boot 不受影响）
+[stock-panel] ctx.slots.inject 不可用，跳过视图注册（GUI 不受影响）。
+  ✅ ctx 为空 → 不抛异常（GUI boot 不受影响）
+[smoke-client-view] 全部通过 ✅
+

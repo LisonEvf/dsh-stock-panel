@@ -160,10 +160,10 @@ export function bandLabel(b: RegimeBand): string {
 export function bandColor(b: RegimeBand): string {
   switch (b) {
     case 'ice':
-    case 'cold': return '#2d9b65' // 绿：冷
-    case 'warm': return '#c74040' // 红：温
+    case 'cold': return 'var(--dc-down)' // 绿：冷
+    case 'warm': return 'var(--dc-up)' // 红：温
     case 'hot':
     case 'overheat': return '#e85910' // 红/橙：热
-    default: return '#c74040'
+    default: return 'var(--dc-up)'
   }
 }

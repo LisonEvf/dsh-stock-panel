@@ -20,7 +20,12 @@ import { CLIENT_BUILD_ID, CLIENT_VERSION } from '@/lib/build-info'
 import { hostStateInfo } from '@/lib/host-state'
 import { swrDiagnostics, type SwrStatus } from '@/lib/cache'
 import { AI_CALL_ROUTE, endpointDiagnostics, getTransportMode } from '@/lib/endpoints'
+import { CONVERSATION_TOOLS, EMBEDDED_TOOLS } from '@/lib/tool-names'
+import { pollGate, pollSkippedTicks } from '@/lib/poll-gate'
 import { callToolJson } from '@/lib/stock-data'
+
+/** HIST 自挖概念工具数（从唯一定义源数出来，不写死数字）。 */
+const HIST_TOOL_COUNT = EMBEDDED_TOOLS.filter((t) => t.name.startsWith('hist_concept_')).length
 
 interface Props {
   onClose: () => void
@@ -37,9 +42,16 @@ interface Probe {
 
 const IDLE: Probe = { loading: false, text: '未探测', ok: false }
 
+/**
+ * 状态 → 颜色档位。
+ *
+ * 实测原实现是 `success → dc-up`（红）/ `error → dc-down`（绿）—— 把 A 股「红涨绿跌」
+ * 直接借来当"成功/失败"用，等于**让用户读反**：缓存正常是红的、取数失败是绿的。
+ * 状态类信息一律用与价格语义解耦的 dc-ok / dc-bad / dc-warn。
+ */
 function statusTone(status: SwrStatus): string {
-  if (status === 'success') return 'dc-up'
-  if (status === 'error') return 'dc-down'
+  if (status === 'success') return 'dc-ok'
+  if (status === 'error') return 'dc-bad'
   if (status === 'loading') return 'dc-warn'
   return 'dc-flat'
 }
@@ -127,7 +139,7 @@ export function DiagnosticsPanel({ onClose, serverBuildId }: Props) {
             <Row
               label="一致性"
               value={serverBuildId === undefined ? '未知' : stale ? '不一致 —— 需硬刷新' : '一致'}
-              tone={stale ? 'dc-down' : 'dc-up'}
+              tone={stale ? 'dc-bad' : 'dc-ok'}
             />
           </Section>
 
@@ -136,7 +148,7 @@ export function DiagnosticsPanel({ onClose, serverBuildId }: Props) {
             <Row
               label="可用性"
               value={host.availability === 'available' ? 'host 域可用' : host.availability === 'unknown' ? '接入中…' : '已降级为本地存储'}
-              tone={host.availability === 'available' ? 'dc-up' : host.availability === 'unknown' ? 'dc-flat' : 'dc-warn'}
+              tone={host.availability === 'available' ? 'dc-ok' : host.availability === 'unknown' ? 'dc-flat' : 'dc-warn'}
             />
             {host.reason !== '' ? <Row label="原因" value={host.reason} tone="dc-warn" /> : null}
             <Row label="已首迁" value={host.migrated === true ? '是' : '否（域为空且本地有数据时会一次性上传）'} />
@@ -147,7 +159,7 @@ export function DiagnosticsPanel({ onClose, serverBuildId }: Props) {
                   ? '0（全部已落地）'
                   : `${host.pending} 张表未落地 —— 数据仍在本地镜像，回到页面/5 秒后自动重试`
               }
-              tone={(host.pending ?? 0) === 0 ? 'dc-up' : 'dc-warn'}
+              tone={(host.pending ?? 0) === 0 ? 'dc-ok' : 'dc-warn'}
             />
             {host.counts !== undefined ? (
               <Row
@@ -165,7 +177,15 @@ export function DiagnosticsPanel({ onClose, serverBuildId }: Props) {
             {Object.entries(endpoints).map(([k, v]) => (
               <Row key={k} label={k} value={v} />
             ))}
-            <Row label="内置工具" value="19 个（数据层：行情 15 + HIST 4）／对话工具 8 个" />
+            <Row
+              label="内置工具"
+              value={`${EMBEDDED_TOOLS.length} 个（数据层：行情 ${EMBEDDED_TOOLS.length - HIST_TOOL_COUNT} + HIST ${HIST_TOOL_COUNT}）／对话工具 ${CONVERSATION_TOOLS.length} 个`}
+            />
+            <Row
+              label="休市闸门"
+              value={`${pollGate().allowed ? '轮询中' : '已暂停定时轮询'} · ${pollGate().reason} · 本次会话已挡下 ${pollSkippedTicks()} 轮`}
+              tone={pollGate().allowed ? '' : 'text-amber-600'}
+            />
           </Section>
 
           {/* ④ 缓存 */}
@@ -189,13 +209,13 @@ export function DiagnosticsPanel({ onClose, serverBuildId }: Props) {
             <Row
               label="AI 一键研判"
               value={ai.loading ? '探测中…' : ai.text}
-              tone={ai.ok ? 'dc-up' : ai.loading ? 'dc-flat' : 'dc-warn'}
+              tone={ai.ok ? 'dc-ok' : ai.loading ? 'dc-flat' : 'dc-warn'}
             />
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
               <button type="button" className="dc-btn" onClick={probeHist} disabled={hist.loading}>
                 <RefreshCw size={11} /> 探测 HIST 引擎
               </button>
-              <span className={hist.ok ? 'dc-up' : 'dc-flat'} style={{ fontSize: 10 }}>
+              <span className={hist.ok ? 'dc-ok' : 'dc-flat'} style={{ fontSize: 11 }}>
                 {hist.loading ? '探测中…' : hist.text}
               </span>
             </div>

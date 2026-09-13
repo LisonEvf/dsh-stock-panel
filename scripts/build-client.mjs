@@ -214,7 +214,23 @@ export async function generate({ check = false } = {}) {
     return { ok: false, errors: [OUTPUT + ' 不存在：运行 node scripts/build-client.mjs 生成'] }
   }
   // 磁盘产物带 `//# sourceMappingURL=client.js.map`（check 版没有），比对时忽略这一行。
-  const strip = (s) => s.replace(/\/\/# sourceMappingURL=.*\n?$/, '')
+  //
+  // 另外要**归一化内嵌的 build id**：`scripts/build-id.mjs` 的哈希输入是 `src/** + package.json`
+  // —— 那是**故意**的（host 半改动也要让 build id 变，界面才能提示"服务端已重建"）。
+  // 但它同时意味着"只改了 host 半、client 代码一字未动"时，生成物里的 id 必然不同，
+  // 于是这条"防手改生成物"的门禁会误报失败（实测：两边代码逐字节一致、只有那 8 位 hex 不同）。
+  // 本门禁要防的是**手改生成物**，所以比对前把两侧的 id 都抹平成占位符；
+  // build id 本身的一致性由 `verify-live.mjs` 与界面自检负责。
+  //
+  // 只认 `="xxxxxxxx"` 这种形态（压缩后 id 作为字符串常量出现的位置），
+  // 不会误伤 CSS 颜色之类的字面量（那些带 `#`）。
+  const quotedId = (s) => [...s.matchAll(/="([0-9a-f]{8})"/g)].map((m) => m[1])
+  const ids = new Set([...quotedId(committed), ...quotedId(fresh)])
+  const strip = (s) => {
+    let out = s.replace(/\/\/# sourceMappingURL=.*\n?$/, '')
+    for (const id of ids) out = out.split(id).join('<buildid>')
+    return out
+  }
   if (strip(committed) !== strip(fresh)) {
     return {
       ok: false,

@@ -66,11 +66,11 @@ export function situationLabel(s: Situation): string {
 /** 局势颜色。 */
 export function situationColor(s: Situation): string {
   switch (s) {
-    case 'recession': return '#2d9b65' // 绿：回避
+    case 'recession': return 'var(--dc-down)' // 绿：回避
     case 'highLowSwitch':
-    case 'newDirection': return '#c74040' // 红：变化
+    case 'newDirection': return 'var(--dc-up)' // 红：变化
     case 'weightLift': return '#e85910' // 橙：谨慎
-    case 'innerDivergence': return '#c74040'
+    case 'innerDivergence': return 'var(--dc-up)'
     default: return '#94a3b8'
   }
 }

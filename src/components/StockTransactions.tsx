@@ -12,8 +12,8 @@ import { fetchTransactions, type TransactionRow } from '@/lib/stock-data'
 import { useSwr, swrKey } from '@/lib/cache'
 import type { MarketTag } from '@/lib/symbol'
 
-const BUY = '#c74040'
-const SELL = '#2d9b65'
+const BUY = 'var(--dc-up)'
+const SELL = 'var(--dc-down)'
 
 function timeSortKey(t: string): number {
   const m = t.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/)
@@ -71,21 +71,21 @@ export function StockTransactions({ market, code }: Props) {
         ) : (
           <ChevronRight className="h-3 w-3 shrink-0 text-slate-300" />
         )}
-        <span className="text-[10px] font-medium text-slate-500">逐笔成交</span>
+        <span className="dc-t-data font-medium text-slate-500">逐笔成交</span>
         {rows.length > 0 && (
-          <span className="ml-auto font-mono text-[9px] text-slate-300">最新 {rows.length} 条</span>
+          <span className="ml-auto font-mono dc-t-micro text-slate-300">最新 {rows.length} 条</span>
         )}
       </button>
       {open && (
         <div className="border-t border-slate-100 px-1.5 py-1">
-          {loading && <div className="py-2 text-center text-[10px] text-slate-300">逐笔加载中…</div>}
-          {!loading && error && <div className="py-1 text-[10px] text-red-400">{error}</div>}
+          {loading && <div className="py-2 text-center dc-t-data text-slate-300">逐笔加载中…</div>}
+          {!loading && error && <div className="py-1 dc-t-data text-red-400">{error}</div>}
           {!loading && !error && rows.length === 0 && (
-            <div className="py-2 text-center text-[10px] text-slate-300">暂无逐笔数据（休市/源空）</div>
+            <div className="py-2 text-center dc-t-data text-slate-300">暂无逐笔数据（休市/源空）</div>
           )}
           {!loading && rows.length > 0 && (
             <div className="ds-no-scrollbar max-h-44 overflow-y-auto">
-              <div className="mb-0.5 grid grid-cols-[52px_1fr_52px_40px_28px] items-center gap-1 px-1 text-[8px] text-slate-300">
+              <div className="mb-0.5 grid grid-cols-[52px_1fr_52px_40px_28px] items-center gap-1 px-1 dc-t-micro text-slate-300">
                 <span>时间</span>
                 <span className="text-right">价格</span>
                 <span className="text-right">量</span>
@@ -96,7 +96,7 @@ export function StockTransactions({ market, code }: Props) {
                 {rows.map((r, i) => (
                   <div
                     key={`${r.time}-${i}`}
-                    className="grid grid-cols-[52px_1fr_52px_40px_28px] items-center gap-1 rounded px-1 py-px font-mono text-[9px] tabular-nums odd:bg-slate-50/60"
+                    className="grid grid-cols-[52px_1fr_52px_40px_28px] items-center gap-1 rounded px-1 py-px font-mono dc-t-micro tabular-nums odd:bg-slate-50/60"
                   >
                     <span className="text-slate-400">{r.time}</span>
                     <span className="text-right" style={{ color: r.dir === 'buy' ? BUY : r.dir === 'sell' ? SELL : '#334155' }}>

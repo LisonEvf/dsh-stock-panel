@@ -1,0 +1,42 @@
+[e2e] 目标 http://127.0.0.1:3080（隔离 Chrome headless）
+  [PASS] 应用已加载（document.title 非空） — DeepSeek Harness
+  [PASS] window.__STOCK_PANEL__ 自检句柄存在
+  [PASS] viewRegistered = true — true
+  [PASS] 版本回传 — 1.4.0
+  [PASS] 传输层 = embedded — embedded
+  [PASS] 内置工具清单 = 19 — 19
+  [PASS] 面板内 callTool(server_info) 真机联通 — {"count":1,"flags":"000000ffffffffff","tag":"-1","today":"2026-09-13","ts1":182934,"sessions_1":[{"open":"9:30","close":
+  ℹ️ 空态无会话 → 打开侧栏会话：clicked:移除工作台对话框拖拽调整组件5小时
+  [PASS] 对话视图标签栏可见
+  [PASS] 插件视图「A股工作台」已注册 — ["对话","GAL视窗","A股工作台","轨迹"]
+  [PASS] 切到「A股工作台」 — clicked
+  [PASS] 面板渲染出内容 — innerText 1228 字
+  [PASS] 一级导航 7 项都在 — ["复盘","作战","行情","自挖板块","选股筛选","监控规则","外盘"]
+  [FAIL] 图表画布已挂载（canvas） — 0
+  [PASS] 行情页首屏数据落地（不再"加载中"或图表已挂载） — canvas=7 残留加载态=["加载中…","加载中…","加载涨停池…"]
+  [PASS] 图表画布已挂载（canvas） — canvas=7
+  [PASS] 面板发起了数据层请求（/api/stock-panel/*） — 11 次：[{"url":"/api/stock-panel/state","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200}]
+
+[e2e] 一级入口逐个挂载：
+  [PASS] 入口「复盘」挂载且无新增报错 — chars=2353 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「作战」挂载且无新增报错 — chars=1815 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「行情」挂载且无新增报错 — chars=2571 canvas=7 table=1 新增报错=0
+      片段：
+  [PASS] 入口「选股筛选」挂载且无新增报错 — chars=1473 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「监控规则」挂载且无新增报错 — chars=1268 canvas=0 table=0 新增报错=0
+      片段：
+  [PASS] 入口「外盘」挂载且无新增报错 — chars=1255 canvas=7 table=1 新增报错=0
+      片段：
+  [PASS] 入口「自挖板块」挂载且无新增报错 — chars=2935 canvas=0 table=0 新增报错=0 · 本次模型调用 0 次 ·
+      片段：
+[e2e] 数据层调用明细：[{"url":"/api/stock-panel/state","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/build","status":200},{"url":"/api/stock-panel/ai","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/ai","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/ai","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/naming","status":200},{"url":"/api/stock-panel/call","status":200},{"url":"/api/stock-panel/naming","status":200}]
+[probe] {
+  "header": "自挖板块 选股筛选 监控规则 外盘 | 上证 -1.18% 深成 -1.08% 创业 -0.49% 科创50 -1.01% 科综 -1.45% ↑643 ↓4870 40涨停 21跌停 问模型 自选 个股 2 新易盛 SZ300502 423.00 +2.94% 科翔股份 SZ300903 90.25 +2.37% 市场今天把哪些票当成同一个班 as_of 2026-09-11 window 90 · min_corr 0.6 · pool 200 刷新 已命名 0 / 9 组（9 组没有名字：实时源按设计跳过 9 组 · 无产出 0 组） 本次模型调用 0 次 · 复用上一轮结果（不重新采集素材、不调模型） deepseek-v4-flash-vision-exp 重新命名全部 可采信类 9 个 · 按强度排序（均涨幅 + 6×涨停数） 孤立票 114 只（今天没有稳定的同伴） -1.3 素材不足 #1 证据 重命名 涨停 0 均 -1.33% 最大 -0.97% 上涨 0/2 · 类内相关 0.809 强边 1.00 2 只 （命名走缓存） 沐曦股份-U-0.97% 摩尔线程-U-1.70% -1.6 素材不足 #2 证据 重命名 涨停 0 均 -1.57% 最大 -0.54% 上涨 0/4 · 类内相关 0.577 强边 0.50 4 只 （命名走缓存） 西安奕材-U-1.97% 恒坤新材-1.75% 中巨芯-U-0.54% 兴福电子-2.02% -1.7 素材不足 #3 证据 重命名 涨停 0 均 -1.68% 最大 +9.79% 上涨 9/52 · 类内相关 0.428 强边 0.14 52 只 （命名走缓存） 九号公司-WD-0.67% 天能股份-2.15% 华纳药厂-1.56% 宏华数科+0.91% 五矿新能-3.00% 厦钨新能-2.80% 汉邦科技-3.46% 金天钛业-2.29% 成大生物-2.36% 中自科技-1.88% 振华新材-1.48% 卓锦股份-3.98% 极米科技+0.28% 中创股份-3.90% 凯因科技-1.75% 科汇股份-3.06",
+  "calls": [
+    "本次模型调用 0 次 · 复用上一轮结果（不重新采集素材、不调模型） deepseek-v4-flash-vision-exp 重新命名全部 可采信类 9 个 "
+  ]
+}
+
