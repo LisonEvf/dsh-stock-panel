@@ -10,3 +10,11 @@ gateway/state/
 
 # tsc composite build info
 *.tsbuildinfo
+
+# 真机截图工作目录（十几 MB，且可一条命令重建：acceptance/shots.mjs、acceptance/readme-shots.mjs）
+# README 真正引用的那几张已入库在 docs/images/
+acceptance/shots/
+acceptance/shots-readme/
+
+# 快讯源探测器的原始抓取结果（重跑 scripts/news-source-probe.mjs 可得；结论已写进文档）
+news-probe.json
