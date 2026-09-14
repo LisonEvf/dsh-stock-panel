@@ -39,9 +39,11 @@ A 股**盯盘执行台** —— DSH Web 插件（挂在官方 `conversation.view
 ## 安装（add 即现，零额外修改/配置）
 
 ```bash
-# registry 发布版：
+# A. registry 发布版（需要一次性的 .npmrc，见下）：
 dsh plugin --profile web add @lisonevf/dsh-stock-panel
-# 本地开发（在插件仓库目录执行，link: 挂载 → 改源码只需 build + 重启）：
+# B. 直接从 GitHub 装（公开仓库，不需要 token；但要多一行 allowBuilds，见下）：
+dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main
+# C. 本地开发（在插件仓库目录执行，link: 挂载 → 改源码只需 build + 重启）：
 dsh plugin --profile web add .
 ```
 
@@ -49,6 +51,41 @@ dsh plugin --profile web add .
 不需要手工登记 settings、不需要跑脚本、**也不改动宿主任何文件**。
 > registry 上 `0.3.5` 及以前是**旧形态**（1.0.0 ~ 1.4.0 从未发过 registry），请装 **1.6.0 及以后**：
 > `dsh plugin --profile web add @lisonevf/dsh-stock-panel@1.6.0`。
+
+**A. registry 这条路要额外配 `.npmrc`（实测：认证是硬要求，公开包也不例外）** —— GitHub Packages 的 npm 源**读也要 token**：
+只配 scoped 源、不带 token 就是 `E401 Unauthorized - authentication token not provided`；连 scoped 源都不配则直接 404
+（默认 registry = npmjs，那里没有本包）。`~/.npmrc` 里两行（token 用 classic PAT，勾 `read:packages`）：
+
+```
+@lisonevf:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=<你的 PAT>
+```
+
+装的是**已构建产物**（tarball 里带 `lib/`），所以**不跑构建脚本**、不需要 allowBuilds。真机已验证（全新 `DSH_HOME` + 只装本包）：
+`dsh.profile.bundles` 自动变 `[dsh-base, dsh-web-app, @lisonevf/dsh-stock-panel]`，`dsh web` 起得来（host 半注册全部路由），
+浏览器里 `viewRegistered: true`、19 个内置工具、console 0 报错。
+
+**B. GitHub 直装不需要任何凭证，但首次必然失败一次** —— 这条路是**现场构建**（包的 `prepare` 跑 `pnpm build`），
+而 pnpm 默认拦住 git 依赖的构建脚本：
+
+```
+[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... needs to execute build scripts but is not in the "allowBuilds" allowlist
+```
+
+按它打印的那把 key 补进 **profile 的** `pnpm-workspace.yaml`（= `$DSH_HOME/profiles/web/pnpm-workspace.yaml`）再重跑：
+
+```yaml
+allowBuilds:
+  '@lisonevf/dsh-stock-panel@https://codeload.github.com/LisonEvf/dsh-stock-panel/tar.gz/<commit-sha>': true
+```
+
+⚠️ 三条实测结论（都试过，不是推测）：
+- 这把 key **精确到 commit**：只写包名（`'@lisonevf/dsh-stock-panel': true`）、scope 通配（`'@lisonevf/*'`）、
+  codeload URL 通配 **都不认** → main 每推一次就得重加一把；
+- 不想维护就用 `dangerouslyAllowAllBuilds: true`（放行该 profile 里所有构建脚本，范围更大、按需自选）；
+- **`#v1.6.0` 这个 tag 装不上**：那个提交的 `package.json` 里 `publish` 脚本还在，而 pnpm 的 prepare 会把
+  `publish` 当生命周期钩子一起跑（`npm publish` → 失败，见 `CHANGELOG.md` 头部的坑）。
+  **git 安装请用 `#main`**（或任何 ≥ `25dc05d` 的提交）。
 
 | 环节 | 机制 |
 | --- | --- |
@@ -60,6 +97,8 @@ dsh plugin --profile web add .
 > ⚠️ **构建产物 ≠ 运行实例**：`lib/` 是构建输出（已 gitignore），浏览器加载的是**上次刷新时**的 bundle；
 > host 半是**进程内**加载的，改了代码**必须重启 `dsh web`**。只 build 不重启/不刷新 = 看到的还是旧界面。
 > 一条命令判断：`node scripts/verify-live.mjs`（比对运行实例与当前源码的 buildId，不一致会直接告诉你重启）。
+> 注意它是拿**本地工作树**当基准的，所以对 **registry 安装**的实例跑会报「构建 id 不一致」——那是预期的
+> （发布产物 ≠ 你正在改的这份源码），不是坏掉。
 
 ## 界面结构
 

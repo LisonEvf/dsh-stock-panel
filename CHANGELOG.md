@@ -14,6 +14,31 @@
 
 ---
 
+## [未发布]
+
+**安装路径实测（两条路都跑过一遍）** —— registry 要 `.npmrc`，GitHub 直装要 `allowBuilds`
+
+> 触发：用户问「通过 registry 安装是否可行、是不是要额外 npmrc；如果不用，能不能 `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main` 一键装」。
+> 全部结论都是**真机跑出来的**（不是读文档推的）：各自装了包、起了实例、在真浏览器里确认视图注册。细节写进 `README.md` §安装。
+
+### 2026-09-14 · registry 安装：可行，但**认证是硬要求**（公开包也一样）
+- 干净环境实测三档：不配 scoped 源 → 404（默认 registry=npmjs，那里没有本包）；只配 `@lisonevf:registry=https://npm.pkg.github.com/`、不带 token → **`E401 authentication token not provided`**；配上 `_authToken` → 通过。故 `.npmrc` 两行是必须的（token 用 classic PAT，勾 `read:packages`）。
+- **端到端验证**（不是"装上了就算"）：把 `DSH_HOME` 指到一个**全新临时家目录**模拟另一台机器 → `dsh plugin --profile web add @lisonevf/dsh-stock-panel@1.6.0` → profile 的 `dsh.profile.bundles` 自动变 `[dsh-base, dsh-web-app, @lisonevf/dsh-stock-panel]` → `dsh web` 起得来（host 半把 TDX 桥接 / build 路由 / 持久化域 12 张表 / 对话工具 ×8 / AI 桥接 / 命名桥接全注册上）→ 真浏览器里 `viewRegistered: true`、`version 1.6.0`、19 个内置工具、console 0 报错。
+- 顺带确认：registry 装的是**已构建产物**（tarball 里带 `lib/`），所以**不跑构建脚本**、不需要任何 allowlist。
+
+### 2026-09-14 · GitHub 直装：不需要 token，但**首次必然失败一次**
+- `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main` 在全新 profile 上实测报
+  `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` —— 这条路要**现场构建**（`prepare` 跑 `pnpm build`），而 pnpm 默认拦 git 依赖的构建脚本；
+  dsh 自己也会把该补的 key 与做法打出来（`runPlugin()` 的 git 分支，见 `@deepseek-ai/dsh` 的 `lib/plugin-*.js`）。
+- 补进 **profile 的** `pnpm-workspace.yaml` 后重跑即成功（实测装出来的 `lib/client.js` 与本地构建同为 667,371 字节）。
+- ⚠️ 三条值得记住的实测结论：① 那把 key **精确到 commit**（`'@lisonevf/dsh-stock-panel@https://codeload.github.com/.../tar.gz/<sha>'`）—— 只写**包名**、`'@lisonevf/*'`、codeload URL **通配都不认**，所以 main 每推一次要重加一把；② 免维护的写法是 `dangerouslyAllowAllBuilds: true`（放行范围更大）；③ **`#v1.6.0` 装不上** —— 那个提交里 `publish` 脚本还在，pnpm 的 prepare 会把它当生命周期钩子一起跑 → `npm publish` 失败（这正是本版把它改名 `publish:github` 的原因）。**git 安装用 `#main`**。
+
+### 2026-09-14 · 顺带修掉两个"自己会踩自己"的地方
+- **构建 id 含 `package.json`**（`scripts/build-id.mjs` 的 `HASH_FILES`）：发布后只改了 `package.json` 的脚本名、没重新 `build` → `verify-live` 立刻报「构建 id 不一致（运行 fd545a63 / 源码 ce1cf6f6）→ 请重启 dsh web」，而**真正该做的是 `pnpm build`**。已在 `scripts/verify-live.mjs` 头部把这条写清（并说明：拿本地工作树当基准，对 registry 安装的实例报不一致属预期），`README.md` §安装 同步。
+- 本地 `lib/` 已按当前源码重建（id = `ce1cf6f6`），`build-client --check` / 体积护栏 665KB / 28 文件单测 / lint 复验全绿。
+
+---
+
 ## [1.6.0] 2026-09-14
 
 **重点页专项 + 作战板块重做** —— 作战思路改由模型给结论（以其他板块为素材）；自挖板块修掉字段名事故 + 分类命名三项补强 + 版面重做；行情页重新组合

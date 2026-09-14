@@ -14,6 +14,11 @@
 //   ④ AI 与行情链路：/api/stock-panel/ai 的可用性、/api/stock-panel/call 的 server_info（信息项）
 //
 // 退出码：①②③ 全过 = 0；否则 1（④ 只是信息项，不影响退出码）。
+//
+// ⚠️ 基准是**本地工作树**（`computeBuildId()` 哈希 src/ + package.json）：对「从 registry / 包管理器安装」
+//    的实例跑，构建 id **必然不一致**（发布产物 ≠ 你手上这份源码），那是预期提示、不是故障；
+//    只有 `link:` / 本地 checkout 起的实例才该完全一致。同理，改过 package.json（哪怕只改脚本名）也要
+//    重新 `pnpm build`，否则本脚本会一直提示「运行的是旧 host 半」——那是真的不一致，不是误报。
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
