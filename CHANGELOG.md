@@ -16,10 +16,25 @@
 
 ## [未发布]
 
-**安装路径实测（两条路都跑过一遍）** —— registry 要 `.npmrc`，GitHub 直装要 `allowBuilds`
+**安装路径实测（三条路都跑过一遍）** —— 一条命令零配置的那条已配置就绪（Release 资产）
 
-> 触发：用户问「通过 registry 安装是否可行、是不是要额外 npmrc；如果不用，能不能 `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main` 一键装」。
+> 触发：用户先问「通过 registry 安装是否可行、是不是要额外 npmrc；如果不用，能不能 `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main` 一键装」，
+> 再问「**怎么能让用户一键安装**」。
 > 全部结论都是**真机跑出来的**（不是读文档推的）：各自装了包、起了实例、在真浏览器里确认视图注册。细节写进 `README.md` §安装。
+
+### 2026-09-14 · 一键安装：把发布产物挂成 Release 资产（**一条命令、零配置、零凭证**）
+- 现状：`@lisonevf/dsh-stock-panel` 在 **GitHub Packages**，而那个源**读也要 token** → 无论怎么写，用户都得先配 `~/.npmrc`；
+  `github:#main` 那条路则要现场构建，被 pnpm 的 allowBuilds 闸门挡住（见下）。**两条都不是"一键"**。
+- 做法：把 **registry 上那份 1.6.0 tarball**（`npm pack` 下载，shasum 与 registry 的 `dist.shasum` 一致）挂成 `v1.6.0` 的 Release 资产。
+  tarball 是**已构建产物** → pnpm 直接用、**不执行任何构建脚本** → 不需要 token、不需要 allowBuilds，dsh 照样按真实包名 reconcile 进 `dsh.profile.bundles`。
+- **一键命令**（真机验证：全新 `DSH_HOME`、空 profile、零配置）：
+  `dsh plugin --profile web add https://github.com/LisonEvf/dsh-stock-panel/releases/download/v1.6.0/lisonevf-dsh-stock-panel-1.6.0.tgz`
+  → 装到的 `lib/client.js` 与 Release 资产**逐字节一致**（sha256 `8ad3fc00…`）、`bundles` 变 `[dsh-base, @lisonevf/dsh-stock-panel]`、
+  版本 1.6.0；Release 正文里也写了这条命令。
+- **第二条一键路径**（跟 main 走、不改配置文件）：`--config.dangerouslyAllowAllBuilds=true` 由 dsh 原样转发给 pnpm，当场放行构建脚本闸门 ——
+  `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main --config.dangerouslyAllowAllBuilds=true`（实测通过，代价：每次安装现场构建 ~50s）。
+- **还差一步才能"最短命令"**：`dsh plugin --profile web add @lisonevf/dsh-stock-panel`（零配置）要求包同时在**公共 npmjs** 上
+  （`@lisonevf` scope 在 npmjs 目前是空的、公开包免费）。这属于发布渠道决策：要 npmjs 账号登录后才能做，**未做**。
 
 ### 2026-09-14 · registry 安装：可行，但**认证是硬要求**（公开包也一样）
 - 干净环境实测三档：不配 scoped 源 → 404（默认 registry=npmjs，那里没有本包）；只配 `@lisonevf:registry=https://npm.pkg.github.com/`、不带 token → **`E401 authentication token not provided`**；配上 `_authToken` → 通过。故 `.npmrc` 两行是必须的（token 用 classic PAT，勾 `read:packages`）。

@@ -38,21 +38,38 @@ A 股**盯盘执行台** —— DSH Web 插件（挂在官方 `conversation.view
 
 ## 安装（add 即现，零额外修改/配置）
 
-```bash
-# A. registry 发布版（需要一次性的 .npmrc，见下）：
-dsh plugin --profile web add @lisonevf/dsh-stock-panel
-# B. 直接从 GitHub 装（公开仓库，不需要 token；但要多一行 allowBuilds，见下）：
-dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main
-# C. 本地开发（在插件仓库目录执行，link: 挂载 → 改源码只需 build + 重启）：
-dsh plugin --profile web add .
-```
+**四条路，按"少操心"排序**（都真机跑过；★ = 一条命令、零配置）：
+
+| # | 命令 | 额外要做什么 |
+| --- | --- | --- |
+| **① ★ 发布产物的 tarball（推荐）** | `dsh plugin --profile web add https://github.com/LisonEvf/dsh-stock-panel/releases/download/v1.6.0/lisonevf-dsh-stock-panel-1.6.0.tgz` | **什么都不用**（公开 Release 资产；tarball 已带 `lib/`，不跑构建脚本） |
+| **② ★ 跟 main 走** | `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main --config.dangerouslyAllowAllBuilds=true` | **不用改配置文件**（行内 flag 放行构建脚本；代价是这条路会在安装时现场 `pnpm build`） |
+| ③ registry（GitHub Packages） | `dsh plugin --profile web add @lisonevf/dsh-stock-panel` | 要写一次 `~/.npmrc`（scoped 源 + PAT），见下 |
+| ④ 本地开发 | `dsh plugin --profile web add .`（在插件仓库目录） | —（`link:` 挂载，改源码只需 build + 重启） |
 
 之后**重启 `dsh web`** 并**硬刷新浏览器**（Ctrl+Shift+R）——会话页出现「**A股工作台**」视图标签页。
 不需要手工登记 settings、不需要跑脚本、**也不改动宿主任何文件**。
-> registry 上 `0.3.5` 及以前是**旧形态**（1.0.0 ~ 1.4.0 从未发过 registry），请装 **1.6.0 及以后**：
-> `dsh plugin --profile web add @lisonevf/dsh-stock-panel@1.6.0`。
+> registry 上 `0.3.5` 及以前是**旧形态**（1.0.0 ~ 1.4.0 从未发过 registry），请装 **1.6.0 及以后**。
 
-**A. registry 这条路要额外配 `.npmrc`（实测：认证是硬要求，公开包也不例外）** —— GitHub Packages 的 npm 源**读也要 token**：
+**① 为什么它是一条命令**：tarball 是**已构建产物**，pnpm 直接用、不执行任何构建脚本 → 既不需要 token，
+也不需要 allowBuilds；dsh 认的是安装后的真实包名，所以 `dsh.profile.bundles` 照样自动加上。
+真机验证（全新 `DSH_HOME` + 只装本包）：装到的 `lib/client.js` 与 Release 资产**逐字节一致**，
+`bundles` 变 `[dsh-base, @lisonevf/dsh-stock-panel]`，`dsh web` 起得来。
+> 每个版本的资产都在 Release 页（`releases/tag/v<版本>`），文件名固定 `lisonevf-dsh-stock-panel-<版本>.tgz` ——
+> 想锁版本就把 URL 里的版本号换掉即可。发布产物的 tarball 与 registry 上同名版本**是同一份**（shasum 相同）。
+
+**② 为什么不用改配置**：`--config.<key>=<value>` 由 dsh 原样转发给 pnpm，于是"拦构建脚本"这道闸当场放行。
+代价与边界（实测）：
+- 这条路每次安装都要**现场构建**（`prepare` → `pnpm build`，约 50s），且 `dangerouslyAllowAllBuilds` 是**放行该命令的全部构建脚本**；
+- 不想每次带 flag，就在 **profile 的** `pnpm-workspace.yaml`（`$DSH_HOME/profiles/web/pnpm-workspace.yaml`）里写一次
+  `dangerouslyAllowAllBuilds: true`，之后 `add` 也都是单命令；
+- 想用**精确放行**（只放行本包）也行，但 key **精确到 commit**
+  （`'@lisonevf/dsh-stock-panel@https://codeload.github.com/LisonEvf/dsh-stock-panel/tar.gz/<commit-sha>': true`）——
+  只写包名、`'@lisonevf/*'`、URL 通配**都不认**，所以 main 每推一次就得重加一把；
+- **`#v1.6.0` 这个 tag 装不上**（它早于 `publish` 脚本改名：pnpm 的 prepare 会把 `publish` 当生命周期钩子一起跑
+  → `npm publish` 失败，见 `CHANGELOG.md` 头部）。**git 安装请用 `#main`**（或任何 ≥ `25dc05d` 的提交）。
+
+**③ 这条路要额外配 `.npmrc`（实测：认证是硬要求，公开包也不例外）** —— GitHub Packages 的 npm 源**读也要 token**：
 只配 scoped 源、不带 token 就是 `E401 Unauthorized - authentication token not provided`；连 scoped 源都不配则直接 404
 （默认 registry = npmjs，那里没有本包）。`~/.npmrc` 里两行（token 用 classic PAT，勾 `read:packages`）：
 
@@ -61,35 +78,16 @@ dsh plugin --profile web add .
 //npm.pkg.github.com/:_authToken=<你的 PAT>
 ```
 
-装的是**已构建产物**（tarball 里带 `lib/`），所以**不跑构建脚本**、不需要 allowBuilds。真机已验证（全新 `DSH_HOME` + 只装本包）：
-`dsh.profile.bundles` 自动变 `[dsh-base, dsh-web-app, @lisonevf/dsh-stock-panel]`，`dsh web` 起得来（host 半注册全部路由），
+它同样是装**已构建产物**、不跑构建脚本。真机端到端验证过（全新 `DSH_HOME`）：`bundles` 自动变
+`[dsh-base, dsh-web-app, @lisonevf/dsh-stock-panel]`，`dsh web` 起得来（host 半注册全部路由），
 浏览器里 `viewRegistered: true`、19 个内置工具、console 0 报错。
-
-**B. GitHub 直装不需要任何凭证，但首次必然失败一次** —— 这条路是**现场构建**（包的 `prepare` 跑 `pnpm build`），
-而 pnpm 默认拦住 git 依赖的构建脚本：
-
-```
-[ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED] ... needs to execute build scripts but is not in the "allowBuilds" allowlist
-```
-
-按它打印的那把 key 补进 **profile 的** `pnpm-workspace.yaml`（= `$DSH_HOME/profiles/web/pnpm-workspace.yaml`）再重跑：
-
-```yaml
-allowBuilds:
-  '@lisonevf/dsh-stock-panel@https://codeload.github.com/LisonEvf/dsh-stock-panel/tar.gz/<commit-sha>': true
-```
-
-⚠️ 三条实测结论（都试过，不是推测）：
-- 这把 key **精确到 commit**：只写包名（`'@lisonevf/dsh-stock-panel': true`）、scope 通配（`'@lisonevf/*'`）、
-  codeload URL 通配 **都不认** → main 每推一次就得重加一把；
-- 不想维护就用 `dangerouslyAllowAllBuilds: true`（放行该 profile 里所有构建脚本，范围更大、按需自选）；
-- **`#v1.6.0` 这个 tag 装不上**：那个提交的 `package.json` 里 `publish` 脚本还在，而 pnpm 的 prepare 会把
-  `publish` 当生命周期钩子一起跑（`npm publish` → 失败，见 `CHANGELOG.md` 头部的坑）。
-  **git 安装请用 `#main`**（或任何 ≥ `25dc05d` 的提交）。
+> 为什么不是"最短命令"：只要还挂在 GitHub Packages，认证就跑不掉。若要 **`dsh plugin --profile web add @lisonevf/dsh-stock-panel`
+> 这一条零配置命令**，得把包**同时发到公共 npmjs**（`@lisonevf` 这个 scope 在 npmjs 上目前是空的，公开包 free）——
+> 属于发布渠道决策，需要 npmjs 账号登录后才能做。
 
 | 环节 | 机制 |
 | --- | --- |
-| 加入组合层 | `dsh plugin` 在安装成功后按安装态 reconcile：本包声明 `dsh.bundle.patch` → 自动追加进 profile 的 `dsh.profile.bundles` |
+| 加入组合层 | `dsh plugin` 在安装成功后按安装态 reconcile：本包声明 `dsh.bundle.patch` → 自动追加进 profile 的 `dsh.profile.bundles`（git / tarball / 别名 spec 都按其**真实包名**入列） |
 | host 半加载 | 包的 `cordis.patch.yml`（`insert: stock-panel-host`）作为 bundle 层叠加，loader 加载 `lib/index.js` |
 | **视图注入** | browser 半（`lib/client.js`）用官方 `ctx.slots.inject('conversation.view', …)` 注册视图条目——声明感知、零宿主改动 |
 | browser 半进图 | 本包声明 `dsh.client`（platform: web）+ `exports["./client"]` → 浏览器自动加载 `lib/client.js` |
