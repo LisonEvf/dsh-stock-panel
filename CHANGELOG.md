@@ -5,6 +5,12 @@
 > **定版流程（1.5.0 起）**：批次累积时先写成 `[未发布]`，发布时① `package.json` 升版 → ② 本节加 `## [x.y.z] 日期` 并把该批 `[未发布]` 段落降为 `###` 小节 → ③ `pnpm build && pnpm test && pnpm guard` → ④ 提交 + `git tag -a vx.y.z` → ⑤ `pnpm publish`（registry = GitHub Packages，见 `package.json` 的 `publishConfig`）。
 >
 > ⚠️ **版本号历史遗留（1.4.0 已收口）**：2026-09-12 之前提交标签写到 `1.1.0`，`package.json` 在工作区被改成 `1.3.0`（长期未提交），而 README 用 v1.2/v1.3/v1.4 描述界面迭代。**2026-09-12 起** v1.2/v1.3/v1.4 合并为 `1.4.0` 一次发布，版本号单一来源 = `package.json`。**1.5.0（2026-09-13）**首次真正发到 registry，并补上 `v1.5.0` tag。
+>
+> ⚠️ **第 ⑤ 步的坑（2026-09-14 实测，已修）**：`package.json` 里那个名为 **`publish`** 的 script 会被当作 **npm 生命周期钩子** —— `pnpm publish` 成功发完之后，它还会再跑一次 `npm publish`，于是控制台紧跟一条红色
+> `EPUBLISHCONFLICT: You cannot publish over the previously published versions: x.y.z`。**版本其实已经发出去了**，
+> 别被这条错吓到、也别随手改版本号重发：用 `npm view <pkg>@x.y.z --registry=https://npm.pkg.github.com/` 看有没有该版本、
+> 必要时 `npm pack` 解包与本地 `lib/` 逐字节比对（本次即如此确认：published `lib/client.js` 与本地 sha256 前缀一致）。
+> 该 script 已改名 **`publish:github`**（不再是生命周期名），`pnpm publish` 从此干净退出。
 
 ---
 
@@ -13,6 +19,9 @@
 **重点页专项 + 作战板块重做** —— 作战思路改由模型给结论（以其他板块为素材）；自挖板块修掉字段名事故 + 分类命名三项补强 + 版面重做；行情页重新组合
 
 > 发布物：`@lisonevf/dsh-stock-panel@1.6.0`（registry = GitHub Packages）+ git tag `v1.6.0`。
+> **发布已确认**：registry 上 `1.6.0` 存在且 `dist-tags.latest = 1.6.0`；`npm pack` 解包后 `lib/client.js`
+> 与本地构建**逐字节一致**（sha256 前缀 `8ad3fc000ca529bd`），host 半含 `war-plan` 路由与 `pseudo_class` /
+> `board_symbol_name` / `a2b-2` 等本版标记 —— 即"发出去的就是这一份"。
 > 本批两条主线都由用户直接点名：①「重做作战板块，是大模型提供作战思路而不是用户自己选择，注意以其他板块为基础，
 > 而不是空穴来风」；②「重点优化自挖板块，既要解决分类命名问题，也要优化显示美观」。两批各自都靠**真机探针**
 > 推翻了"看起来已经好了"的结论（离线单测抓不到的那类问题）。

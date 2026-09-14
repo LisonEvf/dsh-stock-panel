@@ -87,6 +87,6 @@
     "report:bundle": "node scripts/bundle-report.mjs --minify",
     "concept:sweep": "node scripts/concept-sweep.mjs",
     "concept:stability": "node scripts/concept-stability.mjs",
-    "publish": "npm publish --registry=https://npm.pkg.github.com"
+    "publish:github": "npm publish --registry=https://npm.pkg.github.com"
   }
 }
