@@ -14,6 +14,11 @@
 import { NAMING_ROUTE } from './endpoints'
 import { callToolJson } from './stock-data'
 import type { NamingResult, NamingGuardConfig } from '@/host/naming/types'
+import type { ClassStructure, StructureTally } from '@/host/naming/structure'
+
+// 结构标签的两个类型是**契约**（组件要渲染它们），从数据层再导出一次：
+// 组件只 import '@/lib/naming' 一处，避免"有的组件直接摸 host 模块"的分叉。
+export type { ClassStructure, StructureTally }
 
 /** 默认聚类参数（host 半在 GET 里给出；这里的值只是首屏兜底）。 */
 export const NAMING_PARAMS_FALLBACK = { window: 90, minCorr: 0.6, poolN: 200, windowDays: 5 } as const
@@ -79,12 +84,65 @@ export type NamingOutcome =
       ok: true
       result: NamingResult
       members: Array<{ market: string; code: string; name: string; changePct?: number | null }>
+      /**
+       * 结构标签（官方行业/概念口径，确定性、不经模型）。
+       *
+       * 与 `result` **并列**而不是嵌在里面：`result` 受护栏约束（没命名就清空 theme），
+       * 而结构标签在模型不可用时照样成立 —— 混进去会跟着一起被清空（见 host 侧 structure.ts 头部）。
+       * host 半升级前的老响应里没有它 → 解析层补空结构，界面按"没有这个来源"处理。
+       */
+      structure: ClassStructure
       effective: { asOf: string; window: number; minCorr: number; poolN: number; nClasses: number; meanIntraCorr: number | null }
       collectNotes: string[]
       sourcesUsed: string[]
       cached: boolean
     }
-  | { ok: false; reason: 'weak_chain' | 'no_class' | 'tdx_unavailable'; classId: number; asOf?: string; note: string }
+  | {
+      ok: false
+      /**
+       * `weak_chain` = 引擎标记的弱链伪类；`pseudo_class` = 本地判据抓到的传递链可疑类
+       * （见 `lib/concept-quality.ts`）。两者都**不给名字**，但成因分开报 ——
+       * 归因分层是这个项目反复吃过亏的地方（见 `host/naming/types.ts` 头部）。
+       */
+      reason: 'weak_chain' | 'pseudo_class' | 'no_class' | 'tdx_unavailable'
+      classId: number
+      asOf?: string
+      note: string
+    }
+
+/** 空结构（host 半没给 / 字段缺失时的兜底，**不猜**）。 */
+export function emptyStructure(total = 0): ClassStructure {
+  return { industry: [], concept: [], label: '', basis: 'none', covered: 0, total, note: '' }
+}
+
+/** 结构标签的防御性解析（字段全部按不可信处理）。 */
+export function parseStructure(raw: unknown): ClassStructure {
+  if (raw === null || typeof raw !== 'object') return emptyStructure()
+  const o = raw as Record<string, unknown>
+  const tally = (v: unknown): StructureTally[] => {
+    if (!Array.isArray(v)) return []
+    const out: StructureTally[] = []
+    for (const x of v) {
+      if (x === null || typeof x !== 'object') continue
+      const name = str((x as Record<string, unknown>).name).trim()
+      const n = num((x as Record<string, unknown>).n)
+      if (name === '' || n === undefined) continue
+      out.push({ name, n })
+    }
+    return out
+  }
+  const basisRaw = str(o.basis)
+  const basis: ClassStructure['basis'] = basisRaw === 'industry' || basisRaw === 'concept' ? basisRaw : 'none'
+  return {
+    industry: tally(o.industry),
+    concept: tally(o.concept),
+    label: str(o.label).trim(),
+    basis,
+    covered: num(o.covered) ?? 0,
+    total: num(o.total) ?? 0,
+    note: str(o.note),
+  }
+}
 
 /**
  * 数值归一：**缺失一律 undefined**。
@@ -138,6 +196,9 @@ export async function requestNaming(args: {
   if (obj.ok === false && typeof obj.error === 'string' && obj.reason === undefined) {
     throw new Error(obj.error)
   }
+  // 结构标签在这里统一归一（而不是让每个消费方各自防 undefined）：
+  // host 半还在旧版本时响应里没有这个字段，界面必须照旧能渲染。
+  if (obj.ok === true) obj.structure = parseStructure(obj.structure)
   return obj as unknown as NamingOutcome
 }
 
@@ -372,9 +433,11 @@ export interface BatchNamingEntry {
   size: number
   memberCount: number
   members: Array<{ market: string; code: string; name: string; changePct?: number | null }>
-  /** 该组的命名结论；null = 本轮没算它（弱链/超上限）。 */
+  /** 结构标签（官方行业/概念口径，确定性、不经模型）—— 与命名结论**并列**，见 `NamingOutcome`。 */
+  structure: ClassStructure
+  /** 该组的命名结论；null = 本轮没算它（弱链/传递链可疑/超上限）。 */
   naming: NamingResult | null
-  skipReason?: 'weak_chain' | 'over_cap' | 'not_found'
+  skipReason?: 'weak_chain' | 'pseudo_class' | 'over_cap' | 'not_found'
   cached: boolean
 }
 
@@ -428,6 +491,13 @@ export async function requestBatchNaming(args: {
   if (parsed === null || typeof parsed !== 'object') throw new Error(`批量命名返回空（HTTP ${res.status}）`)
   const obj = parsed as Record<string, unknown>
   if (obj.ok === false && typeof obj.error === 'string' && obj.reason === undefined) throw new Error(obj.error)
+  // 逐组归一结构标签（同 `requestNaming`：旧 host 半没有这个字段，界面要能照旧渲染）
+  if (obj.ok === true && Array.isArray(obj.entries)) {
+    obj.entries = (obj.entries as Array<Record<string, unknown>>).map((e) => ({
+      ...e,
+      structure: parseStructure(e.structure),
+    }))
+  }
   return obj as unknown as BatchNamingOutcome
 }
 
@@ -444,6 +514,7 @@ export function entryOutcome(batch: BatchNamingOutcome & { ok: true }, entry: Ba
     ok: true,
     result: entry.naming,
     members: entry.members,
+    structure: entry.structure,
     effective: batch.effective,
     collectNotes: batch.collectNotes,
     sourcesUsed: batch.sourcesUsed,

@@ -22,6 +22,8 @@ import { hasStatus } from './cause'
 import { namingFingerprint, NAMING_BATCH_PROMPT_VERSION, NAMING_PROMPT_VERSION } from './fingerprint'
 import { collectMaterials, DEFAULT_COLLECT, SOURCE_BOARD, SOURCE_KLINE, SOURCE_MONITOR, SOURCE_UNUSUAL, type CollectResult } from './collect'
 import { SOURCE_NEWS, type NewsFetchDeps } from './news'
+import { structureOf, emptyStructure, type ClassStructure } from './structure'
+import { classQuality, type ClassQuality } from '../../lib/concept-quality'
 
 /** 最小 LLM 形状（与 host-ai 的 MinimalLlm 同构；此处本地声明避免循环依赖）。 */
 export interface NamingLlm {
@@ -83,6 +85,7 @@ export interface NameClassArgs {
 /** 拒绝原因（不是 NamingResult：这些情况压根不该产生"结论"）。 */
 export type NameClassRejection =
   | { ok: false; reason: 'weak_chain'; classId: number; asOf: string; note: string }
+  | { ok: false; reason: 'pseudo_class'; classId: number; asOf: string; note: string }
   | { ok: false; reason: 'no_class'; classId: number; asOf: string; note: string }
   | { ok: false; reason: 'tdx_unavailable'; classId: number; note: string }
 
@@ -91,6 +94,15 @@ export interface NameClassSuccess {
   result: NamingResult
   /** 成员票（UI 直接渲染，不用二次取数）。 */
   members: NamingMember[]
+  /**
+   * 结构标签（官方行业/概念口径，**确定性、不经模型**，见 `structure.ts`）。
+   *
+   * 为什么与 `result` 并列回传而不是塞进 `result`：`result` 是**模型结论**的载体，
+   * 它的一切字段都受护栏约束（`verdict !== 'named'` 时连 theme 都不留）。
+   * 结构标签是"从官方分类学数出来的事实"，模型不可用时也照旧成立 ——
+   * 混进 `result` 就会跟着一起被降级清空，那正是它要解决的那个问题。
+   */
+  structure: ClassStructure
   /** 引擎返回的实际 as_of 与生效参数（UI 必须展示：同票不同参数所属类不同，不标=不可复现）。 */
   effective: { asOf: string; window: number; minCorr: number; poolN: number; nClasses: number; meanIntraCorr: number | null }
   /** 采集说明（含口径偏差）。 */
@@ -215,15 +227,15 @@ export async function nameClass(rt: NamingRuntime, args: NameClassArgs): Promise
     return { ok: false, reason: 'no_class', classId: args.classId, asOf: '', note: '引擎未给出 as_of（无法标注口径，拒绝命名）' }
   }
 
-  // ---- [1b] 弱链伪类：拒绝命名（校准结论：类内相关 ≈0.008，不采信）----
-  const weak = await weakChainOf(rt, args.classId, asOf, params)
-  if (weak === true) {
+  // ---- [1b] 伪类：拒绝命名（引擎的 weak_chain + 本地可复算的传递链判据，见 concept-quality.ts）----
+  const quality = await classQualityOf(rt, args.classId, asOf, params)
+  if (quality !== null && !quality.usable) {
     return {
       ok: false,
-      reason: 'weak_chain',
+      reason: quality.reason === 'weak_chain' ? 'weak_chain' : 'pseudo_class',
       classId: args.classId,
       asOf,
-      note: '该类是阈值图弱链伪类（类内相关远低于阈值）——校准结论：不采信，也不命名',
+      note: `不给这个类命名：${quality.note}`,
     }
   }
 
@@ -270,12 +282,22 @@ export async function nameClass(rt: NamingRuntime, args: NameClassArgs): Promise
   }
   const notes = [...collect.notes]
 
+  /**
+   * 结构标签（官方行业/概念口径）：**在模型之前**就算好。
+   *
+   * 顺序很关键：它必须在 `finish` 之前、且不依赖任何模型输出 ——
+   * 于是"模型不可用/输出畸形/护栏拒"这三条降级路径上，它照样是满的
+   * （那正是这个标签存在的理由，见 `structure.ts` 头部）。
+   */
+  const structure = structureOf(collect.corpus.items, members.length)
+
   /** 组装成功结果（统一走缓存写入，避免漏写）。 */
   const finish = (result: NamingResult): NameClassSuccess => {
     const payload: NameClassSuccess = {
       ok: true,
       result: { ...result, fingerprint },
       members,
+      structure,
       effective,
       collectNotes: notes,
       sourcesUsed: collect.sourcesUsed,
@@ -359,13 +381,20 @@ export async function nameClass(rt: NamingRuntime, args: NameClassArgs): Promise
   return finish(result)
 }
 
-/** 该类的 weak_chain 标记（取不到就当作"未知"→ 不拦，由证据门槛兜）。 */
-async function weakChainOf(
+/**
+ * 该类的可采信判据（取不到类表就返回 null = "未知"→ 不拦，由证据门槛兜）。
+ *
+ * 为什么判据要**重新拉一次类表**而不是直接信调用方：命名路径的入参只有 `classId`，
+ * 而"是否弱链/是否传递链"是类的属性，只有类表里有（`weak_chain` / `mean_intra_corr` /
+ * `strong_density`）。这一次调用走引擎快照（纯 CPU，不产生网络请求），代价可以接受；
+ * 换来的是单类与批量两条路径**用同一个判据**（否则从界面点单类命名会绕过过滤）。
+ */
+async function classQualityOf(
   rt: NamingRuntime,
   classId: number,
   asOf: string,
   params: { window: number; minCorr: number; poolN: number },
-): Promise<boolean | null> {
+): Promise<ClassQuality | null> {
   try {
     const list = (await rt.callTool('hist_concept_classes', {
       as_of: asOf,
@@ -373,9 +402,18 @@ async function weakChainOf(
       min_corr: params.minCorr,
       pool_n: params.poolN,
       top_members: 1,
-    })) as { classes?: Array<{ class_id?: unknown; weak_chain?: unknown }> } | null
+    })) as { classes?: Array<Record<string, unknown>> } | null
     const hit = (list?.classes ?? []).find((c) => Number(c.class_id) === classId)
-    return hit === undefined ? null : Boolean(hit.weak_chain)
+    if (hit === undefined) return null
+    return classQuality(
+      {
+        weakChain: hit.weak_chain === true,
+        intraCorr: Number(hit.mean_intra_corr),
+        strongDensity: Number(hit.strong_density),
+        size: Number(hit.size),
+      },
+      params.minCorr,
+    )
   } catch {
     return null
   }
@@ -427,10 +465,17 @@ export interface NameClassesEntry {
   memberCount: number
   /** 成员（界面直接渲染，含当日涨幅）。 */
   members: NamingMember[]
-  /** 该组的命名结论；null = 本轮没算它（弱链/超上限/引擎没这类）。 */
+  /**
+   * 结构标签（官方行业/概念口径，确定性、不经模型，见 `structure.ts`）。
+   *
+   * 与单类路径一样**独立于** `naming` 存在：`naming` 为 null（超上限/伪类）或降级时，
+   * 它依然是这一行唯一能显示的"这个班像什么"。没有成员（没算它）时是空结构。
+   */
+  structure: ClassStructure
+  /** 该组的命名结论；null = 本轮没算它（伪类/超上限/引擎没这类）。 */
   naming: NamingResult | null
   /** 没算的原因（`naming === null` 时有值）。 */
-  skipReason?: 'weak_chain' | 'over_cap' | 'not_found'
+  skipReason?: 'weak_chain' | 'pseudo_class' | 'over_cap' | 'not_found'
   /** 是否命中缓存（命中 = 这一组没有发生模型调用）。 */
   cached: boolean
 }
@@ -541,25 +586,48 @@ export async function nameClasses(rt: NamingRuntime, args: NameClassesArgs = {})
   const rows = (Array.isArray(list.classes) ? list.classes : []) as Array<Record<string, unknown>>
   if (rows.length === 0) return { ok: false, reason: 'no_classes', note: `as_of=${asOf || '?'} 没有挖到任何类` }
 
-  // ---- [2] 选目标：可采信（非弱链）→ 强度降序 ----
-  const usable = rows.filter((c) => c.weak_chain !== true)
-  if (usable.length === 0) return { ok: false, reason: 'no_classes', note: '全部类都是弱链伪类（不采信、也不命名）' }
+  // ---- [2] 选目标：可采信（非弱链、非传递链可疑）→ 强度降序 ----
+  //
+  // 判据与界面**同一份**（`lib/concept-quality.ts`）：界面不采信的类不该被命名，
+  // 否则会出现"列表里看不到这个类，但它有名字"（命名接口是独立路由，界面过滤管不住它）。
+  const qualityOf = new Map<number, ClassQuality>()
+  const usable: Array<Record<string, unknown>> = []
+  for (const c of rows) {
+    const q = classQuality(
+      {
+        weakChain: c.weak_chain === true,
+        intraCorr: Number(c.mean_intra_corr),
+        strongDensity: Number(c.strong_density),
+        size: Number(c.size),
+      },
+      params.minCorr,
+    )
+    qualityOf.set(Number(c.class_id), q)
+    if (q.usable) usable.push(c)
+  }
+  if (usable.length === 0) {
+    return { ok: false, reason: 'no_classes', note: '全部类都不采信（弱链伪类 / 传递链可疑）——不予命名' }
+  }
   const want = args.classIds !== undefined ? new Set(args.classIds.map(Number)) : null
   const ordered = [...usable].sort((a, b) => Number(b.strength ?? 0) - Number(a.strength ?? 0))
   const picked = (want === null ? ordered : ordered.filter((c) => want.has(Number(c.class_id)))).slice(0, maxClasses)
   const entries: NameClassesEntry[] = []
   for (const c of rows) {
     const id = Number(c.class_id)
-    const isWeak = c.weak_chain === true
+    const q = qualityOf.get(id)
     const inTarget = picked.some((p) => Number(p.class_id) === id)
-    if (isWeak || !inTarget) {
+    if (q === undefined || !q.usable || !inTarget) {
+      const size = Number(c.size ?? 0) || 0
       entries.push({
         classId: id,
-        size: Number(c.size ?? 0) || 0,
+        size,
         memberCount: 0,
         members: [],
+        // 没取成员的组只能给空结构（结构标签要成员板块数据才数得出来）；
+        // 界面按 `skipReason` 说明"为什么这一行没有标签"，不静默留白。
+        structure: emptyStructure(size),
         naming: null,
-        skipReason: isWeak ? 'weak_chain' : 'over_cap',
+        skipReason: q !== undefined && !q.usable ? (q.reason === 'weak_chain' ? 'weak_chain' : 'pseudo_class') : 'over_cap',
         cached: false,
       })
     }
@@ -641,6 +709,18 @@ export async function nameClasses(rt: NamingRuntime, args: NameClassesArgs = {})
         ? Math.round((usable.reduce((s, c) => s + (Number(c.mean_intra_corr) || 0), 0) / usable.length) * 1e4) / 1e4
         : null,
   }
+  /**
+   * 结构标签：逐组从**本组语料**里数（纯 CPU，0 次额外请求）。
+   *
+   * 为什么放在采集之后、模型之前：它只依赖 `belong_board` 素材，与模型无关 ——
+   * 于是下面三条降级路径（模型不可用 / 输出畸形 / 护栏拒）上它照样是满的。
+   * 这也保证它与模型看到的素材**逐字同源**（同源才能一眼看出"结构标签 vs 主题名"是两种口径）。
+   */
+  const structures = new Map<number, ClassStructure>()
+  for (const g of groups) {
+    structures.set(g.classId, structureOf(corpusOf(collect.corpus, g.members).items, g.members.length))
+  }
+
   const notes = [...collect.notes]
   const avail = namingAvailability(rt)
   let llmCalls = 0
@@ -650,12 +730,16 @@ export async function nameClasses(rt: NamingRuntime, args: NameClassesArgs = {})
   for (const g of groups) {
     const key = `${asOf}:${g.classId}:${fingerprint}`
     const hit = args.refresh === true ? undefined : cache.get(key)
+    // 结构标签与命名结论走**不同的缓存语义**：结论按 asOf:classId:指纹缓存，
+    // 而结构标签只依赖这次的板块素材 —— 所以结论命中缓存时它照旧现算，两边不互相拖累。
+    const structure = structures.get(g.classId) ?? emptyStructure(g.members.length)
     if (hit !== undefined) {
       entries.push({
         classId: g.classId,
         size: g.size,
         memberCount: g.members.length,
         members: g.members,
+        structure,
         naming: hit.result,
         cached: true,
       })
@@ -770,10 +854,12 @@ export async function nameClasses(rt: NamingRuntime, args: NameClassesArgs = {})
     for (let i = 0; i < chunk.length; i++) {
       const g = chunk[i]
       const result: NamingResult = { ...results[i], fingerprint }
+      const structure = structures.get(g.classId) ?? emptyStructure(g.members.length)
       cache.set(`${asOf}:${g.classId}:${fingerprint}`, {
         ok: true,
         result,
         members: g.members,
+        structure,
         effective,
         collectNotes: notes,
         sourcesUsed: collect.sourcesUsed,
@@ -784,6 +870,7 @@ export async function nameClasses(rt: NamingRuntime, args: NameClassesArgs = {})
         size: g.size,
         memberCount: g.members.length,
         members: g.members,
+        structure,
         naming: result,
         cached: false,
       })

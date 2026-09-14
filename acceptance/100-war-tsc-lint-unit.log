@@ -1,0 +1,9 @@
+== tsc ==
+npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+exit=0
+== eslint ==
+npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+exit=0
+== unit ==
+ℹ duration_ms 31.3395
+[unit] 全部通过 ✅（28 个测试文件）

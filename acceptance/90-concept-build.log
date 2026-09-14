@@ -1,0 +1,85 @@
+$ tsdown -c tsdown.config.ts && node scripts/build-client.mjs && node scripts/postbuild-dts.mjs
+ℹ tsdown v0.13.0 powered by rolldown v1.2.6
+ℹ Using tsdown config: C:\Users\Lison\Desktop\EvfWorkSpace\TRADE\tickflow-stock-panel\frontend-dsh\tsdown.config.ts
+ℹ entry: src\index.ts
+ℹ target: es2020
+ℹ tsconfig: tsconfig.json
+ℹ Build start
+ℹ Cleaning 10 files
+Warning: Invalid input options (1 issue found)
+- For the "define". Invalid key: Expected never but received "define". 
+ℹ lib\index.js             323.94 kB │ gzip: 102.13 kB
+ℹ lib\index.js.map         790.21 kB │ gzip: 211.47 kB
+ℹ lib\index-BdK3m5SE.d.ts   38.42 kB │ gzip:  15.34 kB
+ℹ 3 files, total: 1152.57 kB
+src\host\vendor\opentdx.js (2:16) [UNRESOLVED_IMPORT] Could not resolve 'net' in src/host/vendor/opentdx.js
+   ╭─[ src/host/vendor/opentdx.js:2:17 ]
+   │
+ 2 │ import net from "net";
+   │                 ──┬──  
+   │                   ╰──── Module not found, treating it as an external dependency
+───╯
+
+src\host\vendor\opentdx.js (3:17) [UNRESOLVED_IMPORT] Could not resolve 'zlib' in src/host/vendor/opentdx.js
+   ╭─[ src/host/vendor/opentdx.js:3:18 ]
+   │
+ 3 │ import zlib from "zlib";
+   │                  ───┬──  
+   │                     ╰──── Module not found, treating it as an external dependency
+───╯
+
+src\host\vendor\opentdx.js (2890:67) [UNRESOLVED_IMPORT] Could not resolve 'fs' in src/host/vendor/opentdx.js
+      ╭─[ src/host/vendor/opentdx.js:2890:68 ]
+      │
+ 2890 │ import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
+      │                                                                    ──┬─  
+      │                                                                      ╰─── Module not found, treating it as an external dependency
+──────╯
+
+src\host\vendor\opentdx.js (2891:63) [UNRESOLVED_IMPORT] Could not resolve 'path' in src/host/vendor/opentdx.js
+      ╭─[ src/host/vendor/opentdx.js:2891:64 ]
+      │
+ 2891 │ import { join as join2, isAbsolute, dirname as dirname2 } from "path";
+      │                                                                ───┬──  
+      │                                                                   ╰──── Module not found, treating it as an external dependency
+──────╯
+
+src\host\vendor\opentdx.js (2892:23) [UNRESOLVED_IMPORT] Could not resolve 'os' in src/host/vendor/opentdx.js
+      ╭─[ src/host/vendor/opentdx.js:2892:24 ]
+      │
+ 2892 │ import { tmpdir } from "os";
+      │                        ──┬─  
+      │                          ╰─── Module not found, treating it as an external dependency
+──────╯
+
+src\host\vendor\opentdx.js (5897:30) [UNRESOLVED_IMPORT] Could not resolve 'url' in src/host/vendor/opentdx.js
+      ╭─[ src/host/vendor/opentdx.js:5897:31 ]
+      │
+ 5897 │ import { fileURLToPath } from "url";
+      │                               ──┬──  
+      │                                 ╰──── Module not found, treating it as an external dependency
+──────╯
+
+src\host\vendor\opentdx.js (5898:30) [UNRESOLVED_IMPORT] Could not resolve 'path' in src/host/vendor/opentdx.js
+      ╭─[ src/host/vendor/opentdx.js:5898:31 ]
+      │
+ 5898 │ import { join, dirname } from "path";
+      │                               ───┬──  
+      │                                  ╰──── Module not found, treating it as an external dependency
+──────╯
+
+(inject-build-consts plugin) [SOURCEMAP_BROKEN] Sourcemap is likely to be incorrect: a plugin (inject-build-consts) was used to transform files, but didn't generate a sourcemap for the transformation. Consult the plugin documentation for help: https://rolldown.rs/guide/troubleshooting#warning-sourcemap-is-likely-to-be-incorrect
+
+[PLUGIN_TIMINGS] Your build spent 99% of 7.2s inside plugin hooks (7.1s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - rolldown-plugin-dts:generate load (97%, 6.9s, 18 calls)
+Those rows are 97% of the build; the rest of the 99% is below.
+Not measurable — 1 hook whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - rolldown-plugin-dts:resolver resolveId (97 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+✔ Build complete in 7520ms
+[build-client] client.js 已生成
+[postbuild-dts] wrote lib/types/index.d.ts
+[postbuild-dts] wrote lib/types/client/index.d.ts
+[postbuild-dts] done

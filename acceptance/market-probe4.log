@@ -1,0 +1,139 @@
+open session: clicked
+切到 A股工作台：ok
+切到 行情：ok
+[facts] {
+  "viewport": {
+    "w": 1680,
+    "h": 1000
+  },
+  "grid": {
+    "rect": {
+      "x": 548,
+      "y": 171,
+      "w": 780,
+      "h": 797
+    },
+    "display": "grid",
+    "cols": 12,
+    "rows": "89.9062px 386.922px 308.172px"
+  },
+  "pageScroll": {
+    "docH": 1000,
+    "viewH": 1000
+  },
+  "blocks": [
+    {
+      "title": "指数9 大指数：切换条 + 摘要 + 日K/分时19:47:18",
+      "rect": {
+        "x": 548,
+        "y": 267,
+        "w": 322,
+        "h": 387
+      },
+      "headRect": {
+        "x": 549,
+        "y": 268,
+        "w": 320,
+        "h": 28
+      },
+      "scrollH": 357,
+      "clientH": 357,
+      "hiddenPct": 0,
+      "stats": 0,
+      "rankRows": 0
+    },
+    {
+      "title": "涨停梯队连板梯队 + 板块热度（单轮 ≤177 次工具调用）19:47:22",
+      "rect": {
+        "x": 876,
+        "y": 267,
+        "w": 453,
+        "h": 387
+      },
+      "headRect": {
+        "x": 877,
+        "y": 268,
+        "w": 451,
+        "h": 28
+      },
+      "scrollH": 441,
+      "clientH": 357,
+      "hiddenPct": 19,
+      "stats": 0,
+      "rankRows": 0
+    },
+    {
+      "title": "榜单涨幅 / 跌幅 / 成交额 / 换手率全 A19:47:20",
+      "rect": {
+        "x": 548,
+        "y": 660,
+        "w": 518,
+        "h": 308
+      },
+      "headRect": {
+        "x": 549,
+        "y": 661,
+        "w": 516,
+        "h": 28
+      },
+      "scrollH": 278,
+      "clientH": 278,
+      "hiddenPct": 0,
+      "stats": 0,
+      "rankRows": 0
+    },
+    {
+      "title": "市场异动沪深北三市场合并 · 按时间倒序前 8 条19:47:20",
+      "rect": {
+        "x": 1072,
+        "y": 660,
+        "w": 256,
+        "h": 308
+      },
+      "headRect": {
+        "x": 1073,
+        "y": 661,
+        "w": 254,
+        "h": 28
+      },
+      "scrollH": 278,
+      "clientH": 278,
+      "hiddenPct": 0,
+      "stats": 0,
+      "rankRows": 0
+    }
+  ],
+  "headerText": "行情环境 / 指数 / 梯队 / 榜单 一屏读完 · 全页共用一个节拍器 · 折叠某块即停止它的轮询节拍15s20s30s60s暂停刷新 30s休市 · 已暂停定时轮询（手动刷新可用）",
+  "counts": {
+    "kpiCells": 6,
+    "kpiTexts": [
+      "涨 / 平 / 跌3126/207/2224共 5557 只",
+      "涨停 / 跌停57/18按交易所涨跌停价",
+      "强势 / 弱势 ±3%612/298涨跌 ≥3%",
+      "最高连板4板5 组梯队",
+      "≥2板晋级10只高位家数",
+      "两市成交 / 均涨1.64万亿均值 +0.53%"
+    ],
+    "distSegments": 8,
+    "boards": 4,
+    "boardRows": 20,
+    "unusualRows": 8,
+    "tierChips": 4,
+    "heatRows": 9,
+    "indexChips": 9
+  },
+  "colors": {
+    "blockBg": "color(srgb 0.962353 0.962667 0.963294)",
+    "blockBorder": "rgba(0, 0, 0, 0.04)",
+    "panelBg": "rgb(255, 255, 255)",
+    "innerCardBg": "rgb(255, 255, 255)"
+  },
+  "duplicated": 5
+}
+  📸 acceptance\shots\market-01-行情-亮色.png
+[dark] {"panelBg":"rgb(21, 21, 23)","blockBg":"rgb(35, 35, 36)","blockBorder":"rgba(255, 255, 255, 0.06)","innerCardBg":"rgb(44, 44, 46)","innerCardBorder":"rgba(255, 255, 255, 0.06)","bodyText":"rgb(249, 250, 251)"}
+  📸 acceptance\shots\market-02-行情-暗色.png
+[console errors] 无
+  ✅ 榜单行 → 工作台：点了「满坤科技+20.00%」→ 报价头=有·名字命中「满坤科技」=true
+  ✅ 梯队 chip → 工作台：点了「闽东电力」→ 报价头=有·名字命中「闽东电力」=true
+  ❌ 异动行 → 工作台：点了「盘中弱势浩淼科技14:35:26」→ 报价头=有·名字命中「盘中弱势」=false

@@ -15,6 +15,8 @@ gateway/state/
 # README 真正引用的那几张已入库在 docs/images/
 acceptance/shots/
 acceptance/shots-readme/
+# 探针实例的临时出图目录（同样一条命令可重建；名字里带端口号，如 shots-3099）
+acceptance/shots-*/
 
 # 快讯源探测器的原始抓取结果（重跑 scripts/news-source-probe.mjs 可得；结论已写进文档）
 news-probe.json

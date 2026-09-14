@@ -87,6 +87,10 @@ async function main() {
   const p3 = buildAiPrompt('scout-rank', { candidates: [] })
   assert(p3.user.includes('"picks"'), 'scout-rank 的形状说明在 prompt 里')
   assert(p3.user.includes('不要新增候选之外的票'), 'scout-rank 明确禁止编造候选外的票')
+  const p4 = buildAiPrompt('war-plan', { sectorUniverse: ['机器人概念'], ladder: [] })
+  assert(p4.user.includes('"sectors"') && p4.user.includes('"verdicts"'), 'war-plan 的形状说明在 prompt 里')
+  assert(p4.user.includes('sectorUniverse') && p4.user.includes('逐字'), 'war-plan 明确要求方向名逐字取自素材')
+  assert(p4.user.includes('insufficient'), 'war-plan 允许并给出了「证据不足」这一正确回答的形状')
 
   console.log('[2] 容错解析')
   const clean = '{"stance":"bullish","score":72,"oneLine":"放量突破","thesis":["量比2.1"],"risks":["高位"],"levels":{"support":1600,"stop":1580},"watch":["开盘承接"]}'
@@ -131,6 +135,25 @@ async function main() {
   assert(rank.picks[1].symbol === 'SZ000001', '带前缀符号原样保留')
   assert(rank.picks[0].score === 90 && rank.picks[1].score === 70, '字符串分数被转成数字')
 
+  // v1.6 作战思路：素材不足是**合法结论**（不能被当成解析失败吞掉），
+  // 而"越界点名"由 host 半护栏剔除（这里只验契约层的形状归一）。
+  const insufficient = parseAiResult('war-plan', '{"insufficient":true,"reason":"行情取数失败，不给思路"}')
+  assert(insufficient !== null && insufficient.insufficient === true, 'insufficient 结论被保留（不是解析失败）')
+  assert(insufficient.sectors.length === 0 && insufficient.picks.length === 0, '不足结论不带任何方向与候选')
+  const war = parseAiResult(
+    'war-plan',
+    '{"summary":"机器人共振","stance":"进攻","sectors":[{"name":"机器人概念","source":"瞎写","score":"80","members":["002747","nope"]}],'
+      + '"picks":[{"symbol":"002747","score":150,"role":"主攻"}],"q1":{"value":"增强"},"q2":{"value":"bogus"},'
+      + '"actions":[{"symbol":"300750","action":"加仓"}],"verdicts":[{"symbol":"002747","verdict":"乱写"}],"avoid":"不追高","evidence":"涨停 23 家"}',
+  )
+  assert(war !== null && war.insufficient === false, '有内容的回包能归一')
+  assert(war.stance === 'wait' && war.q1.value === 'flat' && war.q2.value === 'normal', '非法枚举回落安全值')
+  assert(war.sectors[0].members.length === 1 && war.sectors[0].members[0] === 'SZ002747', '成员里的垃圾符号被剔除')
+  assert(war.picks[0].symbol === 'SZ002747' && war.picks[0].score === 100, '符号补前缀 + 分数夹取')
+  assert(war.actions[0].action === 'hold' && war.verdicts[0].verdict === 'confirm', '动作/判定回落安全值')
+  assert(war.avoid.length === 1 && war.evidence.length === 1, 'avoid/evidence 写成裸字符串也认')
+  assert(war.guard.symbolPool === 0 && war.guard.droppedSymbols.length === 0, '契约层不做白名单（护栏在 host 半，见 guardWarPlan）')
+
   console.log('[3] 调用链路（假模型）')
   const rt = {
     llm: fakeLlm({ text: ['{"stance":"bear', 'ish","score":30,"oneLine":"破位",', '"thesis":["跌破MA20"],"risks":[],"watch":[]}'], reasoning: ['先看趋势…'] }),
@@ -149,6 +172,50 @@ async function main() {
   const badJson = await runAiTask(rtBadJson, { task: 'stock-verdict', context: {} })
   assert(badJson.ok === true && badJson.json === undefined && badJson.text === '模型说了很多话但没有 JSON',
     '非 JSON 回包：ok=true 但无 json，原文保留（视图兜底显示）')
+
+  // ── 作战思路（war-plan）：host 半是**唯一**执行素材护栏的地方，必须离线钉住 ──
+  // 「以其他板块为基础」这条纪律如果只写在 prompt 里，就等于没有。这里用假模型故意越界：
+  // 点名素材外的票、自造板块名、编一条查不到出处的引文 —— 断言它们被剔除并回传在 guard 里。
+  const warCtx = {
+    day: '2026-09-14',
+    sectorUniverse: ['机器人概念'],
+    boards: [{ name: '机器人概念', limitUpCount: 23 }],
+    ladder: [{ symbol: 'SZ002747', name: '埃斯顿', streak: 2 }],
+    watchlist: [{ symbol: 'SH600519', name: '贵州茅台' }],
+    concepts: [{ id: 3, members: [{ symbol: 'SZ002747', pct: 10.01 }] }],
+    missing: [],
+  }
+  const warScript = {
+    text: [JSON.stringify({
+      summary: '机器人概念 5 家涨停',
+      stance: 'attack',
+      sectors: [
+        { name: '机器人概念', source: 'board', score: 80, why: '板块 5 家涨停', members: ['SZ002747', 'SH601398'] },
+        { name: '人形机器人核心零部件', source: 'concept', score: 90, why: '听起来很专业', members: [] },
+      ],
+      picks: [
+        { symbol: 'SZ002747', role: '主攻', score: 85, reason: 'r', trigger: '高开 3%', stop: '破 5 日线' },
+        { symbol: 'SH601398', role: '编的', score: 99, reason: 'r', trigger: 't', stop: 's' },
+      ],
+      actions: [{ symbol: 'SH601398', action: 'clear', why: '编的' }],
+      verdicts: [{ symbol: 'SH601398', verdict: 'trap', why: '编的' }],
+      evidence: ['涨停 23 家', '主力净流入 88.88 亿'],
+    })],
+  }
+  const rtWar = { llm: fakeLlm(warScript), defaultModel: rt.defaultModel }
+  const warRun = await runAiTask(rtWar, { task: 'war-plan', context: warCtx })
+  assert(warRun.ok === true && typeof warRun.json === 'object', 'war-plan 是已知任务（whitelist 放开）')
+  assert(warRun.json.sectors.length === 1 && warRun.json.sectors[0].name === '机器人概念', '自造板块名被剔除')
+  assert(warRun.json.sectors[0].members.length === 1, '方向成员过票白名单')
+  assert(warRun.json.picks.length === 1 && warRun.json.picks[0].symbol === 'SZ002747', '素材外的候选被剔除')
+  assert(warRun.json.actions.length === 0 && warRun.json.verdicts.length === 0, '素材外的持仓动作/竞价判定被剔除')
+  assert(warRun.json.guard.droppedSymbols.length === 4 && warRun.json.guard.droppedSectors.length === 1,
+    `越界点名全部留痕（实际 ${warRun.json.guard.droppedSymbols.length} 票 / ${warRun.json.guard.droppedSectors.length} 方向）`)
+  assert(warRun.json.guard.grounded === 1 && warRun.json.guard.ungrounded.length === 1,
+    '引文反查：编造的数字被标未落地，真实数字计入可反查')
+  assert(warRun.json.guard.symbolPool === 2 && warRun.json.guard.sectorPool === 1, '白名单规模回传（界面显示"可点名几只票"）')
+  assert(typeof warRun.meta?.contextBytes === 'number' && warRun.meta.contextBytes > 0,
+    'meta 回传上下文体积（客户端因此不必引 ai-contract 的值）')
 
   const rtNoLlm = { defaultModel: rt.defaultModel }
   const noLlm = await runAiTask(rtNoLlm, { task: 'stock-verdict', context: {} })

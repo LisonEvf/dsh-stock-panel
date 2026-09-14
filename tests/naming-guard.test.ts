@@ -24,7 +24,7 @@ import {
   type MaterialItem,
   type MaterialWindow,
 } from '../src/host/naming/types.ts'
-import { applyGuards, computeEvidenceScore, degradedResult, findQuoteItem, verifyQuote } from '../src/host/naming/guard.ts'
+import { applyGuards, computeEvidenceScore, degradedResult, findQuoteItem, normalizeTheme, verifyQuote } from '../src/host/naming/guard.ts'
 import { buildUserPrompt, NAMING_BATCH_SYSTEM_PROMPT, NAMING_SYSTEM_PROMPT } from '../src/host/naming/prompt.ts'
 import { parseLlmJson, repair } from '../src/host/naming/parse.ts'
 import { namingFingerprint, NAMING_PROMPT_VERSION } from '../src/host/naming/fingerprint.ts'
@@ -382,7 +382,7 @@ test('★ A2b④：指纹随口径变化（模型 / 窗口 / 源集合 / 阈值 
   assert.notEqual(namingFingerprint({ ...base, clientVersion: 'v2' }), fp, '换客户端版本')
   assert.notEqual(namingFingerprint({ ...base, windowDays: 5 }), fp, '换窗口')
   assert.notEqual(namingFingerprint({ ...base, sources: ['unusual'] }), fp, '换源集合')
-  assert.notEqual(namingFingerprint({ ...base, promptVersion: 'a2b-2' }), fp, '换提示词')
+  assert.notEqual(namingFingerprint({ ...base, promptVersion: 'a2b-3' }), fp, '换提示词')
   assert.notEqual(namingFingerprint({ ...base, guard: { ...base.guard, minEvidenceScore: 0.5 } }), fp, '换阈值')
 })
 
@@ -397,6 +397,14 @@ test('提示词把硬性规则写全（与护栏一一对应，改一处必须�
     assert.ok(NAMING_SYSTEM_PROMPT.includes(key), `系统提示词必须包含「${key}」（第 0 条素材优先级）`)
   }
   assert.ok(NAMING_BATCH_SYSTEM_PROMPT.includes('【素材优先级】'), '批量提示词同样要有第 0 条')
+  // theme 的形状（2026-09-14 追加）：模型写句子当主题名会把整行的宽度吃掉，
+  // 而**护栏只做归一、不做改写**（半截/改写过的名字更容易被误引）—— 约束必须落在提示词里。
+  for (const key of ['题材短名', '不要写成句子', '被多数成员共享']) {
+    assert.ok(NAMING_SYSTEM_PROMPT.includes(key), `单类提示词必须包含「${key}」（theme 形状）`)
+  }
+  for (const key of ['题材短名', '不要为了统一风格而互相模仿']) {
+    assert.ok(NAMING_BATCH_SYSTEM_PROMPT.includes(key), `批量提示词必须包含「${key}」`)
+  }
   const prompt = buildUserPrompt({ classId: 7, asOf: WINDOW.end, members: [
     { market: 'SZ', code: '300308', name: '中际旭创', changePct: 6.2 },
     { market: 'SZ', code: '002281', name: '光迅科技', changePct: null },
@@ -563,4 +571,41 @@ test('素材分组：同票多条归一组（prompt 渲染与覆盖度计算都�
   assert.equal(g.size, 3)
   assert.equal(g.get(MEMBERS[0])?.length, 2)
   assert.equal(g.get(MEMBERS[2])?.length, 1)
+})
+
+// ───────────────────────── 主题名归一（护栏的一部分，不是展示层修饰） ─────────────────────────
+
+test('主题名归一：脱引号、去空白、去「板块/概念」这类通用后缀（不改写词本身）', () => {
+  assert.equal(normalizeTheme('「CPO」'), 'CPO')
+  assert.equal(normalizeTheme('【光模块】'), '光模块')
+  assert.equal(normalizeTheme('“培育钻石”'), '培育钻石')
+  assert.equal(normalizeTheme('有色金属板块'), '有色金属')
+  assert.equal(normalizeTheme('存储芯片概念'), '存储芯片')
+  assert.equal(normalizeTheme('  光 模 块  '), '光模块', '模型偶尔会写进空格，展示时要抹掉')
+  // 不改写内容：长句子照旧保留（那是模型真的这么归纳的，只提示、不替它改）
+  const long = '银行、电力、白酒等红利资产同步走强'
+  assert.equal(normalizeTheme(long), long)
+  // 只有引号/后缀、没有实词 → 空（调用方按"named 但 theme 为空"降级）
+  assert.equal(normalizeTheme('「」'), '')
+  assert.equal(normalizeTheme('板块'), '板块', '不许把两个字的名字削成一个字')
+  assert.equal(normalizeTheme(null), '')
+})
+
+test('★ 归一后的主题名：引号不再进结果，且改动会留痕（guardNotes 记录原始串）', () => {
+  const r = run({ ...goodRaw(), theme: '「CPO」' })
+  assert.equal(r.verdict, 'named')
+  assert.equal(r.theme, 'CPO', '模型包了书名号/引号也要脱掉（否则界面上会显示成「「CPO」」）')
+  assert.ok(
+    r.guardNotes.some((n) => n.includes('主题名已归一')),
+    `归一必须留痕（可追溯改了什么）：${r.guardNotes.join(' | ')}`,
+  )
+  // 没改动时不留备注（否则"有备注"就不再是信号）
+  const clean = run(goodRaw())
+  assert.ok(!clean.guardNotes.some((n) => n.includes('主题名已归一')))
+})
+
+test('过长主题名：只提示、不截断（半截名字比长名字更容易被误引）', () => {
+  const r = run({ ...goodRaw(), theme: '银行、电力、白酒等红利资产同步走强' })
+  assert.equal(r.theme, '银行、电力、白酒等红利资产同步走强', '按原样保留')
+  assert.ok(r.guardNotes.some((n) => n.includes('偏长')), '但要标注（这是可改进的信号）')
 })

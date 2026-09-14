@@ -11,21 +11,22 @@ A 股**盯盘执行台** —— DSH Web 插件（挂在官方 `conversation.view
 截图由 `node acceptance/readme-shots.mjs <dsh web 地址>` 真机采集（headless Chrome + 真行情，只截插件面板区域，
 每张图配一行自检日志），产物在 `docs/images/`。重出方法见 §本地开发加载。
 
-![行情：一屏并排聚合（默认入口）](docs/images/01-market.png)
+![行情：一屏仪表盘（默认入口）](docs/images/01-market.png)
 
-**行情**（默认入口）：市场总览 / 指数 / 涨停梯队**并排聚合成一屏**——各占一列、各自内部滚动、整页不滚动，
-横向一眼扫完；列数按**容器实测宽度**分档（本图是三列档）。顶部状态带常显阶段、一级导航、涨跌家数、
-两市成交额、情绪档位，以及「问模型 / ⌘K / 收栏」。
+**行情**（默认入口）：**环境带**（涨跌家数 / 涨停跌停 / 强势弱势 / 最高连板 / ≥2板晋级 / 两市成交 + 一条涨跌分布横条）
+→ 主行 `指数（含图）│ 涨停梯队` → 底行 `榜单 │ 市场异动`，**整页不滚动、各块内部滚动**；列数按**容器实测宽度**分档
+（本图是三列档：指数 │ 梯队 │ 榜单，异动横跨整行；真机 780px 宽时是两列档）。
+顶部状态带常显阶段、一级导航、涨跌家数、两市成交额、情绪档位，以及「问模型 / ⌘K / 收栏」。
 
-| 复盘：七步流程 | 作战：竞价 → 验证窗 → 盘中 → 尾盘 |
+| 复盘：七步流程 | 作战：模型给今天的作战思路 |
 | --- | --- |
 | ![复盘](docs/images/02-review.png) | ![作战](docs/images/03-war.png) |
-| 盘后走完七步，输出**次日预期清单**（≤5 条 / 7 字段）并存档；列流并排、⑦ 输出独占整行。 | 时段自动切换，手动点过导航则本会话不再跟随；竞价段给「预期 × 竞价」对照矩阵，盘中只答 Q1–Q3。 |
+| 盘后走完七步，输出**次日预期清单**（≤5 条 / 7 字段）并存档；列流并排、⑦ 输出独占整行。 | 第一屏是模型读完**其他板块素材**给的作战思路（主攻方向 → 候选票含触发/失败条件 → 三问落点 → 持仓动作 → 竞价判定），你只做采纳/修改/驳回；时段自动切换，手动点过导航则本会话不再跟随。 |
 
 | 自挖板块：共动聚类 + 模型命名 | 工作台：个股（日K⇄分时 + 资金 / 逐笔 / 竞价） |
 | --- | --- |
 | ![自挖板块](docs/images/04-concept.png) | ![工作台](docs/images/05-stock.png) |
-| 无监督共动类 → **批量**问模型命名归类；按强度排序，行内给涨停数/均涨幅；页头显示模型调用预算与缓存命中。 | 点左栏任一行即到（不上导航栏）：报价头 + 日K⇄分时 + 资金/逐笔/竞价 + 右栏 AI。 |
+| 无监督共动类 → **批量**问模型命名归类（打开即跑，实测约 35s 出名字）；行内三列 = 强度条 │ 班名 + **来源胶囊**（模型主题 / 官方行业 / 官方概念）+ 指标行 + 成员 chips │ 证据 / 重命名；页头显示模型调用预算与缓存命中，底部汇总被排除的**弱链 / 传递链**类与孤立票。 | 点左栏任一行即到（不上导航栏）：报价头 + 日K⇄分时 + 资金/逐笔/竞价 + 右栏 AI。 |
 
 | 选股筛选：快照筛选 + MA 信号 + AI 排序 | 监控规则：规则与命中 |
 | --- | --- |
@@ -46,8 +47,8 @@ dsh plugin --profile web add .
 
 之后**重启 `dsh web`** 并**硬刷新浏览器**（Ctrl+Shift+R）——会话页出现「**A股工作台**」视图标签页。
 不需要手工登记 settings、不需要跑脚本、**也不改动宿主任何文件**。
-> registry 上 `0.3.5` 及以前是**旧形态**（1.0.0 ~ 1.4.0 从未发过 registry），请装 **1.5.0 及以后**：
-> `dsh plugin --profile web add @lisonevf/dsh-stock-panel@1.5.0`。
+> registry 上 `0.3.5` 及以前是**旧形态**（1.0.0 ~ 1.4.0 从未发过 registry），请装 **1.6.0 及以后**：
+> `dsh plugin --profile web add @lisonevf/dsh-stock-panel@1.6.0`。
 
 | 环节 | 机制 |
 | --- | --- |
@@ -78,15 +79,15 @@ dsh plugin --profile web add .
 | 入口 | 时段 | 你要做的事 |
 | --- | --- | --- |
 | **复盘** | 15:10–次日 9:15 | 七步复盘 → **写下次日预期清单（≤5 条，7 字段）并存档** |
-| **作战** | 9:15–15:00 | 竞价（预期×竞价对照矩阵）→ 验证窗 → 盘中（Q1/Q2/Q3 必答卡）→ 尾盘（兑现/换股/定仓） |
-| **行情**（默认） | 任意时段 | 市场总览 + 指数 + 涨停梯队（**一屏并排聚合**，滚到哪块才轮询哪块） |
+| **作战** | 9:15–15:00 | **模型给作战思路**（主攻方向 → 候选票含触发/失败条件 → 三问落点 → 持仓动作 → 竞价判定），你只做采纳/修改/驳回；素材全部来自其他板块（行情 / 自挖板块 / 选股 / 复盘 / 竞价 / 持仓 / 自选） |
+| **行情**（默认） | 任意时段 | 环境带（涨跌/涨停跌停/强势弱势/最高连板/两市成交 + 分布条）· 指数图 · 涨停梯队 · 榜单 · 市场异动（**一屏读完**，整页不滚动） |
 | **自挖板块** | 任意时段 | 无监督共动聚类 → **模型自动命名归类**；按**强度**（均涨幅 + 6×涨停数）排序 |
 | **选股筛选** | 任意时段 | 快照筛选 + MA 信号 + AI 排序 |
 | **监控规则** | 任意时段 | 价格/涨跌幅/关键词规则与命中（命中走常驻 Watcher + Toast/徽标） |
 | **外盘** | 任意时段 | 港股 / 美股 / 期货（**次要**，排在最后、颜色更淡） |
 | **工作台** | 任意时段 | 个股信息：报价头 + 日K⇄分时 + 资金/逐笔/竞价 + 右栏 AI（**不上导航栏**，点股票即到） |
 
-**七条硬约束**（都不是偏好，改了会掉功能）：
+**八条硬约束**（都不是偏好，改了会掉功能）：
 
 - **默认入口 = 行情**（`DEFAULT_VIEW`，单测钉住）：任何时段都成立的第一眼；`1` / `2` 一键到复盘 / 作战，
   未手动点过导航时 9:15 / 15:10 这类边界仍会自动跟随。
@@ -99,9 +100,15 @@ dsh plugin --profile web add .
   （满宽面板里前者会接管面板边缘的点击/拖拽；切回「对话」标记自动摘掉）。输入框只是 `display:none`、**没卸载**：
   「深入对话」照常能发，点完给一条会自己消失的回执。
 - **自挖板块：打开即让模型命名归类，并按强度排序**（见 §特色板块）；重复打开复用上一轮结果，不重新采集素材、不调模型。
-- **行情页 = 一屏聚合面板**，四条纪律：① 全页**只有一个节拍器**（15/20/30/60s 或暂停）——否则同一份指数数据会被
-  两个订阅者各拉一遍；② 每块可折叠（**折叠即停它的轮询**）；③ 窄屏退化态下只让**可见块**轮询；
-  ④ 默认 30s，页头显示「轮询中 N/3 · 节拍 · 上次刷新」，每块另有本块刷新时间与单块刷新按钮。
+- **作战：模型给结论、你只做采纳**（`lib/war-plan*.ts` + `components/WarPlanCard.tsx`，见 §作战板块）。护栏在 **host 半**
+  权威侧执行（票白名单 / 方向名逐字反查 / 引文反查），越界的**剔除并回传显示**，不静默丢弃；采纳**只填空位**
+  （全部标 `from:'ai'`，人工答案一律不覆盖），驳回只清模型那部分（`clearAiAnswers`）。按 `${交易日}:${时段}` 缓存 ——
+  同一时段重复打开 = **0 次模型调用**；休市 / 无盘面素材**不自动生成**（自动跑一次只会换来一句"证据不足"，白花一次调用），也不进 30s 轮询。
+- **行情页 = 一屏仪表盘**，五条纪律：① 全页**只有一个节拍器**（15/20/30/60s 或暂停，各块自带定时器一律关掉
+  —— 这条曾被审计抓出是假的：三块自带 20/15/30s 定时器都没关、实际 4 个定时器在跑，现在由契约脚本钉住）；
+  ② 每块可折叠（**折叠即停它的轮询**）；③ 窄屏退化态下只让**可见块**轮询；④ 页面自己持有的数据源用
+  `refreshInterval: 0`（**不是** `enabled:false` —— 后者会连手动刷新一起废掉）；⑤ 默认 30s，页头显示
+  「轮询中 N/4 · 节拍 · 上次刷新」，每块另有本块刷新时间与单块刷新按钮。
   列数按**容器实测宽度**（`ResizeObserver`：≥1120 三列 / ≥760 两列 / 否则单列）——视口断点在 DSH 里会骗人：
   左栏 + 右 AI 栏都开着时视口很宽、面板却很窄。三个旧入口 id（总览/指数/涨停梯队）自动映射到「行情」。
 - **三栏联动 + 键盘优先**：`selection.ts` 的「当前标的」是唯一真源（点行 → 主图/下部面板/右栏 AI 一起换）；
@@ -113,6 +120,7 @@ dsh plugin --profile web add .
 | 项 | 内容 |
 | --- | --- |
 | 旧页面退役 | 下线「自选盘」「个股明细」两个整页的组件文件（A6 只摘了入口，文件留着备用——现在它们不进 bundle） |
+| **个股卡挂载点** | **个股视角的自挖板块卡当前跑不到**（它只被退役的「个股明细」引用）—— 数据源是通的（`hist_concept_query` 真机可用、冷启动 ~6s），缺挂载点；挂回「工作台」要先做体积余量（651.7 / 665KB）。见 `docs/ROADMAP.md` A2「仍未做」⑤ |
 | 入口级直达 | ⌘K 输入入口名目前是切到该入口，尚未做"跳到页内锚点并滚动定位"（行情页内已有锚点，可复用） |
 | 导航承载 | 一级入口已有 7 项，窄容器下状态带给导航加了横滚兜底；若要再加入口，先做"分组/收起"设计 |
 
@@ -156,6 +164,34 @@ Browser(invokeTool / useSwr)
   → 自动裁一档上下文重试（≤3 次调用 / ≤3 次裁剪，分开计数），裁剪结果在 `meta.shrunk` 回传并由 UI **显式提示**。
 - **不覆盖你的草稿**：AI 结果永远是只读参考区，必须逐条「+」采纳；已在清单的条目标注而不重复插入。
 
+## 作战板块：模型给作战思路（A8）
+
+旧版作战页只**展示**（温度计 / 事件流 / 板块脉冲 / 竞价雷达），决策劳动全在用户身上 —— AI 直调通道一直开着，
+但这一页**一次模型都没调**。现在第一屏就是模型读完**其他板块素材**给的结论（"以其他板块为基础，而不是空穴来风"）：
+
+| 层 | 位置 | 要点 |
+| --- | --- | --- |
+| 素材 | `lib/war-plan-collect.ts` | 行情（广度 / 温度计 / 板块榜 / 涨停梯队）+ 自挖板块（引擎快照 → 过弱链筛选 → 按强度取前 8 类）+ 选股筛选（同一份全 A 快照上跑本仓既有预设「放量上攻」，**零额外请求**）+ 复盘存档（预期清单 / 主线 / 雷区）+ 竞价（逐票 `auction` 特征 + 与竞价雷达同一个 `judgeExpectation` 初判）+ 持仓 / 自选。逐项限额见 `MATERIAL_CAPS`，整体压在 `AI_CONTEXT_MAX_BYTES`（24KB）以内 |
+| 组装 | `lib/war-plan.ts` 的 `buildWarContext`（纯函数） | 压成模型能读的小 JSON，并**显式声明 `sectorUniverse`**（= 行情页板块榜名）—— 它就是护栏"允许说什么"的白名单。自挖类**刻意不给名字**：给类起名是「自挖板块」页的模型调用，作战页不偷花那笔预算；类的作用是把"哪一批票在共动"作为**证据**交给模型 |
+| 护栏 | `lib/war-plan-guard.ts`（**host 半执行**，权威侧） | ① 票白名单（只能点名素材里出现过的标的）；② 方向名**逐字**反查（自造板块名一律剔除）；③ 引文反查（数字/名字逐字命中才算落地）。剔除与未落地的东西**回传并显示**（`plan.guard`），不静默丢弃 —— 同 naming 的立场。⚠️ 边界写清：引文反查是**逐字/数字级别的抽查**，抓得出"编了个数字/编了个不存在的名字"，抓不出"引用了真数字但结论被曲解"，界面上如实标注"可反查 N/M 条" |
+| 呈现 + 采纳 | `components/WarPlanCard.tsx` + `adoptWarPlan` | 盘眼 / 主攻方向 / 候选票（每只带**触发条件**与**失败条件**）/ 三问落点 / 持仓动作 / 竞价判定；按**只填空位**写进 `dayrun`（全部标 `from:'ai'`，**人工答案一律不覆盖**），驳回走 `dayrun.clearAiAnswers`（只清模型那部分）。Q 卡从"必答"降级为**人工覆盖入口**（默认收起，点任意选项即覆盖） |
+
+**成本纪律**（与全仓同一条口径）：思路按 `${交易日}:${时段}` 缓存并落 host 表 `war_plans` → 同一时段重复打开
+= **0 次模型调用**（页头显示"已于 HH:MM 生成"，超 30 分钟只标"建议重算"、不自动重算）；**休市 / 无盘面素材不自动生成**
+（`autoGenerateDecision` 纯函数：自动跑一次只会换来一句"证据不足"，白花一次调用）；采集一次 = 1 次
+`hist_concept_classes`（引擎缓存命中即近零成本）+ 竞价时段 ≤8 次 quote/auction，**不进 30s 轮询**。
+
+**降级路径**（都不假装成功）：无 LLM → 卡片说明原因 + 生成按钮置灰；模型回包结构不可用 → 存成一条 `insufficient`
+思路并**保留原文**（卡片显示原文）；模型回"素材不足" → 原样展示（这是**允许的正确答案**：宁可说证据不足，
+也不许编一个听起来合理的板块或票）；新客户端 + 旧 host 半 → 明说"宿主半还是旧版本，重启 `dsh web` 让 host 半重新加载"。
+
+**离线可回归 + 真机取证**：`tests/war-plan.test.ts`（31 条：回包归一 / 越界点名与引文反查 / 素材组装与限额 /
+自动生成纪律 / 存档与 host 表键口径 / 采纳只填空位与驳回只清 AI）+ `scripts/smoke-ai-contract.mjs`（已扩到
+**host 半全链路**：假模型故意越界 → 断言 host 真的剔除素材外的票/方向并回传 guard）+ 两条真机探针：
+`acceptance/probe-war-materials-live.mjs`（**真数据源 + 假模型**，与"假数据照着错代码写"反着来：实测一次采集
+14.0s → 板块榜 12 / 梯队 20 / 自挖类 8（19 个成员位，排除 2 个弱链类）/ 选股候选 8 / 上下文 7.7KB，白名单票 55 / 方向 12）
+与 `acceptance/probe-war-plan.mjs`（隔离 headless Chrome：卡片挂载 / 模型链路 / 透明度三件套）。
+
 ## 特色板块：自挖概念 + 命名（A2）
 
 `WATCH-METHODOLOGY` 的「主线识别」依赖 `belong_board` 的**官方花名册**，而市场常常先出现「花名册还没有、
@@ -165,7 +201,7 @@ QFQ 日线残差共动 → 无监督聚类）就是为这个盲区准备的：
 | --- | --- | --- |
 | A **发现**：这些票今天共动了吗 | node-tdx `HistEngine`（内置，零外部进程） | ✅ 已内置（4 个工具） |
 | B **命名**：它们为什么一起动、叫什么 | `src/host/naming/*`（移植 `cluster-namer`：素材 + LLM + 护栏，复用 `ctx.llm`） | ✅ 已落地（GET/POST `/api/stock-panel/naming`） |
-| C **呈现** | 个股卡（主视角）+「自挖板块」一级入口（类列表） | ✅ 已上线 |
+| C **呈现** | 「自挖板块」一级入口（类列表）✅ 已上线 · 个股卡 ⚠️ **组件与数据源都在，但当前没有挂载点**（A6 摘掉「个股明细」整页时它一起没了入口，`StockConceptCard` 不进 bundle；`hist_concept_query` 实测可用，冷启动 ~6s）→ 下一批挂回「工作台」（体积账见 `docs/ROADMAP.md` A2「仍未做」） | ⚠️ 半上线 |
 
 **参数**：推荐默认 `pool_n=200 · window=90 · min_corr=0.6`，且**无条件过滤弱链类**（校准证据见
 `docs/CONCEPT-CALIBRATION.md`；界面会把 as_of 与三个参数显示出来，不标 = 不可复现）。
@@ -178,13 +214,13 @@ QFQ 日线残差共动 → 无监督聚类）就是为这个盲区准备的：
 板块归属是**当前快照**、封板状态由日K推导（**可回放**）。因此当 as_of 不是当前交易日时，插件**不采实时源**
 并在结果里写明「不做历史回放」；板块归属照用但标注来源。把今天的异动贴到三天前的类上等于凭空造证据。
 
-**离线可回归**：`pnpm test`（77 条命名相关断言，注入假工具/假模型跑全链路）+ `pnpm smoke:naming`
+**离线可回归**：`pnpm test`（93 条命名相关断言，注入假工具/假模型跑全链路）+ `pnpm smoke:naming`
 （对构建产物验路由/口径/护栏/缓存）；实机 `pnpm verify:live` 第 ④ 段会真的命名一次。
 
 ## 存储
 
 - **用户可见的本地资产落在 host 侧持久化**（A1）：DSH 存储子系统的 `stock_panel` 领域（json 后端 → `$DSH_HOME/storages`），
-  **11 张表**：自选 / 复盘存档 / 复盘草稿 / 当日运行 / 持仓 / 交易日志 / AI 结论 / 事件流 / 看过的个股 / 监控规则 / 监控命中记录。
+  **12 张表**：自选 / 复盘存档 / 复盘草稿 / 当日运行 / 持仓 / 交易日志 / AI 结论 / 作战思路 / 事件流 / 看过的个股 / 监控规则 / 监控命中记录。
   localStorage 降级为**镜像 + 离线兜底**（启动拉一次全量快照，写入按指纹**差量**推送）；底栏显示 `持久化：host`，
   不可用时显示 `本地` 并给出原因——**不静默降级**。
 - **仍在 localStorage**：UI 偏好（视图/栏显隐/K 线区间/当前标的）与信息条列配置——属「这台机器的界面状态」，
@@ -206,8 +242,8 @@ QFQ 日线残差共动 → 无监督聚类）就是为这个盲区准备的：
 
 三条纪律（都有门禁守着，不靠自觉）：① **字号只能走 token**（改造前全仓 ≤10px 有 **388 处（85%）**，中文 9px
 基本不可读；现在出现 <14px 的就地字号会被 `ux-contract` 判失败）；② **更次要的信息进 `title`，不要继续缩字号**；
-③ **先算宽度、再定字号**（主区 1148px 是硬预算，"放不下"多半是列宽策略问题——正确做法见 `MarketOverview` 的
-`RankList`、`ConceptClassesCard` 的成员 chips、`StateView` 的空态）。量化账本：`pnpm density`，判失败口径已并入 `pnpm guard`。
+③ **先算宽度、再定字号**（主区 1148px 是硬预算，"放不下"多半是列宽策略问题——正确做法见 `MarketBoards` 的
+榜单行〔窄列只留"名称 + 主值"、其余进 title〕、`ConceptClassesCard` 的成员 chips、`StateView` 的空态）。量化账本：`pnpm density`，判失败口径已并入 `pnpm guard`。
 
 ## 质量门禁
 
@@ -216,24 +252,31 @@ pnpm build                                  # host + client + dts（client 默�
 node scripts/build-client.mjs --check       # 生成物与源码一致性（防手改生成物）
 npx tsc --noEmit                            # 全量类型门禁（0 错误）
 pnpm lint                                   # ESLint（0 error / 0 warning；棘轮 0 = 只降不升）
-pnpm test                                   # 单元测试（node:test + esbuild 打包，离线；25 文件）
-node scripts/check-bundle-size.mjs          # client.js 体积护栏（650KB）
+pnpm test                                   # 单元测试（node:test + esbuild 打包，离线；28 文件）
+node scripts/check-bundle-size.mjs          # client.js 体积护栏（665KB）—— 每次上调都要在该文件顶部留一笔账
 node scripts/smoke-client-view.mjs          # 视图注册契约 + 持久化降级冒烟（离线）
 node scripts/smoke-host-state.mjs           # host 半：路由/持久化域/降级（离线）
 node scripts/smoke-ai-contract.mjs          # AI 契约冒烟（离线假模型）
 node scripts/smoke-naming.mjs               # 自挖板块命名：路由/口径/护栏/缓存/批量（离线假工具+假模型）
 node scripts/smoke-concept-classes.mjs      # 类列表接线：强度/涨幅/涨停数（真引擎 + 假行情，离线）
 node scripts/smoke-embedded.mjs             # 内置 TDX 真机冒烟：15 个行情工具 + 排序契约 + 参数白名单（需真机行情）
-pnpm guard                                  # budget（请求预算棘轮）/ ux-contract（21 条）/ density / contrast（30 项）
+pnpm guard                                  # budget（请求预算棘轮）/ ux-contract（26 条）/ density / contrast（30 项）
 pnpm verify:live                            # 对**运行中**的 dsh web 做端到端验收（重启后用；含真实命名一次）
+# 真机探针（隔离 headless Chrome + CDP，需真机行情；不进 CI）：
+node acceptance/probe-market-page.mjs http://127.0.0.1:3099   # 行情页：块矩形 / 内容-可视高 / 点击链路 / 明暗计算样式
+node acceptance/probe-concept-page.mjs http://127.0.0.1:3099  # 自挖板块：DOM 结构 / 明暗两套样式 / console 0 报错
+node acceptance/probe-war-plan.mjs http://127.0.0.1:3099      # 作战：卡片挂载 / 模型链路 / 透明度三件套
+node acceptance/probe-war-materials-live.mjs                  # 作战素材链路：真数据源 + 假模型（可复现的一次采集）
+node acceptance/probe-structure-live.mjs                      # 命名素材链路：真 TDX + 假模型（belong_board 契约漂移）
 ```
 
 CI（`.github/workflows/ci.yml`）：install(→prepare build) → `tsc --noEmit` → `eslint --max-warnings 0` →
 `node scripts/unit.mjs` → 体积护栏 → 离线冒烟 → `ux-contract` / `budget` / `contrast`。
 
 单测用 Node 内置 `node:test`（`scripts/unit.mjs` 以 esbuild 打包 TS 测试，不引入测试框架），覆盖方法论地基与
-复盘实算口径（`indicators / regime / strength / situation / review-metrics / screener / chips`）与 A2b 命名
-（`naming-guard` 25 条 / `naming-pipeline` 21 条）。另有五条**结构性**测试守契约（不是功能回归，而是"别再犯同一类错"）：
+复盘实算口径（`indicators / regime / strength / situation / review-metrics / screener / chips`）、A2b 命名
+（`naming-guard` 29 条 / `naming-pipeline` 26 条 / `naming-materials` 10 条 / `naming-news` 21 条 / `naming-cause` 7 条）
+与作战思路（`war-plan` 31 条）。另有五条**结构性**测试守契约（不是功能回归，而是"别再犯同一类错"）：
 `tool-names`（工具清单唯一真源）、`state-tables`（存储键必须在 host 表里或显式白名单）、`serial-queue`、
 `docs-consistency`（**本文里的数字由代码算出来比对**）、`naming-cause`（三种"没结果"必须分开说）。
 lint warning 已清零并把 `--max-warnings` 从 30 收紧到 **0**（棘轮只降不升）。尚未做：测试文件不在 `tsc` 的 include 内。
@@ -260,7 +303,7 @@ frontend-dsh/
 │   ├── host-tools.ts     # 对话工具（8 个：行情 4 + HIST 4）
 │   ├── host/tdx-data.ts  # ★ 内置 TDX 服务（node-tdx 适配 + 归一化 + 工具分发）
 │   ├── host/hist-data.ts # ★ 内置 HIST 自挖概念引擎（惰性单例 + 1h 快照 TTL）
-│   ├── host/naming/      # ★ 命名阶段：素材采集 / 提示词 / 护栏 / 解析 / 路由 / 缓存
+│   ├── host/naming/      # ★ 命名阶段：素材采集 / 提示词 / 护栏 / 解析 / 路由 / 缓存 / 结构标签
 │   ├── host/state.ts     # ★ host 侧持久化（stock_panel 领域 + /api/stock-panel/state）
 │   ├── client.ts         # browser 半入口：注册 conversation.view + 注入样式 + 诊断句柄
 │   ├── lib/state-tables.ts # ★ 持久化表清单（host/client 共用单一来源）
@@ -268,12 +311,14 @@ frontend-dsh/
 │   ├── lib/stage.ts      # ★ 阶段模型（时段 → 复盘/竞价/盘中/尾盘 + 该阶段的问题与输出）
 │   ├── lib/cache.ts      # ★ SWR 缓存层（useSwr + swrFetch；全仓唯一数据缓存）
 │   ├── lib/ai*.ts        # AI 调用封装 + 通用运行器 + 任务契约（host/client 共用）
+│   ├── lib/war-plan*.ts  # ★ 作战思路：素材组装 / 护栏（host 侧执行）/ 存档与采纳
+│   ├── lib/concept-*.ts  # ★ 自挖类：强度口径 + 传递链伪类判据（host/client 共用）
 │   ├── panel/            # 三段式骨架：AppShell / StatusStrip / WatchList / AiPanel / use-ai
 │   ├── views/            # 一级入口落地：ViewHost（按 view 单页渲染）/ StageReviewView / StageWarView / WatchView
-│   ├── pages/ components/# 页面与组件（逐页迁移到 --dc-* token）
+│   ├── pages/ components/# 页面与组件（逐页迁移到 --dc-* token；行情 = MarketPage + MarketKpiBar/MarketBoards）
 │   └── index.css.txt     # Tailwind + --dc-* 语义 token 层（.txt 绕过 rolldown CSS 管线）
 ├── scripts/              # 构建 + 冒烟 + 体积/预算/UX 护栏 + profile 同步 + vendor 刷新
-├── acceptance/           # 上线验收报告 + UI 评审 + 真机截图脚本（readme-shots.mjs / shots.mjs / e2e-gui.mjs）
+├── acceptance/           # 上线验收报告 + UI 评审 + 真机截图/取证脚本（readme-shots / shots / e2e-gui / probe-*）
 ├── docs/                 # ARCHITECTURE / ROADMAP / UX-PLAN / CONCEPT-CALIBRATION / archive
 ├── docs/images/          # README 实机截图
 ├── CHANGELOG.md          # 版本与交付史
@@ -289,7 +334,7 @@ frontend-dsh/
 | `docs/ROADMAP.md` | **待做**：两条轨道（产品闭环 / 工程地基）、验收锚点、交易日复验清单 |
 | `docs/UX-PLAN.md` | 体验优化：四条根因（R1–R4）、视觉方案（V1–V7）、交互方案（I1–I8）与三批落地记录 |
 | `docs/CONCEPT-CALIBRATION.md` | 自挖概念参数校准与可用性判定 |
-| `CHANGELOG.md` | 已交付版本史（0.1 → 1.5）+ 定版流程 |
+| `CHANGELOG.md` | 已交付版本史（0.1 → 1.6）+ 定版流程 |
 | `USER-GUIDE.md` | 按交易日时间轴的使用流程与边界场景行为 |
 | `PRODUCT-DESIGN.md` | 流程与功能设计（**§6e 唯一现行**；§6c/§6d 部分有效；§1–§6b 为历史蓝图） |
 | `WATCH-METHODOLOGY.md` | 方法论（量价博弈 · 时空 · T+1 · 凯利仓位）—— 设计的蓝本 |
@@ -314,12 +359,16 @@ frontend-dsh/
 
 ## 版本
 
-当前版本 **1.5.0**（`package.json` 为唯一来源）。**1.5.0 是第一个发到 registry 的现形态版本**
+当前版本 **1.6.0**（`package.json` 为唯一来源）。**1.5.0 是第一个发到 registry 的现形态版本**
 （此前 registry 上只有 `0.3.5`，1.0.0 ~ 1.4.0 都没发过）：
 
 - **1.4.0**（2026-09-12）= v1.2 官方槽迁移 + v1.3 宽视图沉浸式/AI 双通道 + v1.4 流程驱动导航的合并发布；
 - **1.5.0**（2026-09-13）= 版面（类型尺度/宽度利用）与契约（数据层/轮询/持久化）收口 + 工作台外壳适配
-  + A2b 命名补强，并把长期滞留在工作区的整套固化成可回滚点。
+  + A2b 命名补强，并把长期滞留在工作区的整套固化成可回滚点；
+- **1.6.0**（2026-09-14）= **两个重点页专项 + 作战板块重做**：作战页的产物从"数据摊开、你自己点选"换成
+  **模型给今天的作战思路**（素材来自其他板块、host 半过护栏、你只做采纳/修改/驳回，新增 host 表 `war_plans`）；
+  自挖板块修掉 `belong_board` 字段名事故并补上**结构标签 + 传递链伪类过滤 + 主题名归一**、版面重做；
+  行情页重新组合成**环境带 + 指数│梯队 + 榜单│异动**（真机 780px 下旧组合藏了 74% / 83% 的内容）。
 
 定版流程（升版 → CHANGELOG 定版 → `pnpm build && pnpm test && pnpm guard` → 提交 + `git tag -a vX.Y.Z`
 → `pnpm publish`）写在 `CHANGELOG.md` 头部；版本史见 `CHANGELOG.md`，下一批见 `docs/ROADMAP.md`。

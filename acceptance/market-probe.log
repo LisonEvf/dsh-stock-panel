@@ -1,0 +1,98 @@
+open session: clicked
+切到 A股工作台：ok
+切到 行情：ok
+[facts] {
+  "viewport": {
+    "w": 1680,
+    "h": 1000
+  },
+  "grid": {
+    "rect": {
+      "x": 548,
+      "y": 171,
+      "w": 780,
+      "h": 797
+    },
+    "display": "grid",
+    "cols": 12,
+    "rows": "395.5px 395.5px"
+  },
+  "pageScroll": {
+    "docH": 1000,
+    "viewH": 1000
+  },
+  "blocks": [
+    {
+      "title": "市场总览涨跌分布 / 榜单 / 异动速递19:39:22",
+      "rect": {
+        "x": 548,
+        "y": 171,
+        "w": 387,
+        "h": 396
+      },
+      "headRect": {
+        "x": 549,
+        "y": 172,
+        "w": 385,
+        "h": 30
+      },
+      "scrollH": 1391,
+      "clientH": 363,
+      "hiddenPct": 74,
+      "stats": 4,
+      "rankRows": 34
+    },
+    {
+      "title": "指数9 大指数：切换条 + 摘要 + 日K/分时19:39:20",
+      "rect": {
+        "x": 941,
+        "y": 171,
+        "w": 387,
+        "h": 396
+      },
+      "headRect": {
+        "x": 942,
+        "y": 172,
+        "w": 385,
+        "h": 30
+      },
+      "scrollH": 363,
+      "clientH": 363,
+      "hiddenPct": 0,
+      "stats": 0,
+      "rankRows": 0
+    },
+    {
+      "title": "涨停梯队连板梯队 + 板块热度（单轮 ≤177 次工具调用）19:39:24",
+      "rect": {
+        "x": 548,
+        "y": 572,
+        "w": 780,
+        "h": 396
+      },
+      "headRect": {
+        "x": 549,
+        "y": 573,
+        "w": 778,
+        "h": 30
+      },
+      "scrollH": 2174,
+      "clientH": 363,
+      "hiddenPct": 83,
+      "stats": 2,
+      "rankRows": 69
+    }
+  ],
+  "headerText": "行情聚合面板三块并排一屏看完 · 全页共用一个节拍器 · 折叠某块即停止它的轮询节拍15s20s30s60s暂停刷新 30s休市 · 已暂停定时轮询（手动刷新可用）",
+  "colors": {
+    "blockBg": "rgb(255, 255, 255)",
+    "blockBorder": "rgb(241, 245, 249)",
+    "panelBg": "rgb(255, 255, 255)",
+    "innerCardBg": "rgba(248, 250, 252, 0.8)"
+  },
+  "duplicated": 19
+}
+  📸 acceptance\shots\market-01-行情-亮色.png
+[dark] {"panelBg":"rgb(21, 21, 23)","blockBg":"rgb(35, 35, 36)","blockBorder":"rgba(255, 255, 255, 0.06)","innerCardBg":"rgb(44, 44, 46)","innerCardBorder":"rgba(255, 255, 255, 0.06)","bodyText":"rgb(249, 250, 251)"}
+  📸 acceptance\shots\market-02-行情-暗色.png
+[console errors] 无

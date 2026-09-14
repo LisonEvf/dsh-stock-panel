@@ -377,6 +377,18 @@ const CHECKS = [
     },
   },
   {
+    id: 'market-single-metronome',
+    why: '审计项 I-b：行情聚合页页头写着「全页共用一个节拍器」，但各块自带的默认 refreshInterval（指数 15s / 梯队 30s）从没被关掉 —— 实测同时有 4 个定时器在跑，页头在说谎。`budget.mjs` 只数"声明点"，数不出"该关没关"，所以这条得单独守',
+    run() {
+      const page = read('src/pages/MarketPage.tsx')
+      const off = (page.match(/pollMs=\{0\}/g) ?? []).length
+      assert(off >= 2, `MarketPage 必须给自带定时器的块传 pollMs={0}（实测只有 ${off} 处；指数块与梯队块各需一处）`)
+      // 页面自己持有的数据源也不许带非零刷新间隔（刷新率由节拍器独占）
+      const own = page.match(/refreshInterval:\s*([1-9][\d_]*)/g) ?? []
+      assert(own.length === 0, `MarketPage 自己持有的 useSwr 不许带非零刷新间隔：${own.join(', ')}`)
+    },
+  },
+  {
     id: 'flow-slots-pinned',
     why: '复盘七步里有条件渲染的块 —— 自动流会把空位补掉，块一出现编号就换位置（实测"排版来回跳"）',
     run() {

@@ -18,6 +18,7 @@ import type {
   ReviewPlan,
   ScoutRank,
   StockVerdict,
+  WarPlan,
 } from './ai-contract'
 
 /** 一次研判记录（本地存档）。 */
@@ -134,6 +135,20 @@ export function scoutRankOf(res: AiTaskResponse): ScoutRank | null {
   if (json === null || typeof json !== 'object') return null
   const s = json as ScoutRank
   return Array.isArray(s.picks) ? s : null
+}
+
+/**
+ * 作战思路（`war-plan`）。
+ *
+ * 判据是 `insufficient` **是布尔值**而不是"有没有 picks"：模型说"素材不足、不给思路"
+ * 是一个合法且必须原样展示的结论（`insufficient: true` + 空 picks），
+ * 用 picks 是否为空来判会把这条结论误当成解析失败。
+ */
+export function warPlanOf(res: AiTaskResponse): WarPlan | null {
+  const json = res.json
+  if (json === null || typeof json !== 'object') return null
+  const p = json as WarPlan
+  return typeof p.insufficient === 'boolean' ? p : null
 }
 
 // ────────────────────────────── 本地存档 ──────────────────────────────

@@ -8,6 +8,11 @@
  *
  * 数据：review-store（ReviewSnapshot.expectations）+ dayrun（判定写回）。
  * 无网络请求。空清单时给纪律引导（没有可对照清单 → 竞价默认不参与）。
+ *
+ * v1.6（作战板块重做）：判定**不再要求用户从零点选** —— 「作战思路」卡已按竞价特征
+ * （`analyzeAuction` + `judgeExpectation`，与竞价雷达同一套函数）给过初判并写进 dayrun
+ * （`from: 'ai'`）。本面板的角色变成"复核与修改"：带「模型」徽标的那几条就是模型给的默认值，
+ * 点任意判定即覆盖为你自己的判断。
  */
 
 import { useEffect, useReducer } from 'react'
@@ -125,6 +130,12 @@ export function ExpectVerdictPanel({ day }: Props) {
                   >
                     <RotateCcw className="h-2.5 w-2.5" />
                   </button>
+                )}
+                {/* v1.6：作战思路按竞价特征给过初判的那几条必须标出来（模型默认 vs 你的判断） */}
+                {cur?.from === 'ai' && (
+                  <span className={`rounded bg-slate-200 px-1 dc-t-micro text-slate-500 ${cur ? '' : 'ml-auto'}`} title="这条判定是模型按竞价特征（openPct/冲刺方向/诱多特征）给的默认值；点任一判定即改为你的判断">
+                    模型
+                  </span>
                 )}
               </div>
             </li>

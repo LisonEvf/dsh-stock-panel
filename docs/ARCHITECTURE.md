@@ -69,7 +69,9 @@ invokeTool(name,args)  ──POST──▶ /api/stock-panel/call
 | ② 命名（✅ A2b） | `src/host/naming/` + GET/POST `/api/stock-panel/naming`。素材 = 成员的涨停/异动（unusual/market_monitor）+ 所属板块（belong_board）+ 日K推导的封板状态；约束：素材**只用于解释，不进聚类输入**（否则退化回「按官方花名册分组」）。模型复用 `ctx.llm`（缺 LLM 只置灰命名，不影响行情）。护栏：证据必须可反查（引文比对 + 时间窗 + 覆盖度 + 可计算证据分）→ 不达标即降级。verdict 三态：named / no_common / insufficient（+降级成因分层）。缓存：进程内 key=`asOf:classId:fingerprint`（指纹含模型/窗口/源集合/提示词版本/阈值） |
 | ② 批量（★ 类列表默认路径 `nameClasses`） | 一次**并集**采集 → 按成员数分批问模型（`maxMembersPerCall`）→ 逐组独立过护栏。批次只影响请求次数，**不放松任何一组的严格性**（跨组借证据会被拒；模型漏给某组结论 → 如实降级，不替它补）；整批另有 memo，重复打开 = 只再读一次类表（`llmCalls: 0`）。批量与单类提示词版本不同 → 缓存互不冒充 |
 | ②b 强度（✅ 2026-09-12） | `hist_concept_classes` 出来时已带**成员 + 均涨幅 + 涨停数 + 强度**（`host/hist-data.ts` 的 `enrichClasses`；纯函数在 `lib/concept-strength.ts`）：涨停 = 收盘触及涨停价（`buy_price_limit`，与状态带广度同法；无涨跌幅限制的新股不计入）；强度 = 均涨幅% + 6×涨停数（权重是显式常数，单测钉住），排序与显示**同源**；成本 = 每类一次 `classMembers` + 一次全A快照（与引擎 `snapshotA` **共用 60s memo**，不重复拉 ≥2MB） |
-| ③ 呈现（✅ A2b） | 个股卡 `StockConceptCard`（**主视角**：所属类 + 同类伙伴 + 最近共动邻居）挂在个股详细页；类列表 `ConceptClassesCard` 是「自挖板块」**一级入口**（打开即自动批量命名归类、按强度降序、行内给涨幅/涨停数/成员，并显示本轮模型调用次数与缓存命中）；结论展示共用 `NamingResultPanel`（三态 + 证据分 + 逐条引文 + 采集口径偏差）。**不做**：与官方行业的重合度对照（v0 边界） |
+| ②c 可采信判据（✅ 2026-09-14） | `lib/concept-quality.ts`（host/client 共用纯函数）：引擎的 `weak_chain` 之外再拦一类**传递链巨类**（实测漏网样本：52 只 / 类内相关 0.428 / 强边密度 0.14 而 `weak_chain=false`）。判据 = `强边密度 < 0.5` **且** `类内相关 < 实际切边阈值` 两条同时成立（单看任一条会误杀真小班）。界面按它过滤并**计数**、命名路径按它拒绝（`reason: "pseudo_class"`，与 `weak_chain` 分开报）—— 两条路径必须同一判据，否则会出现"列表里看不到、但它有名字" |
+| ②d 结构标签（✅ 2026-09-14） | `host/naming/structure.ts`（纯函数）：成员所属官方行业/概念板块里被 **≥2 只成员**共享的词 → 「这个班像什么」。**不经模型、不依赖新闻、任何 `as_of` 都成立**；从批量命名**已采到的语料**里算（0 额外请求、0 额外模型调用），与模型看到的素材逐字同源。与模型主题名**并列**回传（不塞进 `NamingResult.result`：那个字段受护栏约束，模型不可用时会连 theme 一起清空，而这正是它要解决的场景），界面永远标出来源 + 覆盖度 |
+| ③ 呈现（✅ A2b，版面重做 ✅ 2026-09-14） | 类列表 `ConceptClassesCard` 是「自挖板块」**一级入口**（打开即自动批量命名归类、按强度降序、行内给涨幅/涨停数/成员，并显示本轮模型调用次数与缓存命中）。版面：一行三列骨架（左 强度数值+相对强度条+排名 │ 中 名称+来源胶囊+覆盖度+指标行+成员网格 │ 右 证据/重命名），成员默认截断 12 只 + 「+N 只」展开、按当日涨幅降序，颜色全走 `--dc-*` token（跟随宿主明暗主题；收口前是 tailwind 固定色阶，暗色下是一块刺眼补丁）。结论展示共用 `NamingResultPanel`（三态 + 证据分 + 逐条引文 + 采集口径偏差 + **结构标签对照**）。⚠️ **个股卡 `StockConceptCard`（"这只票今天跟谁一起动"）当前没有挂载点** —— 它只被 `StockDetailPage` 引用，而 A6 已摘掉该整页的入口（文件留着但**不进 bundle**，tree-shaking 实测确认：`lib/client.js` 里搜不到它的任何字符串）。**数据源是通的**（真机实测 `hist_concept_query` 可用、冷启动 ~6s），缺的只是一个挂载点 —— 挂回「工作台」要把它连同 `NamingResultPanel` 拉进 client bundle，体积只剩 ~13KB 余量，属独立一批（见 ROADMAP A2）。**不做**：与官方行业的重合度对照（v0 边界） |
 
 **⚠️ 时间性**：异动/主力监控是**当日实时列表（无历史接口）** → 仅当 as_of = 当前交易日才采；板块归属是当前快照（照用但标注）；封板状态由日K推导（可回放）。
 
@@ -103,14 +105,17 @@ invokeTool(name,args)  ──POST──▶ /api/stock-panel/call
 - **默认入口 = 行情**（`DEFAULT_VIEW`）：无落盘状态（首次安装 / 清过浏览器状态）时首屏就停在「行情」；已落盘的 `view` 优先。默认值**必须在 `PRIMARY_VIEWS` 里** —— 否则首屏状态带没有任何一项高亮（`tests/selection.test.ts` 钉住）。时段边界仍会自动跟随（`AppShell` 的时段驱动）。
 - **「工作台」（原「看盘」）不在导航栏上**（`WORKBENCH_VIEW`）：它是"点左栏任一行 / 任意页面点股票"落到的默认主区（`openStockAndWatch` → `view: 'watch'`），所以**没有键位、也不占导航**。
 - **宿主会话列外壳适配**（`lib/host-chrome.ts`）：宿主 `ui-conversation` 在插件视图**之上**画了两样东西 —— ① 两条贯穿全屏高度的「正文栏宽度」拖拽条（`.wSkVaW_widthHandle`，`position:absolute;top:0;bottom:0;z-index:8;cursor:col-resize`，用途是拖 `--dsh-chat-user-width`）；② 底部对话输入框座位（`[data-composer-seat]`，`position:sticky;bottom:0;z-index:7`）。它们对**满宽**的工作台不成立（拖拽条会压住面板左右边缘并接管点击/拖拽，且宿主渲染它只判 `phase === 'active'`）。处置（用户决策：两样都不要）：**视图挂载期间**给 `<body>` 打标记 `data-dc-workbench`（挂载 ⟺ 选中：ui-renderer 按 `only: active.id` 过滤视图条目），由 `index.css.txt` §9 的 CSS 把那两条拖拽条与底部对话输入框一起隐藏（后者让出的高度归主区；输入框只 `display:none`、不卸载，插件「深入对话」的 `setDraft + submit` 照常能发并给回执）。宿主文件一个字节都不改；依赖的宿主钩子（`[data-width-handle]` / `[data-composer-seat]`）失效时只退化为"什么都没隐藏"，`window.__STOCK_PANEL__.chrome()` 会报出实况。
-- **左栏两组 = 自选 / 个股**（手工观察池 + 最近看过，`viewed-store` 自动积累上限 30）。自选与个股**不再各有整页**（旧「自选盘」「个股明细」两个工具页已下线）：左栏就是它们的入口，点行即看 —— 涨停/异动分组同样早已下线（涨停走「行情」页的涨停梯队区块、异动并入市场总览区块）。
+- **左栏两组 = 自选 / 个股**（手工观察池 + 最近看过，`viewed-store` 自动积累上限 30）。自选与个股**不再各有整页**（旧「自选盘」「个股明细」两个工具页已下线）：左栏就是它们的入口，点行即看 —— 涨停/异动分组同样早已下线（涨停走「行情」页的涨停梯队块、异动走「行情」页的市场异动块）。
 - **点行 = 看它**：`openStockAndWatch()`（设标的 + 切到工作台）→ 主区立刻是这只票的个股信息（报价头 / 日K⇄分时 / 自挖板块 / 资金·逐笔·竞价 / 右栏 AI）。
-- **行情页是一屏聚合面板**（A4 合并，用户决策）：`MarketPage` = 市场总览 + 指数 + 涨停梯队，**并排聚合成宽屏仪表盘**（三块各占一列、各自内部滚动、整页不滚动）。三个旧 id（`overview`/`indices`/`ladder`）由 `viewIdOf()`/`LEGACY_VIEW_IDS` **就地映射到 `market`**（否则老用户落盘的旧值会被静默丢弃 → "页面打不开"）。
-  - **列数按容器实测宽度**（`ResizeObserver`）而非视口断点：DSH 左栏 + 右 AI 栏都在时，视口 2560px 的面板可用宽度可能只有 600px。≥1120 → 三列（总览 4 / 指数 5 / 梯队 3，指数最宽因为含图）；≥760 → 两列（梯队横跨整行）；否则单列（改回整页滚动 + 每块最小高度）。
-  - **每块自带**：本块刷新时间（子页面 `onUpdatedAt` 回传）+ 单块刷新 + 折叠开关（折叠即卸载 → 该块轮询立刻停止）。聚合面板里**总览不再重复显示 9 大指数条**。
-- **A2b 落点（已定）**：自挖板块的主视角是**个股卡**（个股详细页内），类列表是「自挖板块」一级入口（`PRIMARY_VIEWS` 里紧跟行情）。之所以反过来：校准后绝大多数票是孤立票，「类列表」信息量薄，而"这只票今天跟谁一起动"才直接可用。
+- **行情页是一屏仪表盘**（A4 合并 → 2026-09-14 重排）：`MarketPage` 把「环境 / 指数 / 涨停梯队 / 榜单 / 异动」组合成一屏，整页不滚动、各块内部滚动。三个旧 id（`overview`/`indices`/`ladder`）由 `viewIdOf()`/`LEGACY_VIEW_IDS` **就地映射到 `market`**（否则老用户落盘的旧值会被静默丢弃 → "页面打不开"）。
+  - **为什么重排**（真机测量，主区 780px）：旧的三块并排（总览 4 / 指数 5 / 梯队 3）落到 2 列、只有两行 395px，逐块量「内容高 / 可视高」= 总览 **1391/363（藏 74%）**、梯队 **2174/363（藏 83%）**、指数 363/363（0%，图自适应）。也就是说"一屏看完"当时只对指数成立，另外两块各是一个独立滚动条；而同一个数出现两三遍（总览 2×2、梯队 2×2、状态带各一份），实测整页 innerText 里「涨停」出现 **19 次**。重排后：藏 0% / 19% / 0% / 0%，「涨停」5 次。
+  - **组合**：① **环境带**（全宽 6 格 KPI + 一条涨跌分布横条）——把两个 2×2 的并集合成一处；② 主行：**指数**（含图）│ **涨停梯队**；③ 底行：**榜单**（4 张 2×2）│ **市场异动**。环境带与底行按内容给高度，主行吃剩余（图表自适应）。
+  - **列数按容器实测宽度**（`ResizeObserver`）而非视口断点：DSH 左栏 + 右 AI 栏都在时，视口 2560px 的面板可用宽度可能只有 600px。≥1120 → 三列（指数 │ 梯队 │ 榜单，异动横跨整行）；≥760 → 两列；否则单列（改回整页滚动 + 每块最小高度）。栅格位次写在 `index.css.txt` §4c（`.dc-mkt-grid.is-{1,2,3}col`），不在组件里拼 `col-span-*`。
+  - **数据归属只有一处**：全 A / 异动由**页面**持有（环境带与榜单要的是同一份全 A），涨停梯队的连板统计只由 `LadderPage` 算并经 `onStats` 上报（页面**不重算** —— 那是最贵的一段）；指数与梯队各自取自己的数。
+  - **每块自带**：本块刷新时间（`onUpdatedAt` 回传）+ 单块刷新 + 折叠开关（折叠即卸载 → 该块轮询立刻停止）。
+- **A2b 落点（已定）**：自挖板块的主视角**设计上是个股卡**（"这只票今天跟谁一起动"直接可用），类列表是「自挖板块」一级入口（`PRIMARY_VIEWS` 里紧跟行情）。之所以这么分：校准后绝大多数票是孤立票，「类列表」信息量薄。⚠️ **现状**：A6 摘掉「个股明细」整页后个股卡失去挂载点（见 §2.1 ③，真机实测确认不可达）；**当前唯一可达的呈现是类列表**。
 - **持久化要求**：视图被卸载（切到「对话」）后回来必须保持标的/视图位置 —— 所有 UI 状态都在 `selection.ts` 落盘（`stock-panel:ui:v4`；旧 `limit`/`unusual` 分组值由 `leftGroupOf()` 收敛到「自选」，旧工具页值由 `viewIdOf()` 收敛到对应入口）。**唯一一次例外是 v3 → v4 的落点重置**（`initialViewOf(persisted, fromLegacy)`：读到旧键时统一落到 `DEFAULT_VIEW`（行情），因为 A6 换了 IA 与默认入口）；写回 v4 之后不再重置。「个股」历史列表在 `viewed-store`（表 `viewed`）。
-- **请求预算纪律**：A6 之后**一次只有一个一级入口被挂载**（`ViewHost` 的 `switch`，不是一排 `hidden` 容器 —— `display:none` 不停轮询，只有卸载才停）。任何"把多个重页面拼在一屏"的改动都要先算这笔账（涨停梯队单轮 ≤177 次调用）—— 行情聚合面板为此定了四条纪律（写在 `MarketPage` 头注释）：① **全页只有一个节拍器**（15/20/30/60s 或暂停，由 `tick` 驱动各块强制验证）—— 否则同一份指数数据会被两个订阅者各拉一遍（`useSwr` 的 in-flight 去重只在同时发起时生效）；② **块可折叠**，折叠即卸载 → 该块轮询立刻停止；③ **离开视野停轮询**（`enabled=false`）+ **滚到可见才挂载**（`IntersectionObserver`，`rootMargin 240px` 预热），单列退化态下这一条真正省请求；④ 默认节拍取 **30s**（而非总览单独使用时的 20s），页头把「轮询中 N/3 + 节拍 + 上次刷新时间」摊开显示，让代价可见。涨停梯队即使被更快节拍驱动也走自己的 30s 共享缓存 → 实际仍是 ~30s 一轮。
+- **请求预算纪律**：A6 之后**一次只有一个一级入口被挂载**（`ViewHost` 的 `switch`，不是一排 `hidden` 容器 —— `display:none` 不停轮询，只有卸载才停）。任何"把多个重页面拼在一屏"的改动都要先算这笔账（涨停梯队单轮 ≤177 次调用）—— 行情仪表盘为此定了五条纪律（写在 `MarketPage` 头注释）：① **全页只有一个节拍器**（15/20/30/60s 或暂停，由 `tick` 驱动各块强制验证）—— 这一条**曾经是假的**（审计项 I-b：三块自带的 20/15/30s 定时器都没关，实测 4 个定时器同时在跑，页头却在说"共用一个节拍器"），现在由 `MarketPage` 给各块传 `pollMs={0}` 兑现，并由 `scripts/ux-contract.mjs` 的 `market-single-metronome` 钉住；② **块可折叠**，折叠即卸载 → 该块轮询立刻停止；③ **离开视野停轮询**（`enabled=false`）+ **滚到可见才挂载**（`IntersectionObserver`，`rootMargin 240px` 预热），单列退化态下这一条真正省请求；④ 页面自己持有的数据源用 `refreshInterval: 0` 而不是 `enabled:false` —— 后者会让 `useSwr` 的调度 effect 直接 return，连 `refresh()` 也失效（手动刷新会静默失灵）；⑤ 默认节拍取 **30s**，页头把「轮询中 N/4 + 节拍 + 上次刷新时间」摊开显示，让代价可见。涨停梯队即使被更快节拍驱动也走自己的 30s 共享缓存 → 实际仍是 ~30s 一轮。
 
 ## 5. 持久化
 
@@ -164,7 +169,7 @@ DSH 的 `dsh-base` 已挂载存储栈（**本 profile 直接可用，无需额�
 | 5 | 破坏性变更 = 换**表名**（如 `review_v2`），启动时把老表读出来重写后删除 |
 | 6 | **记录键必须编码**：per-record 布局把键当文件名，要求匹配 `^[a-zA-Z0-9_-]+$`，不匹配直接抛错。我们的自然键含 `:` 与中文（事件流的 `SH-600519-10:03-封涨停板`）→ host 层用 `encodeStateKey()` 做 base64url 编解码，对客户端完全透明 |
 
-**11 张表**（清单单一来源 `src/lib/state-tables.ts`，host/client 共用）：`watchlist`（自选）、`review`（复盘存档，键=交易日）、`review_draft`（复盘草稿）、`dayrun`（当日运行/Q1-Q3/竞价判定）、`positions`（持仓）、`tradelog`（交易日志）、`verdicts`（AI 结论，键=`day:SYMBOL`）、`events`（事件流，键=事件指纹）、`viewed`（看过的个股，A4 左栏「个股」分组的数据源）、`alert_rules`（监控规则）、`alert_hits`（监控命中记录）。
+**12 张表**（清单单一来源 `src/lib/state-tables.ts`，host/client 共用）：`watchlist`（自选）、`review`（复盘存档，键=交易日）、`review_draft`（复盘草稿）、`dayrun`（当日运行/Q1-Q3/竞价判定）、`positions`（持仓）、`tradelog`（交易日志）、`verdicts`（AI 结论，键=`day:SYMBOL`）、`war_plans`（**作战思路，键=`day:stage`** —— 它是"用户按它下单"的那份东西、也是单价最高的一次模型调用，只留内存等于每次回作战页都重烧一次）、`events`（事件流，键=事件指纹）、`viewed`（看过的个股，A4 左栏「个股」分组的数据源）、`alert_rules`（监控规则）、`alert_hits`（监控命中记录）。
 
 **前端接入（✅ 已实现，`src/lib/host-state.ts`；各 store 的对外 API 零改动）**：
 
@@ -192,11 +197,17 @@ DSH 的 `dsh-base` 已挂载存储栈（**本 profile 直接可用，无需额�
 | 环节 | 位置 | 约定 |
 | --- | --- | --- |
 | 路由解析 | `host-ai.ts` | 优先宿主的 `ctx.agentDefaultModel.currentSelection()`，插件侧兜底；无 LLM → `{available:false, reason}` |
-| prompt + 解析 | `lib/ai-contract.ts`（host/client 共用） | 任务化：`stock-verdict` / `review-plan` / `scout-rank`；模型只回一个 JSON；解析做去围栏/配平/夹取；**原文永不丢** |
-| 上下文压缩 | `lib/ai.ts` | 报价 + 近 90 根日 K + 资金流 + 广度 + 指数 → 小 JSON（四舍五入 + 截尾），>24KB 先自愈裁剪 |
+| prompt + 解析 | `lib/ai-contract.ts`（host/client 共用） | 任务化：`stock-verdict` / `review-plan` / `scout-rank` / **`war-plan`（作战思路）**；模型只回一个 JSON；解析做去围栏/配平/夹取；**原文永不丢** |
+| **素材护栏**（仅 `war-plan`） | `lib/war-plan-guard.ts`（host 半执行） | 模型只能点名**素材里出现过的票**（`positions`/`watchlist`/`ladder`/`myPlan`/`concepts.members`/`boards.rep`）、只能用**逐字取自素材的板块名**（`sectorUniverse`）、引文要能逐字/数字反查；越界的**剔除并回传**（`plan.guard`），不静默丢弃 |
+| 上下文压缩 | `lib/ai.ts` | 报价 + 近 90 根日 K + 资金流 + 广度 + 指数 → 小 JSON（四舍五入 + 截尾），>24KB 先自愈裁剪；作战思路的素材由 `lib/war-plan-collect.ts` 组装（行情 / 自挖板块 / 选股 / 复盘 / 竞价 / 持仓 / 自选 → ≤24KB，条数上限见 `MATERIAL_CAPS`） |
 | 自愈重试 | `host-ai.ts` | `maxTokens` 是 reasoning+正文共享预算（≥6000）；`finish=max-tokens` 或超限 → 裁一档重试（≤3 调用 / ≤3 裁剪，分开计数），`meta.shrunk` 回传并由 UI 提示 |
 | 通道 B | `client.ts` slot props | `inputActions.setDraft + submit()` 注入当前对话；输入框有草稿时置灰（不覆盖用户内容） |
 | 落点 | `panel/AiPanel.tsx` 等 | 只读参考区 + 逐条采纳；**绝不静默改写用户草稿** |
+| 作战思路的落点 | `lib/war-plan.ts` 的 `adoptWarPlan` | 三问/持仓动作/竞价判定按**只填空位**写进 `dayrun`，全部标 `from:'ai'`；人工答案一律保留；驳回走 `dayrun.clearAiAnswers` |
+
+⚠️ **client 只引 `ai-contract` 的类型**：一个值引用（例如 `emptyWarPlanGuard()` / `contextBytes()`）
+就会把四个任务的 prompt 模板整份打进 client bundle（体积护栏实测抓到过 ≈9KB）。上下文体积由
+host 经 `AiCallMeta.contextBytes` 回传给 UI。
 
 ✅ 已修（B6）：`panel/use-ai.ts` 的 AbortController 现在把 `signal` 一路传进 `lib/ai.ts`（`fetch(..., { signal })`），AI 请求可中断。
 
@@ -219,7 +230,7 @@ DSH 的 `dsh-base` 已挂载存储栈（**本 profile 直接可用，无需额�
 | host 日志 | `[stock-panel] embedded TDX bridge registered at /api/stock-panel/call`、AI 可用性行、`命名桥接已注册：/api/stock-panel/naming` |
 | 冒烟脚本 | `scripts/smoke-{client-view,host-state,ai-contract,naming}.mjs`（离线、已进 CI）+ `scripts/smoke-embedded.mjs`（需真机行情） |
 | **实机验收** | `node scripts/verify-live.mjs [baseUrl]`：对**运行中**的 dsh web 做端到端验收 —— ① host 半新鲜度（运行 buildId vs 源码 buildId，不等即提示重启）② 持久化 `available` + 全表 + 服务来源 ③ 往 `viewed` 写 canary → 读回 → 删除 ④ 自挖板块：GET 口径 + 挑一个非弱链类**真的命名一次** ⑤ AI·行情信息项。host 半是进程内加载的，改完必须重启；client 半只需硬刷新 |
-| **真实存储栈校验** | `node scripts/verify-state-domain.mjs`：用宿主安装的 cordis + dsh-storage + storage-json + storage-domain **真跑一遍**手搓 spec（16 项断言：open 接受 / 11 张表 / 键编码必要性 / 落盘持久性 / version 语义 / compatibleVersions 逃生口）。不进 CI（CI 无 DSH 安装），改契约后必跑 |
+| **真实存储栈校验** | `node scripts/verify-state-domain.mjs`：用宿主安装的 cordis + dsh-storage + storage-json + storage-domain **真跑一遍**手搓 spec（16 项断言：open 接受 / 12 张表 / 键编码必要性 / 落盘持久性 / version 语义 / compatibleVersions 逃生口）。不进 CI（CI 无 DSH 安装），改契约后必跑 |
 | **诊断面板** | ✅ B5-③ 已实现：`src/panel/DiagnosticsPanel.tsx`，底栏 🩺 按钮 —— 构建一致性 / 持久化 / 数据链路 / 缓存底账 / AI 与 HIST，五类状态一处可查 |
 
 ## 9. 已知架构债（对应 ROADMAP 编号）
@@ -235,5 +246,5 @@ DSH 的 `dsh-base` 已挂载存储栈（**本 profile 直接可用，无需额�
 | 7 | 存储无抽象、无重置/导出 | 🟡 已迁 host 领域（A1）；**导出/导入/重置**仍待做 | A1 |
 | 8 | 样式双轨（7 个新文件用 `--dc-*`，28 个旧文件 1,000+ 处硬编码色 + 64 条暗色重映射） | ⏳ 未动 | A5 |
 | 9 | 无 ESLint、无单测；`tsc` 只看 `src`（`noUnusedLocals:false`） | ✅ 已修（ESLint **0 error / 0 warning** + 棘轮 `--max-warnings 0`；单测 + 离线冒烟，**数量以 `pnpm test` 输出为准**）。**残留**：测试文件不在 `tsc` 的 include 内，断言靠运行保证 | B4 |
-| 10 | client.js 体积 814KB / 护栏 840KB（单模块不可拆分） | ✅ 已修（默认 minify + sourcemap；护栏 **650KB**，数字单一来源 = `scripts/check-bundle-size.mjs`）。**残留**：`lightweight-charts` 占比最高，再减重需换图库 | B2 |
+| 10 | client.js 体积 814KB / 护栏 840KB（单模块不可拆分） | ✅ 已修（默认 minify + sourcemap；护栏 **665KB**，数字单一来源 = `scripts/check-bundle-size.mjs`）。**残留**：余量只剩 ~13KB（实测 651.7KB），再减重需换图库或砍内联代码；**下一批若要挂回个股卡必须先算这笔账** | B2 |
 | 11 | 命名缓存只在 host 进程内存（重启即失效，不跨进程） | 🟡 有意为之：跨进程要新增存储表 + 版本迁移；等真实使用反馈再决定。命中缓存不产生第二次 LLM 调用（已测） | A2b |

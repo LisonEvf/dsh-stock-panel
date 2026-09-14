@@ -121,44 +121,40 @@ export function IndicesPage({ initial, enabled = true, tick = 0, pollMs = 15_000
 
         {error && <div className="mb-1.5 rounded bg-red-50 px-2 py-1 dc-t-note text-red-500">{error}</div>}
 
-        {/* 指数切换条 */}
+        {/* 指数切换条：**横向滚动**而不是换行 —— 9 个指数在 320px 的列里必然放不下，
+            换行会把图表挤下去（图表才是这一块的信息载体）。 */}
         {quotes.length > 0 && (
-          <div className="mb-1.5 flex gap-1 overflow-x-auto pb-1">
+          <div className="dc-index-strip-inline mb-1.5">
             {quotes.map((q) => {
               const isActive = selected?.market === q.market && selected?.code === q.code
               return (
                 <button
                   key={`${q.market}${q.code}`}
                   onClick={() => setSelected({ market: q.market, code: q.code, name: q.name })}
-                  className={`shrink-0 rounded-md border px-2 py-1 text-left transition-colors ${
-                    isActive
-                      ? 'border-emerald-300 bg-emerald-50'
-                      : 'border-slate-100 bg-slate-50 hover:bg-slate-100'
+                  title={`${q.name} ${q.code}｜${pctText(q.pct)}${isActive ? '（当前）' : '（点击切换）'}`}
+                  className={`shrink-0 rounded-dc-sm border px-2 py-0.5 text-left transition-colors ${
+                    isActive ? 'dc-soft-info border-transparent' : 'border-dc-border bg-dc-layer-2 hover:bg-dc-layer-3'
                   }`}
                 >
-                  <div className="flex items-center gap-1">
-                    <span className={`dc-t-data font-medium ${isActive ? 'text-emerald-700' : 'text-slate-500'}`}>
-                      {q.name}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-1">
-                    <span className="font-mono dc-t-data tabular-nums" style={{ color: pctColor(q.pct) }}>
-                      {pctText(q.pct)}
-                    </span>
-                  </div>
+                  <span className={`dc-t-data font-medium ${isActive ? 'text-dc-info' : 'text-dc-text-2'}`}>
+                    {q.name}
+                  </span>
+                  <span className="ml-1.5 font-mono dc-t-note tabular-nums" style={{ color: pctColor(q.pct) }}>
+                    {pctText(q.pct)}
+                  </span>
                 </button>
               )
             })}
           </div>
         )}
 
-        {/* 摘要 */}
+        {/* 摘要：选中指数的实时读数（现价 + 6 个字段） */}
         {active && (
-          <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/80 px-2 py-1.5">
+          <div className="mb-1.5 rounded-dc-sm border border-dc-border bg-dc-layer-2 px-2 py-1.5">
             <div className="flex items-baseline justify-between gap-2">
               <div className="min-w-0">
-                <span className="text-sm font-semibold text-slate-800">{active.name}</span>
-                <span className="ml-1.5 font-mono dc-t-data text-slate-400">{active.code}</span>
+                <span className="text-sm font-semibold text-dc-text">{active.name}</span>
+                <span className="ml-1.5 font-mono dc-t-data text-dc-text-3">{active.code}</span>
               </div>
               <div className="flex items-baseline gap-1.5">
                 <span className="font-mono text-lg font-bold tabular-nums" style={{ color: pctColor(active.pct) }}>
@@ -172,12 +168,9 @@ export function IndicesPage({ initial, enabled = true, tick = 0, pollMs = 15_000
             </div>
             <div className="mt-1.5 grid grid-cols-3 gap-1">
               {summary?.map((c) => (
-                <div key={c.label} className="min-w-0 rounded bg-white/70 px-1.5 py-1">
-                  <div className="dc-t-micro text-slate-400">{c.label}</div>
-                  <div
-                    className="truncate font-mono dc-t-note tabular-nums"
-                    style={{ color: c.color ?? '#334155' }}
-                  >
+                <div key={c.label} className="min-w-0 rounded-dc-sm bg-dc-layer-1 px-1.5 py-1">
+                  <div className="dc-t-micro text-dc-text-3">{c.label}</div>
+                  <div className="truncate font-mono dc-t-note tabular-nums text-dc-text-2" style={c.color !== undefined ? { color: c.color } : undefined}>
                     {c.value}
                   </div>
                 </div>

@@ -1,0 +1,122 @@
+$ node scripts/budget.mjs --check && node scripts/ux-contract.mjs && node scripts/ux-density.mjs --check && node scripts/contrast.mjs --check
+[budget] 轮询声明（按间隔升序）：
+     0s  useSwr      src/pages/MarketPage.tsx:186  key=swrKey.allA()
+     0s  useSwr      src/pages/MarketPage.tsx:187  key=swrKey.unusualAll()
+     1s  setInterval src/components/SessionMission.tsx:31
+     1s  setInterval src/panel/DiagnosticsPanel.tsx:74
+    12s  useSwr      src/panel/use-ai.ts:89  key=market !== null && code !== null ? swrKey.quote(market
+    12s  useSwr      src/views/WatchView.tsx:72  key=quoteKey
+    15s  useSwr      src/panel/StatusStrip.tsx:101  key=swrKey.indices()
+    15s  useSwr      src/panel/use-ai.ts:105  key=swrKey.indices()
+    30s  setInterval src/panel/AppShell.tsx:115
+    30s  useSwr      src/panel/StatusStrip.tsx:103  key=swrKey.allA()
+    30s  useSwr      src/panel/use-ai.ts:99  key=market !== null && code !== null ? swrKey.capitalFlow(market
+    30s  useSwr      src/panel/use-ai.ts:104  key=swrKey.allA()
+    30s  useSwr      src/panel/WatchList.tsx:81  key=swrKey.allA()
+    60s  useSwr      src/lib/build-info.ts:36  key=swr:buildinfo
+    60s  useSwr      src/panel/StatusStrip.tsx:105  key=swr:serverclock
+     动态  setInterval src/components/AlertWatcher.tsx:272
+     动态  setInterval src/components/AuctionRadar.tsx:186
+     动态  setInterval src/lib/cache.ts:249
+     动态  useSwr      src/pages/IndicesPage.tsx:46  key=swrKey.indices()
+     动态  setInterval src/pages/LadderPage.tsx:96
+     动态  setInterval src/pages/MarketPage.tsx:218
+     动态  setInterval src/pages/WarPage.tsx:360
+     动态  setInterval src/pages/WatchlistPage.tsx:93
+     动态  setInterval src/panel/hooks.ts:232
+
+[budget] 指标：
+  pollSites = 24
+  requestsPerMinuteUpperBound = 150
+  maxTimersPerKey = 4
+  filesWithPolling = 17
+
+[budget] 同一缓存 key 的多个定时器（预算头号风险）：
+  3× swrKey.indices()
+  4× swrKey.allA()
+
+[budget] OK：请求预算未变差 ✅
+  ✔ preflight-off
+  ✔ scoped-reset
+  ✔ strip-grid-not-flex
+  ✔ strip-tails-and-overflow-menu
+  ✔ no-viewport-magic-height
+  ✔ flow-columns-by-container
+  ✔ skeleton-uses-container-width
+  ✔ hard-reload-not-plain-reload
+  ✔ half-render-self-check
+  ✔ no-hardcoded-semantic-colors
+  ✔ no-manual-unit-math
+  ✔ status-colors-decoupled-from-price
+  ✔ chart-theme-single-source
+  ✔ three-state-component
+  ✔ review-draft-persisted
+  ✔ error-kind-propagated
+  ✔ hotkeys-pure-and-tested
+  ✔ palette-dialog-a11y
+  ✔ watchlist-rows-keyboard-reachable
+  ✔ hit-target-24px
+  ✔ no-dead-postcss-config
+  ✔ type-scale-tokens-defined
+  ✔ type-scale-floor-in-components
+  ✔ empty-state-uses-container-width
+  ✔ market-single-metronome
+  ✔ flow-slots-pinned
+
+[ux-contract] 全部通过 ✅（26 条）
+[ux-density] 类型尺度（src/**/*.tsx）
+    dc-t-decision  1
+    dc-t-data      144
+    dc-t-note      60
+    dc-t-micro     212
+    text-xs        22
+    text-sm        18
+    text-base      1
+    text-lg        2
+    text-xl        0
+    （四档合计 417 处；语义档合计 43 处）
+    ℹ️ text-[15px] × 1（白名单：个股现价（主数字））
+    ℹ️ text-[16px] × 1（白名单：情绪温度计（一屏最显眼的那个数））
+    ℹ️ text-[18px] × 1（白名单：昨日涨停今日表现（复盘①的核心结论数））
+
+[ux-density] 宽度利用（报告；数值越低越好，重点看是否在增长）
+    justify-between（两端对齐，中间常空）         35
+    ml-auto（把内容推到两端）                   18
+    truncate（靠截断而不是给宽度）                44
+    max-w-md/lg（居中限宽，主区会大块留白）          3
+    w-1[0-9]（固定窄列，常在 12px 字号下不够）      1
+
+[ux-density] 全部通过 ✅（--check）
+[contrast] 前景 token × 背景 token（宿主真值快照见脚本头部注释）
+   ✔ light dc-text     on dc-layer-1  17.85  (text)
+   ✔ light dc-text-2   on dc-layer-1   7.58  (text)
+   ✔ light dc-text-3   on dc-layer-1   5.20  (text)
+   ✔ light dc-dim      on dc-layer-1   6.80  (text)
+   ✔ light dc-text     on dc-layer-2  17.85  (text)
+   ✔ light dc-text-3   on dc-layer-2   5.20  (text)
+   ✔ light dc-dim      on dc-layer-2   6.80  (text)
+   ✔ light dc-up       on dc-layer-1   4.96  (text)
+   ✔ light dc-down     on dc-layer-1   5.32  (text)
+   ✔ light dc-warn     on dc-layer-1   5.21  (text)
+   ✔ light dc-danger   on dc-layer-1   4.83  (text)
+   ✔ light dc-success  on dc-layer-1   5.07  (text)
+   ✔ light dc-info     on dc-layer-1   5.07  (text)
+   ✔ light dc-track    on dc-layer-1   1.53  (ui)
+   ✔ light dc-border   on dc-layer-1   1.23  (ui)
+   ✔ dark  dc-text     on dc-layer-1  15.03  (text)
+   ✔ dark  dc-text-2   on dc-layer-1  10.42  (text)
+   ✔ dark  dc-text-3   on dc-layer-1   8.77  (text)
+   ✔ dark  dc-dim      on dc-layer-1   9.84  (text)
+   ✔ dark  dc-text     on dc-layer-2  13.34  (text)
+   ✔ dark  dc-text-3   on dc-layer-2   7.79  (text)
+   ✔ dark  dc-dim      on dc-layer-2   8.74  (text)
+   ✔ dark  dc-up       on dc-layer-1   4.54  (text)
+   ✔ dark  dc-down     on dc-layer-1   6.10  (text)
+   ✔ dark  dc-warn     on dc-layer-1   8.84  (text)
+   ✔ dark  dc-danger   on dc-layer-1   4.54  (text)
+   ✔ dark  dc-success  on dc-layer-1   7.78  (text)
+   ✔ dark  dc-info     on dc-layer-1   7.78  (text)
+   ✔ dark  dc-track    on dc-layer-1   1.89  (ui)
+   ✔ dark  dc-border   on dc-layer-1   1.38  (ui)
+
+[contrast] 全部达标 ✅

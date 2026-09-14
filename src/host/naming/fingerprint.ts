@@ -29,8 +29,14 @@ export interface FingerprintInput {
   guard: Record<string, number | boolean>
 }
 
-/** 当前提示词版本（改 `prompt.ts` 的 `NAMING_SYSTEM_PROMPT` 时必须 +1）。 */
-export const NAMING_PROMPT_VERSION = 'a2b-1'
+/**
+ * 当前提示词版本（改 `prompt.ts` 的 `NAMING_SYSTEM_PROMPT` 时必须 +1）。
+ *
+ * `a2b-2`（2026-09-14）：新增第 7 条「theme 的形状」（2~8 字题材短名、不写句子/后缀、
+ * 板块兜底时优先用被多数成员共享的官方行业词）。**必须 +1**：不改版本号的话，
+ * 旧提示词产出的长句主题名会被当成新口径的缓存命中（正是本文件头部要防的静默复用）。
+ */
+export const NAMING_PROMPT_VERSION = 'a2b-2'
 
 /**
  * 批量（多组一次问完）的提示词版本。
@@ -38,8 +44,11 @@ export const NAMING_PROMPT_VERSION = 'a2b-1'
  * 为什么与单类**分开**：两者是不同的提示词，同一份素材在两种问法下的结论可能不同
  * （批量时模型能看到组间区别）。共用一个版本号会让"批量命名的结论"被单类请求当成缓存命中，
  * 反之亦然 —— 那正是指纹要防的静默复用（改 `prompt.ts` 的批量提示词时必须 +1）。
+ *
+ * `a2b-batch-2`（2026-09-14）：新增第 8 条「每组 theme 的形状」（与单类第 7 条同口径，
+ * 另加"各组不要为了统一风格而互相模仿" —— 逐类问时模型更容易把「铜」和「铝」都叫成「有色金属」）。
  */
-export const NAMING_BATCH_PROMPT_VERSION = 'a2b-batch-1'
+export const NAMING_BATCH_PROMPT_VERSION = 'a2b-batch-2'
 
 export function namingFingerprint(input: FingerprintInput): string {
   const payload = {

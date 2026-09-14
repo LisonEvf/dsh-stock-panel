@@ -100,6 +100,23 @@ export const STATE_TABLES: readonly StateTableMeta[] = [
     shape: 'keyed',
   },
   {
+    /**
+     * v1.6 作战思路存档（模型给的"今天怎么打"）。
+     *
+     * 为什么必须落 host 域：它是**用户按它下单**的那份东西，也是代价最高的一次模型调用
+     * （一次采集 + 一次推理）。只留在内存 = 切一次标签页就没了，然后每次回到作战页
+     * 都要重新花一次调用；只留 localStorage = 清缓存/换机器即丢，与"用户可见资产都在
+     * host 侧"的口径不符（`verdicts` 当年就是这么定的）。
+     *
+     * 加表**不动 `STATE_DOMAIN_VERSION`**（固定 1，理由见 review_draft 上方注释）。
+     */
+    table: 'war_plans',
+    storageKey: 'dsh-stock-panel:war-plan:v1',
+    keyOf: '2026-09-12:intraday（一天里的每个时段一条）',
+    label: '作战思路（按日·按时段存档）',
+    shape: 'keyed',
+  },
+  {
     table: 'events',
     storageKey: 'dsh-stock-panel:events:v1',
     keyOf: '市场-代码-时间-描述',
@@ -181,6 +198,19 @@ export function keyOfRecord(table: string, value: unknown): string | null {
       const day = str(v.day)
       const symbol = str(v.symbol)
       return day !== null && symbol !== null ? `${day}:${symbol.toUpperCase()}` : null
+    }
+    case 'war_plans': {
+      const day = str(v.day)
+      if (day === null) return null
+      const stage = str(v.stage)
+      /**
+       * 记录键 = `${day}:${stage}`（一天里的每个时段各一条）。
+       *
+       * 只有 day 没有 stage 的记录**不该存在**（store 永远两个都写）；真遇到时退化成
+       * `day` —— 宁可让它以退化键同步，也不要返回 null 让**整表**被静默跳过
+       * （hydrate/sync 对 null 键只跳过该条，而这条纪律正是 state-tables.test.ts 守的）。
+       */
+      return stage === null ? day : `${day}:${stage}`
     }
     case 'events':
       return str(v.key)

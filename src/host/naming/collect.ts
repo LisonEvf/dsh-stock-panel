@@ -20,6 +20,7 @@
 import { countStreak, isOneWordLimitUp, type CandleLike } from '../../lib/indicators'
 import {
   applyQuota,
+  boardContractDrift,
   boardsToMaterials,
   dedupMaterials,
   limitUpTypeToMaterial,
@@ -261,6 +262,16 @@ export async function collectMaterials(deps: CollectDeps, args: CollectArgs): Pr
   let boardOk = 0
   let boardFailed = 0
   let lastBoardErr = ''
+  /**
+   * 「接口返回了行、但一行都没解析出板块」的票数（去重前）。
+   *
+   * 为什么要单独数：这正是 2026-09-14 那个字段名 bug 的形状 —— 接口好、数据有，
+   * 只是本地把字段名读成了另一个（`board_name` vs 真字段 `board_symbol_name`），
+   * 于是产出恒为 0，而当时的归因文案把它写成「板块归属都未产出可引用板块（非失败）」：
+   * 读起来像"市场事实"，实际是**本地契约漂移**。两者必须分开报，
+   * 否则下一个同类 bug 还是会伪装成"没有素材"骗过所有人（含模型）。
+   */
+  let boardDriftReason = ''
   for (const m of args.members) {
     const key = `${m.market}${m.code}`
     try {
@@ -271,6 +282,9 @@ export async function collectMaterials(deps: CollectDeps, args: CollectArgs): Pr
       if (mats.length > 0) {
         items.push(...mats)
         boardOk += 1
+      } else if (boardDriftReason === '') {
+        // 只在**确实漂移**时记（"这只票只有地区/风格板块"是正常情况，见 boardContractDrift）
+        boardDriftReason = boardContractDrift(rows)
       }
     } catch (err) {
       boardFailed += 1
@@ -279,16 +293,25 @@ export async function collectMaterials(deps: CollectDeps, args: CollectArgs): Pr
       notes.push(`belong_board(${key}) 采集失败：${lastBoardErr}`)
     }
   }
+  const boardDrift = boardDriftReason !== '' && boardOk === 0
+  if (boardDrift) {
+    notes.push(
+      `belong_board 契约漂移：${boardDriftReason} —— 这是**本地字段/类型码取错**，不是"没有板块归属"；`
+      + '请核对 materials.ts 的 boardNameOf/boardTypeLabel 与 lib/stock-data.ts 的 BelongBoardRow',
+    )
+  }
   sources.push({
     source: SOURCE_BOARD,
-    status: boardFailed > 0 && boardOk === 0 ? 'failed' : boardOk > 0 ? 'used' : 'no_material',
+    status: boardFailed > 0 && boardOk === 0 ? 'failed' : boardDrift ? 'failed' : boardOk > 0 ? 'used' : 'no_material',
     produced: boardOk,
     detail:
       boardOk > 0
         ? `${boardOk}/${args.members.length} 只票产出板块归属${realtimeOk ? '' : '（当前快照，非当日历史快照）'}`
-        : boardFailed > 0
-          ? `${boardFailed} 只票调用失败：${lastBoardErr}`
-          : `${args.members.length} 只票的板块归属都未产出可引用板块（非失败）`,
+        : boardDrift
+          ? `契约漂移（不是"没有板块"）：${boardDriftReason}`
+          : boardFailed > 0
+            ? `${boardFailed} 只票调用失败：${lastBoardErr}`
+            : `${args.members.length} 只票的板块归属都未产出可引用板块（非失败）`,
   })
   if (boardOk > 0 && !realtimeOk) {
     notes.push(`板块归属取自**当前快照**（分类学变化慢），不是 ${args.asOf} 当天的历史快照 —— 已在结果里标注`)

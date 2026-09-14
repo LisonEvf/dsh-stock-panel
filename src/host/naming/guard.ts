@@ -32,6 +32,63 @@ import { SOURCE_NEWS } from './news'
 /** 引文最短长度：只抄「所属板块」四个字不构成有效证据。 */
 export const MIN_QUOTE_LEN = 4
 
+/**
+ * 主题名长度参考上限（**不截断**，只提示）。
+ *
+ * 为什么要有：类列表一行里主题名后面还跟着涨幅/涨停/成员，实测模型偶尔会写
+ * 「银行、电力、白酒等红利资产同步走强」这种整句话当主题名 —— 一行的宽度被它吃掉，
+ * 用户扫不了列表。但**截断一个名字比保留它更危险**（半截名字会被误引，
+ * 同"降级不留半个名字"的立场），所以这里只标注、不改写。
+ */
+export const THEME_MAX_LEN = 16
+
+/** 主题名末尾的通用后缀（去掉它们不损失信息：「白酒板块」=「白酒」）。 */
+const GENERIC_THEME_SUFFIX = ['板块', '概念', '题材', '主题', '行业', '方向', '行情']
+
+/** 包裹用的引号/括号（模型常把名字包起来，展示时要脱掉）。 */
+const WRAPPER_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ['「', '」'],
+  ['『', '』'],
+  ['“', '”'],
+  ['‘', '’'],
+  ['《', '》'],
+  ['〈', '〉'],
+  ['【', '】'],
+  ['[', ']'],
+  ['(', ')'],
+  ['（', '）'],
+  ['"', '"'],
+  ["'", "'"],
+]
+
+/**
+ * 主题名归一：脱引号 → 去空白 → 去通用后缀。
+ *
+ * 为什么这是**护栏**的一部分而不是展示层的小修饰：主题名是这一整套流程唯一给出去的东西，
+ * 它的形状（"短标签" vs "一句话"）决定了它能不能被引用、被比较、被记住。
+ * 模型输出「有色金属板块」与「有色金属」是同一件事，而界面上前者会挤掉后面的数字；
+ * 模型输出「金融街、华侨城A 等地产股」时我们**不**改写（那可能真是它的归纳），
+ * 只在 guardNotes 里标注偏长 —— 归因与改写都要留在可追溯的地方。
+ *
+ * 归一后为空的（只给了引号/后缀）→ 返回 `''`，由调用方按"named 但 theme 为空"降级处理。
+ */
+export function normalizeTheme(raw: unknown): string {
+  let s = raw == null ? '' : String(raw)
+  // 去空白：中文主题名里不该有空格/换行（模型有时写"有色 金属"）
+  s = s.replace(/[\s\u3000]+/g, '')
+  for (const [open, close] of WRAPPER_PAIRS) {
+    while (s.length >= 2 && s.startsWith(open) && s.endsWith(close)) s = s.slice(1, -1)
+  }
+  for (const suffix of GENERIC_THEME_SUFFIX) {
+    // 至少留 2 个字：不允许把「板块」两个字的后缀削成一个字的名字
+    if (s.length > suffix.length + 1 && s.endsWith(suffix)) {
+      s = s.slice(0, -suffix.length)
+      break
+    }
+  }
+  return s.trim()
+}
+
 /** 引文比较前的归一：去掉所有空白与 "/"（渲染差异，不是幻觉）。 */
 function normForMatch(text: string): string {
   return (text ?? '').replace(/[\s/]+/g, '')
@@ -144,7 +201,16 @@ export function applyGuards(args: ApplyGuardsArgs): NamingResult {
   let verdict = verdictRaw as NamingVerdict
 
   const themeRaw = raw.theme == null ? '' : String(raw.theme).trim()
-  let theme: string | null = themeRaw || null
+  // 归一（脱引号/去空白/去「板块」这类通用后缀）—— 只在**实际改动了内容**时留一条备注，
+  // 否则每条 guardNotes 都是噪声，"有备注"就不再是信号了。
+  const themeNorm = normalizeTheme(themeRaw)
+  let theme: string | null = themeNorm || null
+  if (themeRaw !== '' && themeRaw !== themeNorm) {
+    notes.push(`主题名已归一：${JSON.stringify(themeRaw)} → ${JSON.stringify(themeNorm)}（脱引号/去空白/去通用后缀，不改写词本身）`)
+  }
+  if (themeNorm.length > THEME_MAX_LEN) {
+    notes.push(`（提示）主题名 ${themeNorm.length} 字偏长（参考上限 ${THEME_MAX_LEN}）：按原样保留，不做截断（半截名字会被误引）`)
+  }
   const confidenceNum = raw.confidence == null ? Number.NaN : Number(raw.confidence)
   const confidence = Number.isFinite(confidenceNum) ? confidenceNum : null
   const alternatives = Array.isArray(raw.alternatives)

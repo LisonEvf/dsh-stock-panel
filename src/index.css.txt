@@ -55,6 +55,19 @@
      用纯 layer 色会与容器 1.00:1 完全看不见。改成"朝前景色混 20%"的半透明底：
      亮色下 ≈ #cfd1d6（标准进度槽灰，1.3:1）、暗色下 ≈ #4d4d4f（2.0:1），明暗都成立。 */
   --dc-track: color-mix(in srgb, var(--dc-text) 20%, transparent);
+  /* 容器"面"色（卡片/汇总条/孤立票盒）。
+   *
+   * 为什么不能用 --dc-layer-1/2/3：宿主**亮色**下这三个 token 全是 #ffffff（层级塌陷，
+   * 见上面 --dc-track 那条注释），拿它们当卡片底 → 卡片、chip、胶囊全变成白底白字块，
+   * 唯一的区分只剩宿主那条 rgba(0,0,0,0.04) 的描边（对白底 1.07:1，等于看不见）。
+   * 实测（2026-09-14 版面评审）：亮色下这一页 7 类容器背景**全部** #FFFFFF。
+   * 所以"面"改成朝前景色混一档：亮色 → 极浅灰（与白底可分辨）。
+   *
+   * `--dc-surface-2` 是**坐在面上的**面（成员 chip / 动作按钮）：它必须与 --dc-surface
+   * 差一档，否则 chip 又和卡片同色。亮色下它取 layer-1（纯白）——刚好就是"浅灰卡上的白 chip"。
+   */
+  --dc-surface: color-mix(in srgb, var(--dc-text) 4%, var(--dc-layer-1));
+  --dc-surface-2: var(--dc-layer-1);
   --dc-hover: var(--dsw-alias-interactive-bg-hover, rgba(15, 23, 42, 0.045));
   --dc-active: var(--dsw-alias-interactive-bg-active, rgba(15, 23, 42, 0.08));
   --dc-accent: var(--dsw-alias-brand-primary, #10b981);
@@ -144,6 +157,12 @@ body[data-ds-dark-theme] .dsh-stock {
   /* 暗色下投影基本看不见（底本来就深），层级改由"提亮描边"承担 —— 否则卡片会糊成一片。 */
   --dc-shadow-1: none;
   --dc-shadow-2: var(--dsw-shadow-lv2, 0 8px 24px rgba(0, 0, 0, 0.5));
+  /* 暗色下宿主的 layer-1/2/3 本来就有真实层梯（实测 #151517 < #232324 < #2c2c2e）。
+     卡片取 **layer-1**（不是 layer-2）：A 股语义色（--dc-up/--dc-down）在护栏里是按
+     "on layer-1" 校验的（暗色 4.54:1），换到 layer-2 上会掉到 ~3.97:1（不到 AA）。
+     坐在卡片上的面再提一档 → layer-2。 */
+  --dc-surface: var(--dc-layer-1);
+  --dc-surface-2: var(--dc-layer-2);
 }
 
 /* ─────────────────────────── 2. 骨架 ─────────────────────────── */
@@ -636,6 +655,27 @@ body[data-ds-dark-theme] .dsh-stock {
   font-family: inherit;
 }
 
+/* 语义色的**浅底**（状态条 / 徽标底）：
+ * 与 --dc-up-soft 同法 —— 从语义色用 color-mix 派生，明暗主题自适应。
+ * 为什么不直接用 tailwind 的 bg-amber-50 这类固定色阶：那些色阶**不跟暗色主题**
+ * （实测：命名结论卡在暗色下是一块浅黄底 + 深字，与整页形成刺眼的补丁）。
+ * 修法是换 token，不是就地写死另一种颜色。 */
+.dc-soft-warn {
+  background: color-mix(in srgb, var(--dc-warn) 14%, transparent);
+}
+.dc-soft-danger {
+  background: color-mix(in srgb, var(--dc-danger) 14%, transparent);
+}
+.dc-soft-ok {
+  background: color-mix(in srgb, var(--dc-success) 14%, transparent);
+}
+.dc-soft-info {
+  background: color-mix(in srgb, var(--dc-info) 14%, transparent);
+}
+.dc-soft-neutral {
+  background: var(--dc-layer-3);
+}
+
 /* 半渲染告警条（状态带/栏位没画出来）——唯一出路是硬刷新，所以放在最顶上 */
 .dc-layout-warn {
   flex: none;
@@ -896,6 +936,989 @@ body[data-ds-dark-theme] .dsh-stock {
 .dc-main--flow2 .dc-empty-text,
 .dc-main--flow3 .dc-empty-text {
   align-items: flex-start;
+}
+
+/* ───────────────────── 4b. 自挖板块（类列表 = 一级入口整页） ─────────────────────
+ *
+ * 这一页回答的是「今天市场自己把哪些票当成同一个班、哪个最猛、这个班像什么」，
+ * 所以每一行的视觉层级必须一次说清三件事，且顺序固定：
+ *
+ *   ① 名称（模型主题名 → 结构标签兜底）：一眼看到"这是哪个班"；
+ *   ② 强弱（强度条 + 涨停/均涨）：一眼看出"猛不猛"，并且**条长与排序同源**
+ *      （条长按当前列表的强度区间归一，否则 11 分与 -1 分看起来一样长）；
+ *   ③ 成员（chips，默认截断）：要落到票。
+ *
+ * 收口前的问题（2026-09-14 版面）：整行 7 个指标挤在一条 11px 灰字里、用 `·` 分隔，
+ * 主题名（唯一有信息量的东西）和它们同权；成员 52 只全量铺开把页面撑成几百像素；
+ * 颜色全是 tailwind 的 slate/white —— **不跟暗色主题**（本页是暗色下最刺眼的一处）。
+ * 所以这里改成语义 token（`--dc-*`），并给"行"一个固定骨架（左强度 / 中信息 / 右动作）。
+ */
+
+.dc-cc {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 12px;
+}
+
+/* 页头：一句"这页在回答什么" + 口径 chips + 刷新。
+ *
+ * 为什么是三列 grid（而不是 flex-wrap）：flex-wrap 下"内容一长就把刷新挤到第二行"，
+ * 一行 94% 宽 + 一个孤零零的刷新按钮独占一行（实测），白吃 ~20px 垂直空间。
+ * grid 的 `minmax(0,1fr)` 让长文案**自己收窄**，按钮永远留在第一行右侧。 */
+.dc-cc-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.dc-cc-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dc-text);
+}
+.dc-cc-title > svg {
+  align-self: center;
+  color: var(--dc-accent);
+}
+.dc-cc-ask {
+  font-size: 11px;
+  color: var(--dc-text-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 口径 chip（as_of / window / min_corr / pool）：等宽、浅底 —— 是"技术事实"不是正文。
+ * 底色用 --dc-track（与 .dc-tag 同法）：宿主的 layer-3 在**亮色**下是 #ffffff，
+ * 用它当胶囊底 = 胶囊在亮色下直接消失（这是本页"亮色像没做完"的主因之一）。 */
+.dc-cc-chip-param {
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  line-height: 16px;
+  padding: 1px 6px;
+  border-radius: var(--dc-r-xs);
+  background: var(--dc-track);
+  color: var(--dc-text-2);
+  white-space: nowrap;
+}
+
+/* 汇总条：**统计+预算一段**、**诊断另起一段**。
+ *
+ * 布局演过三版，记下来免得又绕回去：
+ *   ① 单条 flex-wrap（原始）：长尾把右侧预算挤到下一行，而统计行只剩 60% 宽；
+ *      且短语内部会断行，造出「0）」「组）」「轮」这种只剩一两个字的孤儿行（实测 3 个）。
+ *   ② grid `minmax(0,1fr) auto`：auto 列按 **max-content** 分宽度，尾巴 715px 把统计列
+ *      压成 **5px 宽**（实测：统计块 5×58，字叠成 4 行）—— 比原来更糟。
+ *   ③ 现在：外层只做 flex-wrap，两个子块各自成段；统计是 `flex` 子项（按内容宽），
+ *      尾巴 `margin-left:auto` 靠右 —— 同一条线放不下就整段换行（而不是被压成 5px）。
+ * 所有叶子项 `white-space: nowrap`：换行只发生在项与项之间，断点永远落在语义边界上。 */
+.dc-cc-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-sm);
+  background: var(--dc-surface);
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-cc-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 12px;
+  min-width: 0;
+}
+.dc-cc-stats > span {
+  white-space: nowrap;
+}
+.dc-cc-summary b {
+  font-family: var(--dc-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dc-text);
+}
+.dc-cc-summary-tail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 10px;
+  margin-left: auto;
+}
+.dc-cc-summary-tail > span {
+  white-space: nowrap;
+}
+
+.dc-cc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 一行一个"班"：左（强度条+排名）│中（名称/指标/成员）│右（动作）。
+ * 用 grid 而不是 flex：三列宽度随之稳定，纵向扫下来强度条、指标、成员都对齐。
+ * `align-items: start` + 左列首行与名称同字号 → 强度数字与班名落在同一条基线上
+ * （收口前左列是"垂直居中"的三件套，与名称错位 11–13px，看着像没对齐）。 */
+.dc-cc-card {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-md);
+  background: var(--dc-surface);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.dc-cc-card:hover {
+  border-color: var(--dc-border-strong);
+}
+/* 有涨停的班给一条左侧强调边：一屏里最先被眼睛抓到的应该是"有板的班" */
+.dc-cc-card.is-limit {
+  border-left: 2px solid var(--dc-up);
+}
+
+.dc-cc-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+/* 强度数字与排名同一行：`#N` 是排序依据，不该被塞到全行最低最淡的位置去 */
+.dc-cc-rankline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+}
+.dc-cc-strength {
+  font-family: var(--dc-mono);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--dc-text);
+}
+.dc-cc-strength.is-up {
+  color: var(--dc-up);
+}
+.dc-cc-strength.is-down {
+  color: var(--dc-down);
+}
+.dc-cc-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--dc-track);
+  overflow: hidden;
+}
+.dc-cc-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+}
+.dc-cc-rankno {
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+
+.dc-cc-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* 名称行：主题名（模型）或结构标签（官方分类学）—— 二者必须能一眼分辨来源 */
+.dc-cc-names {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  min-width: 0;
+}
+.dc-cc-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dc-text);
+}
+.dc-cc-name.is-official {
+  color: var(--dc-text);
+}
+.dc-cc-name.is-none {
+  font-size: 12px;
+  font-weight: 500;
+  /* 退回态用 --dc-text-2 而不是最淡的 --dc-text-3：评审实测"行内视觉重心落到了指标串上"
+     （类名 5.34:1 vs 指标 18.9:1），而这一行的主角永远是**这是哪个班**。
+     不给它 14px 主色（那是在假装有名字），但也不能比指标更淡。 */
+  color: var(--dc-text-2);
+}
+/* 来源标签：模型 / 官方行业 / 官方概念 / 无。极小的胶囊，但**不许省** ——
+ * 少了它，"有色金属"这个结构标签会被当成模型的主题结论引用出去。
+ * 底色用 --dc-track（同 .dc-tag）：layer-3 在亮色下是 #ffffff，胶囊会消失。 */
+.dc-cc-src {
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: var(--dc-r-xs);
+  background: var(--dc-track);
+  color: var(--dc-text-2);
+  white-space: nowrap;
+}
+.dc-cc-src.is-model {
+  background: var(--dc-up-soft);
+  color: var(--dc-up);
+}
+.dc-cc-cover {
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  color: var(--dc-dim);
+}
+.dc-cc-alts {
+  font-size: 11px;
+  color: var(--dc-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 26ch;
+}
+
+/* 指标行：标签(dim 11) + 值(12 mono)。用 flex + 固定间距，不用 `·` 分隔符
+ * （分隔符占的宽度和它带来的可读性完全不成比例）。 */
+.dc-cc-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+}
+.dc-cc-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dc-text-2);
+}
+.dc-cc-metric > span {
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-cc-metric > b {
+  font-family: var(--dc-mono);
+  font-weight: 600;
+  color: var(--dc-text);
+}
+/* 结构指标（类内相关 / 强边 / 规模）：不是"今天涨跌"，视觉上要沉下去一档，
+ * 否则用户会把它和涨幅当成同一类数字比较 */
+.dc-cc-metric.is-struct > b {
+  font-weight: 500;
+  color: var(--dc-text-2);
+}
+.dc-cc-metric.is-struct {
+  gap: 3px;
+}
+.dc-cc-metric.is-struct > span {
+  color: var(--dc-dim);
+}
+/* 涨停：**唯一带强调底**的指标 —— 它是"这个班猛不猛"最该一眼看到的数。
+ * 只有 >0 时才上底（`is-on`）：全是 0 的时候给 8 行胶囊，等于把强调也变成噪声。 */
+.dc-cc-metric.is-hot {
+  padding: 0 5px;
+  border-radius: var(--dc-r-xs);
+}
+.dc-cc-metric.is-hot.is-on {
+  background: var(--dc-up-soft);
+}
+
+/* 成员 chips：等宽网格（右边缘对齐，扫一列就能比较涨幅），默认只铺前 N 只。
+ *
+ * 列宽为什么是 `minmax(19ch, 1fr)`（= 实测踩过的坑）：一个 chip 里要放
+ * 「股票名 + 涨幅 + 可能的"板"标记」。收口前是 10.5ch ≈ 72px，而 `+14.70%` 这种涨幅
+ * 就占 42px、加内边距与 gap 后**名字只剩 16px（≈1 个汉字，极端情况 6px）** ——
+ * 21 个 chip 全部只剩一个字，"点一只票"这个页面目标直接失效，而 11px 的涨幅比名字还显眼。
+ * 19ch ≈ 114px，名字拿得到 ~4 个汉字位；再窄就优先牺牲涨幅那一段（它已经在 title 里）。
+ * chip 底用 layer-1（白）：它坐在 --dc-surface 的卡片上，于是 chip 有"面"；
+ * 亮色下若也用 surface，chip 与卡片会同色（又是白底白块）。 */
+.dc-cc-members {
+  display: grid;
+  gap: 3px;
+}
+.dc-cc-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-xs);
+  background: var(--dc-surface-2);
+  font-size: 12px;
+  color: var(--dc-text-2);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.dc-cc-chip:hover {
+  border-color: var(--dc-border-strong);
+  background: var(--dc-hover);
+}
+.dc-cc-chip.is-limit {
+  border-color: transparent;
+  background: var(--dc-up-soft);
+  color: var(--dc-text);
+}
+/* 名字吃剩余宽度（可截断），涨幅固定宽度 —— 反过来就是"名字被涨幅挤成一个字" */
+.dc-cc-chip > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dc-cc-chip > em {
+  flex: none;
+  font-style: normal;
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-cc-chip.is-limit > em {
+  color: var(--dc-up);
+}
+/* 涨跌色必须**压过**组件类里的默认色（`.dc-cc-metric > b` / `.dc-cc-chip > em` 的
+ * 特异性都高于 `.dc-up`）—— 否则 dc-up/dc-down 会静默失效，全页涨幅变一片灰。
+ * 放在本节最后：靠"两类的特异性"赢，不靠 !important。 */
+.dc-cc .dc-up {
+  color: var(--dc-up);
+}
+.dc-cc .dc-down {
+  color: var(--dc-down);
+}
+.dc-cc-more {
+  align-self: center;
+  justify-self: start;
+  padding: 1px 6px;
+  border: 1px dashed var(--dc-border-strong);
+  border-radius: var(--dc-r-xs);
+  background: transparent;
+  font-size: 11px;
+  color: var(--dc-text-3);
+  cursor: pointer;
+}
+.dc-cc-more:hover {
+  color: var(--dc-text);
+  border-color: var(--dc-text-3);
+}
+
+/* 右列动作：次要动作，所以对比低 —— 但**必须看得出是可点的**（收口前是 transparent 底 +
+ * transparent 边 + --text-3 的 11px 灰字，实测"没有按钮感"，也就没被发现）。 */
+.dc-cc-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 58px;
+}
+.dc-cc-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-xs);
+  background: var(--dc-surface-2);
+  font-size: 11px;
+  color: var(--dc-text-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dc-cc-act:hover:not(:disabled) {
+  background: var(--dc-hover);
+  border-color: var(--dc-border-strong);
+  color: var(--dc-text);
+}
+.dc-cc-act:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.dc-cc-act.is-busy {
+  color: var(--dc-accent);
+  border-color: var(--dc-accent);
+}
+/* 右列的流水线状态（命名走缓存）：它不是"指标"，不该混进指标行与涨停并排 */
+.dc-cc-pipe {
+  font-size: 11px;
+  color: var(--dc-dim);
+  white-space: nowrap;
+}
+
+.dc-cc-note {
+  grid-column: 2 / -1;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dc-text-3);
+}
+.dc-cc-note.is-warn {
+  color: var(--dc-warn);
+}
+
+/* 孤立票区：与"班"并列的另一种事实（今天没跟人一起动） */
+.dc-cc-iso {
+  padding: 6px 8px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-md);
+  background: var(--dc-surface);
+}
+.dc-cc-iso-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-cc-iso-grid {
+  display: grid;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.dc-cc-foot {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--dc-dim);
+}
+.dc-cc-foot summary {
+  cursor: pointer;
+  color: var(--dc-text-3);
+}
+
+/* ─────────────────── 4c. 行情聚合页（一屏仪表盘） ───────────────────
+ *
+ * ## 为什么重排（2026-09-14 真机测量，不是审美偏好）
+ *
+ * 收口前是「总览(4) | 指数(5) | 梯队(3)」三块并排，但真机容器只有 **780px**（左右栏都开），
+ * 于是落到 2 列、栅格只有 **两行 395px**。实测每块的内容高 vs 可视高：
+ *
+ *   市场总览：内容 1391px / 可视 363px → **藏了 74%**（34 行榜单）
+ *   涨停梯队：内容 2174px / 可视 363px → **藏了 83%**（69 只涨停股）
+ *   指数    ：内容  363px / 可视 363px → 0%（图会自适应，唯一排对的块）
+ *
+ * 也就是说"一屏看完"当时只对指数成立：另外两块各是一个独立滚动条，你看到的是一道缝。
+ * 而且同一件事在页面上出现两遍（总览 2×2 与梯队 2×2 都有"涨停/跌停"，状态带上还有一份）
+ * —— 实测整页 innerText 里「涨停」出现 19 次。
+ *
+ * ## 现在的组合（按"内容该占多少"重新分配，而不是按"当初三块各一份"）
+ *
+ *   KPI 带（全宽：6 格 + 涨跌分布条）：两个 2×2 的**并集合成一处**，一行读完环境；
+ *   主行：指数（含图，左）│ 涨停梯队（右）；
+ *   底行：榜单（4 张榜 2×2）│ 市场异动。
+ *
+ * 各块高度由**内容**决定（KPI 与底行给固定档），主行吃掉剩余高度（图表自适应）。
+ * 列数仍按**容器实测宽度**（不是视口断点）：≥1120 三列、≥760 两列、否则单列。
+ * 颜色一律走 `--dc-*`（本页是新写的，不再进 §7 那张"旧页面暗色重映射表"）。
+ */
+
+.dc-mkt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.dc-mkt-grid {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* 两列（真机默认档：主区 ~780px）
+ *
+ * 上下两行的**竖缝必须对齐**（都在 5/12）：收口前主行缝在 50%、底行缝在 66%，
+ * 两条竖线差 206px —— 实测被读成"排版没对齐"，而不是"有意分组"。
+ * **宽的一侧按内容需要分配**（不是两行都同宽同窄）：
+ *   主行：指数(5) │ 梯队(7)  —— 梯队的连板 chips + 板块热度内容最长
+ *   底行：榜单(7) │ 异动(5)  —— 榜单要 4 张榜 2×2 排，异动只有 8 行
+ * 反过来的话（榜单挤在 5/12）实测它会溢出 19%、并顶高整行 ~180px。 */
+/* 显式指定**行**（不靠自动放置）：底行是"榜单在右、异动在左"，而 DOM 顺序是
+ * 指数→梯队→榜单→异动 —— 自动放置（sparse）不会回头补空位，实测被排成了四行
+ * （`91.9 / 240 / 259 / 209`，异动掉到第 4 行）。写死行号后与列宽分配一致、也没有歧义。 */
+.dc-mkt-grid.is-2col {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  /* 主行吃剩余高度（图表自适应），KPI 与底行按内容 */
+  grid-template-rows: auto minmax(240px, 1fr) auto;
+}
+.dc-mkt-grid.is-2col .dc-mkt-kpi {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+.dc-mkt-grid.is-2col .dc-mkt-indices {
+  grid-column: 1 / 6;
+  grid-row: 2;
+}
+.dc-mkt-grid.is-2col .dc-mkt-ladder {
+  grid-column: 6 / 13;
+  grid-row: 2;
+}
+.dc-mkt-grid.is-2col .dc-mkt-unusual {
+  grid-column: 1 / 6;
+  grid-row: 3;
+}
+.dc-mkt-grid.is-2col .dc-mkt-boards {
+  grid-column: 6 / 13;
+  grid-row: 3;
+}
+
+/* 三列（≥1120px）：指数 │ 梯队 │ 榜单，异动横跨整行 */
+.dc-mkt-grid.is-3col {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: auto minmax(260px, 1fr) auto;
+}
+.dc-mkt-grid.is-3col .dc-mkt-kpi {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+.dc-mkt-grid.is-3col .dc-mkt-indices {
+  grid-column: 1 / 6;
+  grid-row: 2;
+}
+.dc-mkt-grid.is-3col .dc-mkt-ladder {
+  grid-column: 6 / 10;
+  grid-row: 2;
+}
+.dc-mkt-grid.is-3col .dc-mkt-boards {
+  grid-column: 10 / 13;
+  grid-row: 2;
+}
+.dc-mkt-grid.is-3col .dc-mkt-unusual {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+/* ── 块外壳（标题栏 + 内部滚动） ───────────────────────────────────── */
+.dc-mkt-block {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-md);
+  background: var(--dc-surface);
+}
+.dc-mkt-block-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--dc-border);
+  background: var(--dc-layer-3);
+}
+.dc-mkt-block-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dc-text);
+  cursor: pointer;
+}
+.dc-mkt-block-title > svg {
+  flex: none;
+  color: var(--dc-text-3);
+}
+.dc-mkt-block-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-mkt-block-tail {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.dc-mkt-block-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+/* 单列：块内不滚动（否则每块被压成一条），改由整页滚 */
+.dc-mkt-block.is-flow,
+.dc-mkt-block.is-flow > .dc-mkt-block-body {
+  overflow: visible;
+}
+.dc-mkt-block.is-flow {
+  min-height: 420px;
+}
+
+/* ── 环境带（KPI + 涨跌分布）────────────────────────────────────────
+ * 6 格 × 1 行：把「总览 2×2」与「梯队 2×2」的并集**合成一处**（同一个数只出现一次）。
+ * 为什么不是 8 格：780px 下每格 95px，「强势/弱势 ±3%」这类标签会折行；
+ * 6 格 × 130px 刚好，第 6 格放"两市成交 + 均涨"（原本在总览里）。 */
+.dc-kpi {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+.dc-kpi-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  /* 三行 11/14/11 = 36px 起，加内边距后 ~52px（原来上下各 4/2px，卡高 56px 显得挤） */
+  padding: 5px 8px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-sm);
+  background: var(--dc-surface);
+}
+/* 今天偏涨/偏跌：给第一格一条 2px 强调边（"第一个数据块自己说出结论"） */
+.dc-kpi-cell.is-tone-up {
+  border-left: 2px solid var(--dc-up);
+}
+.dc-kpi-cell.is-tone-down {
+  border-left: 2px solid var(--dc-down);
+}
+.dc-kpi-cell > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-kpi-value {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-family: var(--dc-mono);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--dc-text);
+  font-variant-numeric: tabular-nums;
+}
+.dc-kpi-value > i {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dc-text-3);
+}
+.dc-kpi-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--dc-dim);
+}
+/* 涨跌分布条：一条横向条（左跌右涨），比 12 根柱省 ~20px，且一眼看出重心在哪一侧 */
+.dc-kpi-dist {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-sm);
+  background: var(--dc-surface);
+}
+.dc-kpi-dist-label {
+  flex: none;
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-kpi-dist-bar {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--dc-r-xs);
+  background: var(--dc-track);
+}
+.dc-kpi-dist-bar > i {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+}
+.dc-kpi-dist-tip {
+  flex: none;
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  color: var(--dc-dim);
+  white-space: nowrap;
+}
+
+/* ── 榜单（4 张榜；窄列版只留"名称 + 主值"，其余进 title）─────────────
+ * 为什么窄列不显示代码：515px 里要排 2×2 张榜，每张 ~250px —— 名称(4 字≈48px)
+ * + 代码(36px) + 两个值(各 ~52px) 已经 188px 起步，再加内边距就没宽度给名称了。
+ * 榜单是用来扫"谁在动"的，不是抄代码的；代码/换手率都在 title 里。 */
+.dc-boards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 6px;
+}
+.dc-board {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-sm);
+  background: var(--dc-surface-2);
+}
+.dc-board-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--dc-text-3);
+}
+.dc-board-head > b {
+  font-weight: 600;
+  color: var(--dc-text-2);
+}
+.dc-board-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: var(--dc-r-xs);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.dc-board-row:hover {
+  background: var(--dc-hover);
+}
+.dc-board-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dc-text-2);
+}
+.dc-board-row > em {
+  flex: none;
+  font-style: normal;
+  font-family: var(--dc-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--dc-text);
+}
+
+/* ── 异动速递（窄列：类别胶囊 + 名称 + 时间）──────────────────────────
+ * 用**自适应网格**而不是一列：三列布局下这块横跨整行（~1590px），
+ * 若仍是一列，8 条会拉成"名字在左、时间在 1500px 之外"的一条长缝；
+ * 网格让它在宽容器里自动铺成 5–6 列 × 2 行，窄容器里仍是 1 列。 */
+.dc-unusual {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1px 12px;
+}
+.dc-unusual-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: var(--dc-r-xs);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.dc-unusual-row:hover {
+  background: var(--dc-hover);
+}
+.dc-unusual-kind {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--dc-r-xs);
+  white-space: nowrap;
+  font-size: 11px;
+}
+.dc-unusual-kind.is-up {
+  color: var(--dc-up);
+  background: var(--dc-up-soft);
+}
+.dc-unusual-kind.is-down {
+  color: var(--dc-down);
+  background: var(--dc-down-soft);
+}
+/* 「其他」类别（炸板/触板/大单…）用**中性色**而不是琥珀：
+ * 琥珀在宿主**亮色**下实测只有 ~2.9:1（淡琥珀底上的 11px 字），不达 AA；
+ * 而"其他"本来就是残差类别，中性底 + 次级文字色既达标也不抢戏。 */
+.dc-unusual-kind.is-other {
+  color: var(--dc-text-2);
+  background: var(--dc-layer-3);
+}
+.dc-unusual-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dc-text-2);
+}
+.dc-unusual-row > em {
+  flex: none;
+  font-style: normal;
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  color: var(--dc-dim);
+}
+
+/* ── 涨停梯队：分组用**横向 chips**（一个梯队一行装完）──────────────────
+ * 为什么：69 只涨停股按逐行列表排是 2174px，而可视只有 363px（藏 83%）——
+ * 换成一梯队一行 chips，同样的信息只要 ~11 行。默认展开最高的两档
+ * （高位股才是决策相关的），点「展开全部」看全量：这是**有标注的取舍**，不是静默截断。 */
+.dc-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dc-tier-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+}
+.dc-tier-name {
+  font-family: var(--dc-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dc-text-2);
+}
+.dc-tier-name.is-high {
+  color: var(--dc-up);
+}
+.dc-tier-name.is-mid {
+  color: var(--dc-warn);
+}
+.dc-tier-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+}
+.dc-tier-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 5px;
+  border: 1px solid var(--dc-border);
+  border-radius: var(--dc-r-xs);
+  background: var(--dc-surface-2);
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dc-text-2);
+  cursor: pointer;
+}
+.dc-tier-chip:hover {
+  border-color: var(--dc-border-strong);
+  background: var(--dc-hover);
+  color: var(--dc-text);
+}
+.dc-tier-chip.is-oneword {
+  border-color: transparent;
+  background: var(--dc-up-soft);
+  color: var(--dc-text);
+}
+.dc-tier-chip > em {
+  font-style: normal;
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  color: var(--dc-dim);
+}
+.dc-tier-more {
+  padding: 0 6px;
+  border: 1px dashed var(--dc-border-strong);
+  border-radius: var(--dc-r-xs);
+  background: transparent;
+  font-size: 11px;
+  color: var(--dc-text-3);
+  cursor: pointer;
+}
+.dc-tier-more:hover {
+  color: var(--dc-text);
+}
+/* 板块热度：自适应多列（窄列下一行放"板块名 + 涨停数 + 涨幅"刚好） */
+.dc-heat {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 2px 8px;
+}
+.dc-heat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: var(--dc-r-xs);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.dc-heat-row:hover {
+  background: var(--dc-hover);
+}
+.dc-heat-row > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dc-text-2);
+}
+.dc-heat-count {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--dc-r-xs);
+  background: var(--dc-up-soft);
+  color: var(--dc-up);
+  font-family: var(--dc-mono);
+  font-size: 11px;
+}
+.dc-heat-pct {
+  flex: none;
+  font-family: var(--dc-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 指数切换条：横向滚动（9 个指数在 320px 的列里必然放不下，不撑高） */
+.dc-index-strip-inline {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.dc-index-strip-inline::-webkit-scrollbar {
+  height: 4px;
+}
+.dc-index-strip-inline::-webkit-scrollbar-thumb {
+  background: var(--dc-track);
+  border-radius: 2px;
 }
 
 /* ─────────────────────────── 5. AI 面板 ─────────────────────────── */
@@ -1207,6 +2230,18 @@ body[data-ds-dark-theme] .dsh-stock {
   word-break: break-word;
 }
 
+/* 附加行（v1.6 作战思路的候选票：触发条件 / 失败条件）。
+   比理由更淡一档：理由是"为什么选它"，附加行是"什么条件下动手 / 什么条件下认错"。 */
+.dc-rank-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--dc-dim);
+  word-break: break-word;
+}
+
 .dc-rank-score-val {
   flex: none;
   font-size: 12px;
@@ -1321,8 +2356,10 @@ body[data-ds-dark-theme] .dsh-stock {
   color: var(--dc-text);
 }
 .dc-seg-btn.is-on {
+  /* 与 .dc-subnav-item.is-on / .dc-chip.is-on 同一套"选中"语义：强调色文字 + 半透明底。
+   * 用 --dc-info（文字版强调色）而不是 --dc-accent：后者作文字时亮色下不达 AA（token 注释里有实测）。 */
+  color: var(--dc-info);
   background: var(--dc-active);
-  color: var(--dc-text);
   font-weight: 600;
 }
 
@@ -1672,7 +2709,6 @@ body[data-ds-dark-theme] .dsh-stock .hover\:bg-white:hover {
 body[data-ds-dark-theme] .dsh-stock .bg-slate-50,
 body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/60,
 body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/70,
-body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/80,
 body[data-ds-dark-theme] .dsh-stock .bg-slate-50\/40 {
   background-color: var(--dc-layer-2);
 }
@@ -1702,8 +2738,7 @@ body[data-ds-dark-theme] .dsh-stock .text-slate-200 {
 }
 
 body[data-ds-dark-theme] .dsh-stock .border-slate-100,
-body[data-ds-dark-theme] .dsh-stock .border-slate-200,
-body[data-ds-dark-theme] .dsh-stock .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+body[data-ds-dark-theme] .dsh-stock .border-slate-200 {
   border-color: var(--dc-border);
 }
 
@@ -1725,8 +2760,7 @@ body[data-ds-dark-theme] .dsh-stock .hover\:bg-emerald-50:hover,
 body[data-ds-dark-theme] .dsh-stock .hover\:bg-emerald-50\/50:hover {
   background-color: color-mix(in srgb, var(--dc-accent) 16%, transparent);
 }
-body[data-ds-dark-theme] .dsh-stock .bg-blue-50,
-body[data-ds-dark-theme] .dsh-stock .bg-blue-100 {
+body[data-ds-dark-theme] .dsh-stock .bg-blue-50 {
   background-color: color-mix(in srgb, var(--dsw-static-blue-500, #3b82f6) 16%, transparent);
 }
 

@@ -63,9 +63,28 @@ export function situationLabel(s: Situation): string {
   }
 }
 
+/**
+ * 局势的**短标签**（按钮/胶囊里用）。
+ *
+ * 为什么单独一个函数：作战页的 Q2 选项卡（`components/QAnswers.tsx`）与作战思路的
+ * 落点行（`lib/war-plan.ts`）都要它，此前两处各写一遍六路三元表达式 —— 少一个取值
+ * 就漂一处（Record 声明少键编译不过，等于把穷尽性也钉住了）。
+ */
+export function situationShortLabel(s: Situation): string {
+  return SITUATION_SHORT[s]
+}
+
+const SITUATION_SHORT: Record<Situation, string> = {
+  normal: '正常',
+  highLowSwitch: '高低切',
+  innerDivergence: '主线内分歧',
+  newDirection: '新方向',
+  weightLift: '权重行情',
+  recession: '退潮',
+}
+
 /** 局势颜色。 */
-export function situationColor(s: Situation): string {
-  switch (s) {
+export function situationColor(s: Situation): string {  switch (s) {
     case 'recession': return 'var(--dc-down)' // 绿：回避
     case 'highLowSwitch':
     case 'newDirection': return 'var(--dc-up)' // 红：变化

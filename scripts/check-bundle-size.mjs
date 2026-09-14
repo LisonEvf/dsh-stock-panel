@@ -5,7 +5,7 @@
  * 说明：client.js **默认 minify**（B2 决策，2026-09-12）；同时产出 `lib/client.js.map`
  * 补偿可调试性 —— 宿主 client-modules 层会读取该 map 并校验为 Source Map v3，
  * 再盖章自己的组合 map URL（map 缺失不影响插件执行）。逃生阀：`CLIENT_MINIFY=0`。
- * 阈值默认 650KB（env CLIENT_MAX_KB 可覆盖）。
+ * 阈值默认 665KB（env CLIENT_MAX_KB 可覆盖）。
  *
  * 体积账：
  *   665KB   1.1.x 基线（窄列版：10 个页面全内联，未压缩）
@@ -26,6 +26,22 @@
  *           「切换/点票不再丢草稿」「错误可分类可重试」「键盘可达」这三类体验修复的载体。
  *           ⚠️ 体积棘轮已连续两批上调（600→620→650），下一批应优先做**减重**（退役
  *           被新骨架取代的旧页面是最直接的杠杆），而不是继续加预算。
+ *   620.1KB 未提交的自挖板块 / 行情页批次之后（本批的起点，工作树实测值）
+ *   651.2KB 1.6.0 作战板块重做（模型给作战思路：素材组装 + 素材护栏 + 思路卡片 + 采纳写回）
+ *           → 阈值 650 → **665KB**（余量 ~14KB）。这一笔账必须写清三件事：
+ *           ① 净增 ~31KB，其中 **9KB 是本批自己找回来的**：client 侧对 `ai-contract`
+ *              的**值**引用（一个 `emptyWarPlanGuard()` / `contextBytes()` 就把四个任务的
+ *              prompt 模板整份打进包）与 `war-plan-guard`（护栏只需 host 侧权威执行）
+ *              都已清除 —— 前者是本批引入的错，后者是顺手纠正的架构错位；清理口径：
+ *              client 只引 `ai-contract` 的**类型**，上下文体积由 host 经
+ *              `AiCallMeta.contextBytes` 回传；
+ *           ② 剩下的 ~22KB 是"作战页主产物"本身：把行情/自挖板块/选股/复盘/竞价/持仓
+ *              组装成素材、把护栏剔除的东西显示出来、思路卡片、以及"模型给默认 + 人可改"
+ *              的写回 —— 它是本页唯一会指挥下单的输出，不许靠省字节来省掉透明度；
+ *           ③ **下一批必须减重**（棘轮已连续三批上调）。真杠杆按大小排：
+ *              ReviewPage（60KB）/ ConceptClassesCard（40KB）/ CSS 过渡重映射层；
+ *              注意 StockDetailPage / WatchlistPage 当前**已无引用、不在包内** ——
+ *              删它们只是卫生，不是减重手段。
  *
  * 成分（`node scripts/bundle-report.mjs`，未压缩口径 822.5KB）：
  *   lightweight-charts 216.8KB(26%) · src/pages 175.9KB(22%；ReviewPage 单文件 51.8KB)
@@ -52,7 +68,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const file = join(resolve(__dirname, '..'), 'lib', 'client.js')
-const maxKb = Number(process.env.CLIENT_MAX_KB ?? 650)
+const maxKb = Number(process.env.CLIENT_MAX_KB ?? 665)
 
 if (!existsSync(file)) {
   console.error('[check-bundle] 缺 lib/client.js —— 请先 pnpm build')

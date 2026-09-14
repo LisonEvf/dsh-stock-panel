@@ -41,7 +41,9 @@ function candles(): Array<Record<string, unknown>> {
 }
 
 /** 记录调用次数的假工具层。 */
-function fakeTools(opts: { weakChain?: boolean; classOk?: boolean; throwOnClass?: boolean } = {}) {
+function fakeTools(
+  opts: { weakChain?: boolean; classOk?: boolean; throwOnClass?: boolean; chainSuspect?: boolean } = {},
+) {
   const calls: string[] = []
   const callTool = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
     calls.push(name)
@@ -57,16 +59,26 @@ function fakeTools(opts: { weakChain?: boolean; classOk?: boolean; throwOnClass?
           members: MEMBERS,
         }
       case 'hist_concept_classes':
+        // chainSuspect 用**实测的漏网负样本**：52 只 / 类内相关 0.428 / 强边密度 0.14，
+        // 而引擎的 weak_chain = false（2026-09-13 真机）。本地判据必须拦住它。
         return {
           ok: true,
           as_of: AS_OF,
-          classes: [{ class_id: 6, size: 2, weak_chain: Boolean(opts.weakChain) }],
+          classes: [
+            opts.chainSuspect === true
+              ? { class_id: 6, size: 52, mean_intra_corr: 0.428, strong_density: 0.14, weak_chain: false }
+              : { class_id: 6, size: 2, mean_intra_corr: 0.6675, strong_density: 1, weak_chain: Boolean(opts.weakChain) },
+          ],
         }
       case 'belong_board':
+        // ⚠️ 字段名必须是**真数据层的字段**（`board_symbol_name`，见 lib/stock-data.ts）。
+        // 这里曾经写成 `board_name` —— 与当时的错代码同源，于是"两边一起错"，单测全绿而线上
+        // belong_board 恒为 0 条（2026-09-14 事故）。假数据一律照真输出抄，不许照代码猜。
         return [
-          { board_type: '4', board_name: 'CPO概念' },
-          { board_type: '12', board_name: '通信设备' },
-          { board_type: '4', board_name: '含可转债' },
+          { board_type: '4', board_symbol_name: 'CPO概念' },
+          { board_type: '12', board_symbol_name: '通信设备' },
+          { board_type: '4', board_symbol_name: '含可转债' },
+          { board_type: '5', board_symbol_name: '基金重仓' },
         ]
       case 'kline':
         return candles()
@@ -302,6 +314,43 @@ test('类不存在 / 工具不可用 → 结构化拒绝（不抛异常）', asy
   assert.equal((down as { reason: string }).reason, 'tdx_unavailable')
 })
 
+test('★ 传递链可疑类（引擎没标 weak_chain）同样拒绝命名，且零模型调用', async () => {
+  const llm = fakeLlm(goodPayload())
+  const { rt, calls } = runtime({}, { chainSuspect: true }, llm)
+  const out = await nameClass(rt, { classId: 6 })
+  assert.equal(out.ok, false)
+  assert.equal((out as { reason: string }).reason, 'pseudo_class', '成因要与 weak_chain 分开报（归因分层）')
+  const note = (out as { note: string }).note
+  assert.ok(note.includes('传递链'), `说明要讲清判据：${note}`)
+  assert.ok(note.includes('0.428') && note.includes('0.14'), '要把类内相关与强边密度念出来（可复核）')
+  assert.equal(llm.calls(), 0, '拒绝时不得浪费模型预算')
+  assert.ok(!calls.includes('belong_board'), '连素材都不必采')
+})
+
+// ===== ②b 结构标签（确定性、不经模型）=====
+
+test('★ 结构标签：模型之外还有一条确定性来源（官方行业口径），任何 as_of 都成立', async () => {
+  const { rt } = runtime()
+  const out = expectOk(await nameClass(rt, { classId: 6 }))
+  // 两只票的行业板块都是「通信设备」→ 被 ≥2 只共享 → 够格当标签
+  assert.equal(out.structure.label, '通信设备')
+  assert.equal(out.structure.basis, 'industry')
+  assert.equal(out.structure.covered, 2)
+  assert.equal(out.structure.total, 2)
+  assert.ok(out.structure.note.includes('官方行业板块口径'), '口径必须写在 note 里（界面进 title）')
+  // 「含可转债」是股本属性 → 不进概念频次；「基金重仓」是风格码 5 → 既不进概念也不进行业
+  assert.deepEqual(out.structure.industry.map((t) => t.name), ['通信设备'])
+  assert.deepEqual(out.structure.concept.map((t) => t.name), ['CPO概念'])
+})
+
+test('★ 结构标签与模型结论相互独立：模型不可用时它照样是满的（这正是它存在的理由）', async () => {
+  const { rt } = runtime({ llm: undefined, route: undefined })
+  const out = expectOk(await nameClass(rt, { classId: 6 }))
+  assert.equal(out.result.verdict, 'insufficient', '模型没了 → 主题名必然降级')
+  assert.equal(out.result.theme, null)
+  assert.equal(out.structure.label, '通信设备', '但结构标签不受影响（它不是模型结论）')
+})
+
 // ===== ③ 缓存与指纹 =====
 
 test('★ 缓存命中不产生第二次 LLM 调用；refresh / 指纹变化必须重算', async () => {
@@ -432,6 +481,10 @@ test('有效口径回传（UI 必须展示 as_of 与四个参数）', async () =
 //   a. 弱链伪类不命名，且**不因为它在批里就顺手问一下**（零额外模型调用）；
 //   b. 组间不许借证据：把 A 组的引文写进 B 组 → B 组必须被护栏拒（批量不放松严格性）；
 //   c. 同口径第二次调用 = 0 采集 + 0 模型调用（整批 memo）；refresh 才重算。
+//
+// ⚠️ 每个 runtime 都必须显式带 `news: false`：批量路径同样会采快讯源，
+// 漏了它这五个用例会真的发 HTTPS 去抓新浪 7×24（实测单用例 20–48 秒，且让测试依赖外网）。
+// 本文件头写着"不发一次网络请求"，这条就是它的兑现方式。
 
 const BATCH_MEMBERS: Record<number, Array<{ market: string; code: string; name: string; chg_pct: number }>> = {
   2: [
@@ -475,10 +528,10 @@ function fakeBatchTools() {
       case 'belong_board':
         return args.code === '300308' || args.code === '300502'
           ? [
-              { board_type: '4', board_name: 'CPO概念' },
-              { board_type: '12', board_name: '通信设备' },
+              { board_type: '4', board_symbol_name: 'CPO概念' },
+              { board_type: '12', board_symbol_name: '通信设备' },
             ]
-          : [{ board_type: '12', board_name: '酿酒行业' }]
+          : [{ board_type: '12', board_symbol_name: '酿酒行业' }]
       case 'kline':
         return candles()
       case 'unusual':
@@ -518,7 +571,7 @@ test('★ 批量：按强度降序命名，弱链组不参与（零额外模型�
   const llm = fakeLlm(batchPayload())
   const { callTool, calls } = fakeBatchTools()
   const out = await nameClasses(
-    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY, news: false },
     {},
   )
   assert.equal(out.ok, true)
@@ -533,6 +586,11 @@ test('★ 批量：按强度降序命名，弱链组不参与（零额外模型�
   assert.equal(byId.get(3)?.naming?.verdict, 'named')
   // 目标顺序按强度：class 2（12.4）在 class 3（1.2）之前
   assert.equal(byId.get(2)?.members.length, 2, '成员一并回给界面（不用二次取数）')
+  // 结构标签逐组回给界面（**不依赖模型**）：class 2 的两只票行业都是「通信设备」
+  assert.equal(byId.get(2)?.structure.label, '通信设备')
+  assert.equal(byId.get(2)?.structure.covered, 2)
+  assert.equal(byId.get(3)?.structure.label, '酿酒行业', 'class 3 的成员共享「酿酒行业」')
+  assert.equal(byId.get(1)?.structure.label, '', '被拒的组没取成员 → 空结构（界面按原因说明，不静默留白）')
   // 采集只做一次：市场级列表按**市场**拉（本用例跨沪深 → 2 次），而不是按类拉（那会是 4 次）
   assert.equal(calls.filter((c) => c === 'unusual').length, 2, '实时源每市场只采一次（并集采集，不是每类一次）')
   assert.ok(calls.filter((c) => c === 'hist_concept_class').length === 2, '逐类取成员')
@@ -553,7 +611,7 @@ test('★ 批量不放松护栏：把 A 组的引文写进 B 组 → B 组被拒
   )
   const { callTool } = fakeBatchTools()
   const out = await nameClasses(
-    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY, news: false },
     {},
   )
   assert.equal(out.ok, true)
@@ -571,7 +629,7 @@ test('★ 批量：模型漏给某组结论 → 如实降级（绝不替它补�
   const llm = fakeLlm(payload)
   const { callTool } = fakeBatchTools()
   const out = await nameClasses(
-    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY, news: false },
     {},
   )
   if (out.ok !== true) throw new Error('批量应成功返回')
@@ -585,7 +643,7 @@ test('★ 批量：同口径第二次 = 0 采集 + 0 模型调用；refresh 才�
   clearNamingCache()
   const llm = fakeLlm(batchPayload())
   const { callTool, calls } = fakeBatchTools()
-  const rt = { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY }
+  const rt = { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY, news: false }
   await nameClasses(rt, {})
   assert.equal(llm.calls(), 1)
   const callsAfterFirst = calls.length
@@ -611,7 +669,7 @@ test('★ 批量：成员数超过单批上限 → 分批调用（口径不变�
   const llm = fakeLlm(batchPayload())
   const { callTool } = fakeBatchTools()
   const out = await nameClasses(
-    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY },
+    { callTool, llm: llm.llm, route: { provider: 'test-provider', model: 'test-model' }, today: TODAY, news: false },
     // 每次只允许一组（每组 2 只成员）→ 必须分成两批
     { maxMembersPerCall: 2 },
   )

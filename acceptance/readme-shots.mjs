@@ -122,14 +122,18 @@ const shot = async (name, selector) => {
   writeFileSync(join(OUT, name + '.png'), Buffer.from(r.data, 'base64'))
   console.log('  📸 ' + name + '.png' + (params.clip ? '  [clip ' + clip.width + '×' + clip.height + ']' : '  [full viewport]'))
 }
-/** 行情页的并排列数（按同排块数判定）——用来确认"一屏并排聚合"真的成立，而不是以为成立。 */
+/** 行情页的并排列数（按同排**数据块**数判定）——用来确认"一屏并排聚合"真的成立，而不是以为成立。
+ *  2026-09-14 重排后：栅格是 `.dc-mkt-grid`，第一行是横跨整行的环境带（`.dc-mkt-kpi`），
+ *  要数的是它**下面**那一行的块（指数 / 涨停梯队 / 榜单）。 */
 const marketCols = () => evaluate(`(() => {
-  const grid = document.querySelector('.grid-cols-12')
-  if (!grid) return 'single-column(flex)'
-  const kids = Array.from(grid.children)
+  const grid = document.querySelector('.dc-mkt-grid')
+  if (!grid) return 'not-a-market-grid(可能是单列布局)'
+  const kids = Array.from(grid.children).filter(k => !k.classList.contains('dc-mkt-kpi'))
   if (!kids.length) return 'no-blocks'
   const top0 = Math.round(kids[0].getBoundingClientRect().top)
-  return kids.filter(k => Math.abs(Math.round(k.getBoundingClientRect().top) - top0) < 8).length + ' 列 / ' + kids.length + ' 块'
+  const sameRow = kids.filter(k => Math.abs(Math.round(k.getBoundingClientRect().top) - top0) < 8)
+  const names = sameRow.map(k => (k.querySelector('.dc-mkt-block-title span')?.textContent || '?').trim()).join('+')
+  return sameRow.length + ' 列 / 共 ' + kids.length + ' 块（' + names + '）'
 })()`)
 const clickByText = (text) => evaluate(`(() => {
   const el = Array.from(document.querySelectorAll('a,button,[role=tab],[role=link]')).find(x => (x.textContent || '').trim() === '${text}')
@@ -188,7 +192,8 @@ await gotoTab('行情', '涨停梯队', 60000)
 await sleep(8000)
 await showFps()
 await verify('行情页并排', marketCols)
-await verify('三块与指数条', `['市场总览','指数','涨停梯队'].filter(x => document.body.innerText.includes(x)).join('+')`)
+await verify('四个块与图', `['指数','涨停梯队','榜单','市场异动'].filter(x => document.body.innerText.includes(x)).join('+')`)
+await verify('环境带(6 格)', `document.querySelectorAll('.dc-kpi-cell').length + ' 格'`)
 await shot('01-market')
 
 // ② 复盘：七步流程
@@ -197,18 +202,41 @@ await sleep(4000)
 await verify('复盘步骤数(②-⑦)', `(document.body.innerText.match(/[②③④⑤⑥⑦]/g) || []).length`)
 await shot('02-review')
 
-// ③ 作战：时段自切的盘中卡
+// ③ 作战：第一屏 = 模型给的作战思路（v1.6 起；卡片在 `.dc-war-plan`）
 await gotoTab('作战', '盘')
+await waitFor('!!document.querySelector(".dc-war-plan")', 30000)
 await sleep(4000)
-await verify('作战时段词', `['竞价','验证窗','盘中','尾盘'].filter(x => document.body.innerText.includes(x)).join('+')`)
+await verify('作战思路卡', `(() => {
+  const c = document.querySelector('.dc-war-plan')
+  if (!c) return '(卡片不在)'
+  const t = c.innerText || ''
+  // 三态要分开报：'空态' 不等于 '没渲染'（休市/无素材时那才是正确回答）
+  const state = /模型正在读其他板块的素材/.test(t) ? '采集中'
+    : /本时段还没有作战思路|素材不足|模型不可用/.test(t) ? '空态(说明在场)'
+    : '有内容'
+  const rows = (s) => c.querySelectorAll(s).length
+  return state
+    + ' · 方向 ' + rows('.dc-war-plan-sectors .dc-rank-row') + ' 个'
+    + ' · 候选 ' + rows('.dc-war-plan-picks .dc-rank-row') + ' 只'
+    + ' · 按钮 ' + JSON.stringify(Array.from(c.querySelectorAll('button')).map((b) => (b.textContent || '').trim()).filter((x) => x !== '').slice(0, 4))
+})()`)
+await verify('透明度三件套', `(() => {
+  const c = document.querySelector('.dc-war-plan'); if (!c) return '(缺卡片)'
+  const t = c.innerText
+  return ['可点名', '剔除', '采纳', '保留'].filter((x) => t.includes(x)).join('+') || '(无痕迹)'
+})()`)
+await verify('作战时段词', `['竞价','验证窗','盘中','尾盘','休市'].filter(x => document.body.innerText.includes(x)).join('+')`)
 await shot('03-war')
 
-// ④ 自挖板块：共动类 + 模型命名 + 强度（首次可能触发真模型调用，等到出结果）
-await gotoTab('自挖板块', '模型调用', 120000)
-await waitFor('document.body.innerText.includes("模型调用")', 120000, 1500)
+// ④ 自挖板块：共动类 + 模型命名 + 结构标签 + 强度（打开即批量命名：真机实测 35s 左右出名字，
+//    冷启动更久；三态都要认 —— 命名说「素材不足」也是正确回答，脚本不该因此假红）
+await gotoTab('自挖板块', '调用', 120000)
+await waitFor('/(模型主题|官方行业|官方概念|素材不足)/.test(document.body.innerText)', 180000, 1500)
 await sleep(3000)
-await verify('命名预算行', `(document.body.innerText.match(/本次模型调用[^\\n]*/) || ['(缺)'])[0]`)
+// 预算行 2026-09-14 起改写为「调用 N 次 · 复用上一轮」；两代文案都认，避免脚本假红
+await verify('命名预算行', `(document.body.innerText.match(/(调用\\s*\\d+\\s*次|本次模型调用[^\\n]*)/) || ['(缺)'])[0]`)
 await verify('类行(强度/涨停数)', `(document.body.innerText.match(/涨停\\s*\\d+/) ? '有涨停数' : '(未出现涨停数列)')`)
+await verify('名称来源标签', `['模型主题','官方行业','官方概念'].filter(x => document.body.innerText.includes(x)).join('+') || '(无来源标签)'`)
 await shot('04-concept')
 
 // ⑤ 工作台：点左栏任一行 → 个股页（K 线 + 资金/逐笔 + 右栏 AI）

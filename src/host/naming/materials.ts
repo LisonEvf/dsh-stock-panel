@@ -65,13 +65,38 @@ export function isNarrativeBoard(name: string | undefined | null): boolean {
 /** `belong_board` 工具返回的一行（字段按不可信处理）。 */
 export interface BelongBoardRow {
   board_type?: string | number
+  /**
+   * 真实数据层的板块名字段（`src/lib/stock-data.ts` 的 `BelongBoardRow` 与
+   * `lib/ladder.ts` 用的是同一个）。
+   *
+   * ⚠️ **这个字段名曾经取错，代价是整个命名链路瘫痪**（2026-09-14 修复）：
+   * 旧代码读的是 `board_name ?? name` —— 两个都不存在，于是**每一行都解析成空**，
+   * `belong_board` 这个源 100% 产出 0 条素材（界面显示「无产出」）。
+   * 后果不是"少一类素材"：提示词第 0 条明写「没有快讯时用板块标签兜底」，
+   * 而板块标签是**唯一一个任何 as_of 都采得到的源**（异动/监控只有当日实时列表，
+   * 封板素材只在有涨停时产出）。它一空，非交易日的类就必然 `insufficient` ——
+   * 实测 9 个类全部显示「素材不足」，一个名字都给不出来。
+   *
+   * 为什么单测没抓住：`tests/naming-pipeline.test.ts` 的假工具返回的是
+   * `{ board_type, board_name }` —— **假数据照着错代码写**，两边一起错就永远自洽。
+   * 所以现在假数据一律用真字段名，并有 `tests/naming-materials.test.ts` 钉住。
+   */
+  board_symbol_name?: string
+  /** 兼容旧形态/远端 Python MCP 的口径（保留兜底，不当作主字段）。 */
   board_name?: string
   name?: string
   [k: string]: unknown
 }
 
+/**
+ * 取板块名：**真字段优先**，兜底字段次之。
+ *
+ * 为什么允许三种：内置 TDX 与远端 Python MCP 的历史口径不同（后者给 `board_name`），
+ * 而这是"少一个源"与"多认一个字段"的不对称 —— 认多了最多是命名素材更全，
+ * 认少了就是本文件头部写的整条链路瘫痪。所以宁可宽进。
+ */
 export function boardNameOf(row: BelongBoardRow): string {
-  return String(row.board_name ?? row.name ?? '').trim()
+  return String(row.board_symbol_name ?? row.board_name ?? row.name ?? '').trim()
 }
 
 /** 从 belong_board 行里取概念板块（叙事过滤后）与行业板块。 */
@@ -89,6 +114,30 @@ export function splitBoards(rows: BelongBoardRow[]): { concepts: string[]; indus
     }
   }
   return { concepts, industries }
+}
+
+/**
+ * `belong_board` 的**契约漂移**检测：接口好、数据有，但本地一行都解析不出来。
+ *
+ * 为什么必须单独判一次（2026-09-14 的教训）：那天 `boardNameOf` 读错了字段名
+ * （`board_name` vs 真字段 `board_symbol_name`），于是每只票都"产出 0 条"，
+ * 而当时的归因文案把它写成「板块归属都未产出可引用板块（非失败）」—— **读起来像市场事实**，
+ * 实际是本地契约漂移。这条判据把两者分开，且只在**确实漂移**时报错（不是"这只票只有地区/风格板块"
+ * 这种正常情况：那种行有名字、也有可识别的类型码，所以不会命中）。
+ *
+ * 返回 '' = 没漂移；否则返回人读原因（进 sourceStatus.detail 与 notes）。
+ */
+export function boardContractDrift(rows: BelongBoardRow[]): string {
+  if (rows.length === 0) return ''
+  const named = rows.filter((r) => boardNameOf(r) !== '').length
+  if (named === 0) {
+    return `接口返回 ${rows.length} 行，但没有一行能解析出板块名（真字段是 board_symbol_name；本地读的是 board_name/name）`
+  }
+  const typed = rows.filter((r) => boardTypeLabel(r.board_type) !== '').length
+  if (typed === 0) {
+    return `接口返回 ${rows.length} 行且有板块名，但没有一行带可识别的 board_type（期望 3 地区/4 概念/5 风格/12 行业）`
+  }
+  return ''
 }
 
 /** `unusual` 工具返回的一行。 */

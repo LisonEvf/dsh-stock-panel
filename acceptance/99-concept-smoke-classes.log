@@ -1,0 +1,24 @@
+  ✅ host 半导出了 callHistTool（脚本/诊断复用同一实现）
+[1] 类列表接线：成员 / 均涨幅 / 涨停数 / 强度
+[hist_concept] rebuilt as_of=2026-09-11 usable=12 classes=2 iso=7 graph=threshold
+  ✅ 引擎返回 ok（实际 {"ok":true,"as_of":"2026-09-11","meta":{"as_of":"2026-09-11","window":20,"graph":"threshold","nfac":0,"min_corr":0.6,"pool_n":200,"usable_n":12,"mean_abs_corr_p）
+  ✅ 切出至少两类（实际 2）
+  ✅ 两类可采信（实际 2）
+  ✅ #1：成员 3/3 · 均涨幅 -1.31 · 涨停 1 · 强度 4.6899999999999995
+  ✅ #2：成员 2/2 · 均涨幅 1.12 · 涨停 0 · 强度 1.12
+  ✅ 至少校验了两类的完整字段
+  ✅ 甲一（收盘 = 涨停价）出现在某个类里
+  ✅ 收盘触及涨停价的成员计入涨停数
+  ✅ 封板的成员标 limit_up=true
+  ✅ buy_price_limit=0（新股）不计入涨停
+  ✅ 全A快照只拉一次（引擎 + 补数共用 memo，实际 1）
+  ✅ 逐票取日K（实际 12）
+[2] 第二次调用：引擎快照与快照 memo 双命中（不再取数）
+  ✅ 第二次照常返回
+  ✅ 60s 内不重复拉全A快照（≥2MB）
+  ✅ 引擎快照命中 → 不再重取日K
+[3] 边界：不存在的类如实报错（不抛异常）
+  ✅ ok=false
+  ✅ 错误里带上 class_id（实际 class 999 不存在）
+
+[smoke-concept-classes] 全部通过 ✅

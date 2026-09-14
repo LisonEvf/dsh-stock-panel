@@ -17,6 +17,13 @@ export interface AiRankRow {
   /** 0-100 把握分。 */
   score: number
   reason: string
+  /**
+   * 附加行（渲染在理由下方，比理由更淡）。
+   *
+   * 为什么加它而不是把内容塞进 `reason`：作战思路的候选票要同时带**触发条件**与
+   * **失败条件**，塞成一行散文就再也扫不出来（而这两个字段恰恰是"能不能执行"的关键）。
+   */
+  extra?: ReactNode
   /** 行内动作（加入清单 / 打开 / 加自选…）。 */
   actions?: ReactNode
   /** 状态标注（例如「已在清单」）。 */
@@ -50,6 +57,7 @@ export function AiRankList({ rows, empty = '模型没有给出可用条目' }: P
               <i style={{ width: `${Math.max(0, Math.min(100, r.score))}%` }} />
             </div>
             <div className="dc-rank-reason">{r.reason}</div>
+            {r.extra !== undefined ? <div className="dc-rank-extra">{r.extra}</div> : null}
           </div>
           <span className="dc-rank-score-val dc-num">{r.score}</span>
           {r.actions !== undefined ? <div className="dc-rank-actions">{r.actions}</div> : null}

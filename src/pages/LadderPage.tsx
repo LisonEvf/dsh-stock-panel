@@ -1,23 +1,48 @@
 /**
- * 涨停梯队 + 板块热度页（M6）。
+ * src/pages/LadderPage.tsx —— 涨停梯队 + 板块热度（行情聚合页的「梯队」块）。
  *
- * 顶部速览（涨停/跌停/最高板）+ 梯队条形 + 按板数分组列表 + 板块热度 TOP。
- * 30s 轮询；点股票行 → 打开个股 Tab。
+ * 数据（全客户端，直连内置 TDX，`lib/ladder.ts`）：全 A 快照 → 封涨停池 → 逐票日K数连板 +
+ * 所属板块（板块行自带当日涨停数）→ 按板数分组 + 板块热度 TOP。
+ * 涨停/跌停一律以交易所涨跌停价字段为准；连板用客户端规则（主板 10 / 创业科创 20 /
+ * 北交 30 / ST 5）。
+ *
+ * ## 为什么分组列表改成了「一梯队一行 chips」（2026-09-14 真机测量）
+ *
+ * 收口前是**逐行列表**：69 只涨停股排成 2174px，而这一块的可视高度只有 363px ——
+ * 实测**藏了 83%**，"一屏看完"在这块完全不成立（每个梯队下面还各自带一个滚动条区域）。
+ * 换成"每个梯队一行、行内 chips 自动换行"之后，同样的信息量约 11 行就能装下。
+ *
+ * 默认只展开**最高两档**（高位股才是决策相关的：3 板以上决定情绪高度），
+ * 其余折叠成一行 `+N 只 · 展开`。这是**有标注的取舍**，不是静默截断：
+ * 全量永远只差一次点击，且展开后仍然完整（`记录而不丢弃`）。
+ *
+ * 环境数字（涨停/跌停/最高连板/≥2板）**不在本块显示** —— 它们已经由页面的
+ * 「环境带」（`MarketKpiBar`）统一显示，本块通过 `onStats` 上报即可：
+ * 同一个数在一屏里出现两遍正是这次重排要消灭的事（实测原来整页「涨停」出现 19 次）。
  */
-
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { RefreshCw, Flame } from 'lucide-react'
-import { loadLadder, type LadderSnapshot } from '@/lib/ladder'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw, Flame, ChevronDown, ChevronRight } from 'lucide-react'
+import { loadLadder, type LadderSnapshot, type LadderStock } from '@/lib/ladder'
 import { fmtBigNum } from '@/lib/format'
 import { inferMarket, type MarketTag } from '@/lib/symbol'
 import type { OpenStock } from '@/panel/PanelApp'
+import type { LadderStats } from '@/components/MarketKpiBar'
 
 const UP = 'var(--dc-up)'
 const DOWN = 'var(--dc-down)'
 const REFRESH_MS = 30_000
 
+/** 默认展开几档梯队（高位优先）。 */
+const TIERS_OPEN = 2
+/** 板块热度默认铺几条（实测 12 条会把这一块撑出 ~23% 的溢出，8 条刚好）。 */
+const HEAT_ROWS = 8
+
 function pctColor(v: number): string {
-  return v > 0 ? UP : v < 0 ? DOWN : '#94a3b8'
+  return v > 0 ? UP : v < 0 ? DOWN : 'var(--dc-text-3)'
+}
+
+function tierTone(n: number): string {
+  return n >= 5 ? 'is-high' : n >= 3 ? 'is-mid' : ''
 }
 
 interface Props {
@@ -28,16 +53,17 @@ interface Props {
   tick?: number
   /** 自轮询间隔覆盖（0 = 交给外部节拍器）。 */
   pollMs?: number
-  /** 嵌入聚合面板：交出整页布局与页头（块外壳负责标题/时间/刷新）。 */
-  embedded?: boolean
   /** 数据时间戳回传（聚合页显示本块刷新时间）。 */
   onUpdatedAt?: (at: number) => void
+  /** 环境数字回传（页面「环境带」用它；本块自己不再重复显示）。 */
+  onStats?: (s: LadderStats) => void
 }
 
-export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REFRESH_MS, embedded = false, onUpdatedAt }: Props) {
+export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REFRESH_MS, onUpdatedAt, onStats }: Props) {
   const [snap, setSnap] = useState<LadderSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [allOpen, setAllOpen] = useState(false)
   const busyRef = useRef(false)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -80,7 +106,7 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
     void load()
   }, [tick, enabled, load])
 
-  // 卸载时中止在途请求（合并页里区块离开视野不卸载，但整页切走/关闭工具时会）
+  // 卸载时中止在途请求（整页切走时会）
   useEffect(() => () => {
     abortRef.current?.abort()
   }, [])
@@ -88,10 +114,7 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
   const known = useMemo(() => snap?.limitUp.filter((s) => s.streakKnown) ?? [], [snap])
   const unknown = useMemo(() => snap?.limitUp.filter((s) => !s.streakKnown) ?? [], [snap])
 
-  const maxStreak = useMemo(() => {
-    if (!known.length) return 0
-    return Math.max(...known.map((s) => s.streak))
-  }, [known])
+  const maxStreak = useMemo(() => (known.length === 0 ? 0 : Math.max(...known.map((s) => s.streak))), [known])
 
   const tiers = useMemo(() => {
     const m = new Map<number, number>()
@@ -101,191 +124,218 @@ export function LadderPage({ onOpenStock, enabled = true, tick = 0, pollMs = REF
 
   const maxTierCount = useMemo(() => Math.max(1, ...tiers.map(([, c]) => c)), [tiers])
 
-  const openStock = (market: MarketTag, code: string, name: string) =>
-    onOpenStock({ market, code, name })
+  /** 按板数分组的成员（一次分好，渲染时不再重复过滤）。 */
+  const byTier = useMemo(() => {
+    const m = new Map<number, LadderStock[]>()
+    for (const s of known) {
+      const arr = m.get(s.streak)
+      if (arr) arr.push(s)
+      else m.set(s.streak, [s])
+    }
+    return m
+  }, [known])
+
+  const openStock = (market: MarketTag, code: string, name: string) => onOpenStock({ market, code, name })
 
   // 聚合页需要在块标题上显示本块刷新时间（梯队用自己的 fetchedAt，比"取数成功时刻"更贴切）
   useEffect(() => {
     if (snap !== null && onUpdatedAt) onUpdatedAt(snap.fetchedAt)
   }, [snap, onUpdatedAt])
 
+  /**
+   * 环境数字上报（页面「环境带」用）。
+   *
+   * 为什么用回调而不是让页面自己再算一遍：连板统计只在这里有（要逐票日K），
+   * 页面重算等于把最贵的那段逻辑抄第二份 —— 那正是本仓库反复吃亏的地方。
+   */
+  useEffect(() => {
+    if (onStats === undefined || snap === null) return
+    onStats({
+      limitUp: known.length,
+      limitDown: snap.limitDownCount,
+      maxStreak,
+      tiers: tiers.length,
+      highTier: known.filter((s) => s.streak >= 2).length,
+      unconfirmed: unknown.length,
+    })
+  }, [snap, known, unknown, maxStreak, tiers, onStats])
+
   return (
-    <div className={embedded ? 'px-2 pb-2' : 'h-full overflow-y-auto px-2.5 pb-3'}>
-      {!embedded && (
-        <div className="ds-sticky-head -mx-2.5 mb-1.5 flex items-center justify-between border-b border-slate-100 px-2.5 pb-1.5 pt-2">
-          <span className="flex items-center gap-1 text-sm font-semibold text-slate-800">
-            <Flame className="h-3.5 w-3.5 text-red-500" />
-            涨停梯队
-          </span>
-          <div className="flex items-center gap-2">
-            {snap && (
-              <span className="dc-t-data text-slate-300">
-                {new Date(snap.fetchedAt).toLocaleTimeString('zh-CN', { hour12: false })}
-              </span>
-            )}
-            <button
-              onClick={() => {
-                setLoading(true)
-                void load(true)
-              }}
-              className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-500"
-              title="刷新"
-            >
-              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-        </div>
-      )}
+    <div className="flex flex-col gap-1.5">
+      {error !== '' && <div className="rounded-dc-sm dc-soft-danger px-2 py-1 dc-t-note text-dc-bad">{error}</div>}
 
-      {error && <div className="mb-1.5 rounded bg-red-50 px-2 py-1.5 dc-t-note text-red-500">{error}</div>}
-
-      {/* 速览（2×2 纵排） */}
-      {snap && (
-        <div className="mb-1.5 grid grid-cols-2 gap-1.5">
-          <StatCell label="涨停" value={<span style={{ color: UP }}>{snap.limitUp.length}</span>} sub="封板数" />
-          <StatCell label="跌停" value={<span style={{ color: DOWN }}>{snap.limitDownCount}</span>} sub="封板数" />
-          <StatCell label="最高连板" value={`${maxStreak}板`} sub={`${tiers.length} 组梯队`} />
-          <StatCell label="≥2板晋级" value={`${tiers.filter(([n]) => n >= 2).reduce((a, [, c]) => a + c, 0)}`} sub="高位家数" />
-        </div>
-      )}
-
-      {/* 梯队条形 */}
+      {/* 梯队条形：一档一行（长度 = 该档家数占比），高位档用红/琥珀分色 */}
       {tiers.length > 0 && (
-        <div className="mb-1.5 rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="dc-t-data font-medium text-slate-400">连板梯队（{known.length} 只）</span>
-            {unknown.length > 0 && (
-              <span className="dc-t-micro text-amber-500/80">{unknown.length} 只连板待确认</span>
-            )}
+        <div className="rounded-dc-sm border border-dc-border bg-dc-layer-2 px-2 py-1.5">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="dc-t-data font-medium text-dc-text-3">
+              连板梯队（{known.length} 只）
+            </span>
+            <span className="flex items-center gap-2">
+              {unknown.length > 0 && <span className="dc-t-micro text-dc-warn">{unknown.length} 只待确认</span>}
+              <button
+                type="button"
+                onClick={() => {
+                  setLoading(true)
+                  void load(true)
+                }}
+                className="rounded-dc-sm p-0.5 text-dc-text-3 hover:bg-dc-layer-3"
+                title="只刷新涨停梯队（它最贵：每个涨停股要拉日K + 所属板块）"
+              >
+                <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+              </button>
+            </span>
           </div>
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             {tiers.map(([n, c]) => (
-              <div key={n} className="grid grid-cols-[34px_1fr_26px] items-center gap-1.5">
-                <span
-                  className={`font-mono dc-t-note font-bold ${n >= 5 ? 'text-red-500' : n >= 3 ? 'text-amber-500' : 'text-slate-500'}`}
-                >
-                  {n}板
-                </span>
-                <div className="h-1.5 overflow-hidden rounded-full bg-slate-200/70">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${Math.max(8, (c / maxTierCount) * 100)}%`, background: n >= 3 ? 'rgba(199,64,64,0.7)' : 'rgba(148,163,184,0.6)' }}
+              <div key={n} className="grid grid-cols-[34px_1fr_30px] items-center gap-1.5" title={`${n} 板 · ${c} 只`}>
+                <span className={`dc-tier-name ${tierTone(n)}`}>{n}板</span>
+                <span className="h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--dc-track)' }}>
+                  <span
+                    className="block h-full rounded-full"
+                    style={{
+                      width: `${Math.max(6, (c / maxTierCount) * 100)}%`,
+                      background: n >= 3 ? UP : 'var(--dc-dim)',
+                      opacity: n >= 3 ? 0.75 : 0.6,
+                    }}
                   />
-                </div>
-                <span className="text-right font-mono dc-t-note text-slate-500">{c}</span>
+                </span>
+                <span className="text-right font-mono dc-t-note text-dc-text-3">{c}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* 分组列表 */}
-      {snap && snap.limitUp.length > 0 ? (
-        <div className="mb-1.5 space-y-1.5">
-          {tiers.map(([n, count]) => {
-            const group = known.filter((s) => s.streak === n)
+      {/* 分组：一梯队一行 chips（默认只展开最高两档，其余点名可展开） */}
+      {snap !== null && known.length > 0 && (
+        <div className="dc-tier">
+          {tiers.map(([n, count], idx) => {
+            const opened = allOpen || idx < TIERS_OPEN
+            const group = byTier.get(n) ?? []
             return (
-              <div key={n} className="rounded-md border border-slate-100 bg-slate-50/50 px-2 py-1.5">
-                <div className="mb-1 dc-t-data font-semibold text-slate-400">
-                  {n}板 · {count}只
-                </div>
-                <ul className="space-y-0.5">
-                  {group.map((s) => (
-                    <li key={`${s.market}${s.code}`}>
+              <div className="dc-tier-row" key={n}>
+                <span className={`dc-tier-name ${tierTone(n)}`} title={`${n} 板 · ${count} 只`}>
+                  {n}板
+                </span>
+                {opened ? (
+                  <span className="dc-tier-chips">
+                    {group.map((s) => (
                       <button
+                        key={`${s.market}${s.code}`}
+                        type="button"
+                        className={`dc-tier-chip${s.oneWord ? ' is-oneword' : ''}`}
+                        title={`${s.name} ${s.code}｜${s.streak} 连板${s.oneWord ? '｜一字板' : ''}｜换手 ${s.turnover ? `${s.turnover.toFixed(1)}%` : '—'}｜成交额 ${fmtBigNum(s.amount)}`}
                         onClick={() => openStock(s.market, s.code, s.name)}
-                        className="flex w-full items-center gap-1 rounded px-1 py-[3px] text-left hover:bg-white"
-                        title={`${s.name} ${s.code} · 涨停 ${s.dates.length} 连板`}
                       >
-                        {s.oneWord && (
-                          <span className="shrink-0 rounded bg-red-100 px-1 dc-t-micro font-medium text-red-600">一字</span>
-                        )}
-                        <span className="min-w-0 flex-1 truncate dc-t-note text-slate-700">{s.name}</span>
-                        <span className="shrink-0 font-mono dc-t-micro text-slate-300">{s.code}</span>
-                        <span className="w-10 shrink-0 text-right font-mono dc-t-micro text-slate-400 tabular-nums">
-                          {s.turnover ? `${s.turnover.toFixed(1)}%` : '—'}
-                        </span>
-                        <span className="w-12 shrink-0 text-right font-mono dc-t-micro text-slate-500 tabular-nums">
-                          {fmtBigNum(s.amount)}
-                        </span>
+                        {s.name}
+                        {s.oneWord && <em>一字</em>}
                       </button>
-                    </li>
-                  ))}
-                </ul>
+                    ))}
+                  </span>
+                ) : (
+                  <span className="dc-tier-chips">
+                    <button
+                      type="button"
+                      className="dc-tier-more"
+                      title={`展开 ${n} 板这 ${count} 只（默认只展开最高的 ${TIERS_OPEN} 档：高位股才是决策相关的）`}
+                      onClick={() => setAllOpen(true)}
+                    >
+                      展开全部 {count} 只
+                    </button>
+                  </span>
+                )}
               </div>
             )
           })}
-
-          {/* 连板待确认（数据拉取失败/超时的涨停股） */}
-          {unknown.length > 0 && (
-            <div className="rounded-md border border-dashed border-amber-200 bg-amber-50/30 px-2 py-1.5">
-              <div className="mb-1 dc-t-data font-semibold text-amber-500/80">连板待确认 · {unknown.length} 只</div>
-              <ul className="space-y-0.5">
-                {unknown.map((s) => (
-                  <li key={`${s.market}${s.code}`}>
-                    <button
-                      onClick={() => openStock(s.market, s.code, s.name)}
-                      className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-white"
-                      title={`${s.name} ${s.code}`}
-                    >
-                      <span className="min-w-0 flex-1 truncate dc-t-note text-slate-500">{s.name}</span>
-                      <span className="shrink-0 font-mono dc-t-micro text-slate-300">{s.code}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : (
-        !loading && (
-          <div className="rounded-md border border-dashed border-slate-200 py-8 text-center text-xs text-slate-300">
-            今日暂无封涨停（或盘中尚未封板）
+          <div className="dc-tier-row">
+            <span />
+            <span className="dc-tier-chips">
+              <button
+                type="button"
+                className="dc-tier-more"
+                onClick={() => setAllOpen((v) => !v)}
+                title={allOpen ? '只看最高的几档（高位股）' : '展开全部分组'}
+              >
+                {allOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                {allOpen ? `只看高位（最高 ${TIERS_OPEN} 档）` : '展开全部梯队'}
+              </button>
+            </span>
           </div>
-        )
+        </div>
       )}
 
-      {/* 板块热度 */}
-      {snap && snap.boards.length > 0 && (
-        <div className="rounded-md border border-slate-100 bg-slate-50/60 px-2 py-1.5">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="dc-t-data font-medium text-slate-400">涨停板块热度</span>
-            <span className="dc-t-micro text-slate-300">按板块当日涨停家数</span>
-          </div>
-          <ul className="space-y-0.5">
-            {snap.boards.map((b) => (
-              <li key={b.boardSymbol}>
-                <button
-                  onClick={() => openStock(inferMarket(b.repCode), b.repCode, b.rep)}
-                  className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-white"
-                  title={`${b.name} · 代表 ${b.rep}（${b.repCode}）`}
-                >
-                  <span className="min-w-0 flex-1 truncate dc-t-note text-slate-600">{b.name}</span>
-                  <span className="shrink-0 rounded bg-red-50 px-1 py-px font-mono dc-t-micro font-medium text-red-500">
-                    {b.limitUpCount} 涨停
-                  </span>
-                  <span className="w-11 shrink-0 text-right font-mono dc-t-data tabular-nums" style={{ color: pctColor(b.pct) }}>
-                    {b.pct >= 0 ? '+' : ''}
-                    {b.pct.toFixed(2)}%
-                  </span>
-                </button>
-              </li>
+      {/* 连板待确认（日K 拉取失败/超时的涨停股）：**不算进任何统计**，但要说出来 */}
+      {unknown.length > 0 && (
+        <div className="rounded-dc-sm border border-dashed border-dc-border bg-dc-layer-2 px-2 py-1.5">
+          <div className="mb-1 dc-t-data font-semibold text-dc-warn">连板待确认 · {unknown.length} 只</div>
+          <div className="dc-tier-chips">
+            {unknown.map((s) => (
+              <button
+                key={`${s.market}${s.code}`}
+                type="button"
+                className="dc-tier-chip"
+                title={`${s.name} ${s.code}｜日K 未取到，连板数未知（不计入梯队统计）`}
+                onClick={() => openStock(s.market, s.code, s.name)}
+              >
+                {s.name}
+              </button>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
-      {loading && !snap && <div className="py-10 text-center text-xs text-slate-300">加载涨停池…</div>}
-    </div>
-  )
-}
+      {/* 板块热度：自适应多列（窄列一行放"板块名 + 涨停数 + 涨幅"）。
+          默认只铺前 8 个（实测：12 个会把这一块撑出 23% 的溢出）—— 其余进「+N」的 title，
+          块本身仍可整体展开，所以是"有标注的收拢"而不是截断。 */}
+      {snap !== null && snap.boards.length > 0 && (
+        <div className="rounded-dc-sm border border-dc-border bg-dc-layer-2 px-2 py-1.5">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 dc-t-data font-medium text-dc-text-3">
+              <Flame size={11} style={{ color: UP }} />
+              涨停板块热度
+            </span>
+            <span className="dc-t-micro text-dc-dim">按板块当日涨停家数</span>
+          </div>
+          <div className="dc-heat">
+            {snap.boards.slice(0, HEAT_ROWS).map((b) => (
+              <button
+                key={b.boardSymbol}
+                type="button"
+                className="dc-heat-row"
+                title={`${b.name} · 代表 ${b.rep}（${b.repCode}）｜板块指数 ${b.pct >= 0 ? '+' : ''}${b.pct.toFixed(2)}%`}
+                onClick={() => openStock(inferMarket(b.repCode), b.repCode, b.rep)}
+              >
+                <span>{b.name}</span>
+                <span className="dc-heat-count">{b.limitUpCount}</span>
+                <span className="dc-heat-pct" style={{ color: pctColor(b.pct) }}>
+                  {b.pct >= 0 ? '+' : ''}
+                  {b.pct.toFixed(2)}%
+                </span>
+              </button>
+            ))}
+            {snap.boards.length > HEAT_ROWS && (
+              <span
+                className="dc-heat-row text-dc-text-3"
+                title={`其余 ${snap.boards.length - HEAT_ROWS} 个板块（按涨停家数）：${snap.boards
+                  .slice(HEAT_ROWS)
+                  .map((b) => `${b.name} ${b.limitUpCount}`)
+                  .join(' · ')}`}
+              >
+                <span className="dc-t-micro">其余 {snap.boards.length - HEAT_ROWS} 个板块（悬停看名单）</span>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
-function StatCell({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
-  return (
-    <div className="min-w-0 rounded-md border border-slate-100 bg-slate-50/80 px-2 py-1.5">
-      <div className="truncate dc-t-data text-slate-400">{label}</div>
-      <div className="mt-0.5 font-mono dc-t-decision font-bold leading-none text-slate-700 tabular-nums">{value}</div>
-      {sub && <div className="mt-1 truncate dc-t-micro text-slate-300">{sub}</div>}
+      {snap !== null && known.length === 0 && unknown.length === 0 && (
+        <div className="rounded-dc-sm border border-dashed border-dc-border py-6 text-center dc-t-data text-dc-dim">
+          今日暂无封涨停（或盘中尚未封板）
+        </div>
+      )}
+
+      {loading && snap === null && <div className="py-8 text-center dc-t-data text-dc-dim">加载涨停池…</div>}
     </div>
   )
 }

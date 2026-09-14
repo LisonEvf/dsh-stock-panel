@@ -26,7 +26,7 @@ import {
   type Q3Action,
 } from '@/lib/dayrun'
 import { getPositions, subscribePositions } from '@/lib/positions'
-import { situationLabel, type Situation } from '@/lib/situation'
+import { situationLabel, situationShortLabel, type Situation } from '@/lib/situation'
 
 interface Props {
   /** 系统局势候选（WarPage 每轮 judgeSituation 结果）；null = 暂无数据。 */
@@ -75,6 +75,8 @@ export function QAnswers({ autoSituation }: Props) {
           {run?.q1 ? (
             <span className="ml-auto flex items-center gap-0.5 dc-t-micro text-emerald-600">
               <Check className="h-2.5 w-2.5" />已答 {hm(run.q1.at)}
+              {/* v1.6：模型给默认值 → 这里必须标出来（"这句是模型说的还是我判的"是两回事） */}
+              {run.q1.from === 'ai' && <span className="ml-1 rounded bg-slate-200 px-1 text-slate-500">模型</span>}
             </span>
           ) : (
             <span className="ml-auto rounded bg-amber-100 px-1 py-px dc-t-micro text-amber-600">未答</span>
@@ -88,7 +90,7 @@ export function QAnswers({ autoSituation }: Props) {
               <button
                 key={o.v}
                 onClick={() => setQ1(day, o.v)}
-                title={o.desc}
+                title={run?.q1?.from === 'ai' && active ? `${o.desc}（当前是模型给的默认值，点一下即改为你的判断）` : o.desc}
                 className="flex-1 rounded border px-1 py-0.5 text-center dc-t-micro font-medium transition-colors"
                 style={
                   active
@@ -110,6 +112,7 @@ export function QAnswers({ autoSituation }: Props) {
           {run?.q2 ? (
             <span className="ml-auto flex items-center gap-0.5 dc-t-micro text-emerald-600">
               <Check className="h-2.5 w-2.5" />已确认 {hm(run.q2.at)}
+              {run.q2.from === 'ai' && <span className="ml-1 rounded bg-slate-200 px-1 text-slate-500">模型</span>}
             </span>
           ) : (
             <span className="ml-auto rounded bg-amber-100 px-1 py-px dc-t-micro text-amber-600">未答</span>
@@ -120,7 +123,6 @@ export function QAnswers({ autoSituation }: Props) {
           {SITUATIONS.map((s) => {
             const active = run?.q2?.situation === s
             const isAuto = autoSituation === s
-            const label = s === 'normal' ? '正常' : s === 'highLowSwitch' ? '高低切' : s === 'innerDivergence' ? '主线内分歧' : s === 'newDirection' ? '新方向' : s === 'weightLift' ? '权重行情' : '退潮'
             return (
               <button
                 key={s}
@@ -130,7 +132,7 @@ export function QAnswers({ autoSituation }: Props) {
                 style={active ? {} : { borderColor: '#cbd5e1', background: isAuto && !run?.q2 ? '#f1f5f9' : undefined }}
               >
                 {isAuto && !run?.q2 && <span className="mr-0.5 dc-t-micro text-emerald-500">系统→</span>}
-                {label}
+                {situationShortLabel(s)}
               </button>
             )
           })}
@@ -170,6 +172,7 @@ export function QAnswers({ autoSituation }: Props) {
                     <span className="min-w-0 flex-1 truncate dc-t-data font-medium text-slate-600">
                       {p.name}
                       <span className="ml-1 font-mono dc-t-micro text-slate-300">{p.code}</span>
+                      {cur?.from === 'ai' && <span className="ml-1 rounded bg-slate-200 px-1 dc-t-micro text-slate-500">模型</span>}
                     </span>
                     <span className="shrink-0 font-mono dc-t-micro text-slate-300">{p.shares}股</span>
                   </div>

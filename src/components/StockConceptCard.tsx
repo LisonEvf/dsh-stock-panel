@@ -9,8 +9,13 @@
  *   · 自挖类 = 「市场今天自己认定的班」，与**官方概念/行业**是两回事，界面上必须显式区分；
  *   · 命名**不给结论只给候选**：展示三态（已命名 / 无共同主题 / 素材不足）+ 降级成因 +
  *     可反查的证据引文；模型自报置信度只作展示，真正的门控是"可计算证据分"；
+ *   · **结构标签**（官方行业/概念口径，确定性、不经模型）与**模型主题名**分开显示、各自标来源
+ *     （见 `host/naming/structure.ts` 头部：前者答"像什么"，后者答"为什么一起动"）；
  *   · 参数与 as_of **必须显示**：同一只票在不同参数下可能属于不同的类，不标 = 不可复现；
- *   · 不可用时说实话（引擎池不足 / 无模型 / 弱链类拒绝命名），不静默留白。
+ *   · 不可用时说实话（引擎池不足 / 无模型 / 伪类拒绝命名），不静默留白。
+ *
+ * 颜色一律走 `--dc-*` token：收口前这里用的是 tailwind 的 violet/slate 固定色阶，
+ * 与整页的语义 token 不是一套（暗色下既不协调、也不受对比度护栏覆盖）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Sparkles, Link2 } from 'lucide-react'
@@ -33,12 +38,18 @@ interface Props {
   onOpenStock?: ((market: MarketTag, code: string, name: string) => void) | undefined
 }
 
-/** 相关度色阶（0.6 是我们实际用的聚类阈值，低于它只是"有点像"）。 */
-function corrColor(corr: number): string {
-  if (corr >= 0.8) return 'text-red-600'
-  if (corr >= 0.6) return 'text-orange-500'
-  if (corr >= 0.4) return 'text-slate-500'
-  return 'text-slate-400'
+/**
+ * 相关度的**强弱阶**（0.6 是我们实际用的聚类阈值，低于它只是"有点像"）。
+ *
+ * 为什么不用红/橙/灰：相关度没有方向（不是涨跌），借涨跌色会让人读成"这只票在涨"
+ * —— 本仓库对"状态/结构类信息借用涨跌色"有明确禁令（诊断面板曾把 success 画成红）。
+ * 这里用**由深到浅的文字色阶梯**表达强弱，语义中性且明暗自适应。
+ */
+function corrTone(corr: number): string {
+  if (corr >= 0.8) return 'text-dc-text'
+  if (corr >= 0.6) return 'text-dc-text-2'
+  if (corr >= 0.4) return 'text-dc-text-3'
+  return 'text-dc-dim'
 }
 
 export function StockConceptCard({ market, code, onOpenStock }: Props) {
@@ -109,15 +120,16 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
 
   const named = outcome?.ok === true ? outcome.result : null
   const refused = outcome !== null && outcome.ok === false ? outcome : null
+  const structure = outcome !== null && outcome.ok ? outcome.structure : null
 
   return (
-    <div className="rounded-lg border border-violet-100 bg-violet-50/30 p-2" data-testid="stock-concept-card">
+    <div className="rounded-dc-lg border border-dc-border bg-dc-layer-2 p-2" data-testid="stock-concept-card">
       <div className="mb-1 flex items-center gap-1">
-        <Link2 size={11} className="text-violet-500" />
-        <span className="dc-t-note font-medium text-slate-600">自挖板块（市场今天认定的班）</span>
+        <Link2 size={11} className="text-dc-info" />
+        <span className="dc-t-note font-medium text-dc-text-2">自挖板块（市场今天认定的班）</span>
         <span className="ml-auto flex items-center gap-1">
           {concept?.asOf && (
-            <span className="font-mono dc-t-micro text-slate-400" title="引擎快照日期：参数或日期一变，类就会变">
+            <span className="font-mono dc-t-micro text-dc-text-3" title="引擎快照日期：参数或日期一变，类就会变">
               as_of {concept.asOf}
             </span>
           )}
@@ -126,14 +138,14 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
             onClick={() => void load()}
             disabled={busy}
             title="重新取数（参数按校准推荐值）"
-            className="rounded p-0.5 text-slate-400 hover:bg-white disabled:opacity-40"
+            className="rounded-dc-sm p-0.5 text-dc-text-3 hover:bg-dc-layer-3 disabled:opacity-40"
           >
-            <RefreshCw size={10} className={busy ? 'animate-spin' : ''} />
+            <RefreshCw size={11} className={busy ? 'animate-spin' : ''} />
           </button>
         </span>
       </div>
 
-      {!supported && <div className="dc-t-data text-slate-400">自挖概念引擎只覆盖沪深两市（北交所不参与聚类）</div>}
+      {!supported && <div className="dc-t-data text-dc-text-3">自挖概念引擎只覆盖沪深两市（北交所不参与聚类）</div>}
 
       {/* 取数失败：分类 + 原因 + 重试（旧版只有一行红字，没有出路） */}
       {supported && loadErr !== null && (
@@ -161,17 +173,17 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
       {supported && concept?.ok === true && (
         <>
           {/* 参数与口径：不标参数 = 结论不可复现 */}
-          <div className="mb-1 flex flex-wrap items-center gap-1 dc-t-micro text-slate-400">
-            <span className="rounded bg-white px-1 py-px font-mono">
+          <div className="mb-1 flex flex-wrap items-center gap-1 dc-t-micro text-dc-text-3">
+            <span className="rounded-dc-sm dc-soft-neutral px-1 py-px font-mono">
               window {concept.params.window} · min_corr {concept.params.minCorr} · pool {concept.params.poolN}
             </span>
-            <span className="text-slate-300">|</span>
+            <span className="text-dc-dim">|</span>
             {concept.classId === null ? (
-              <span className="text-slate-500">孤立票（今天没有稳定的同伴）</span>
+              <span className="text-dc-text-2">孤立票（今天没有稳定的同伴）</span>
             ) : (
-              <span className="text-slate-500">
+              <span className="text-dc-text-2">
                 类 #{concept.classId} · {concept.classSize} 只 · 类内相关{' '}
-                <span className={concept.intraCorr !== null ? corrColor(concept.intraCorr) : ''}>
+                <span className={concept.intraCorr !== null ? corrTone(concept.intraCorr) : ''}>
                   {concept.intraCorr !== null ? concept.intraCorr.toFixed(3) : '—'}
                 </span>
               </span>
@@ -179,12 +191,12 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
           </div>
 
           {concept.notes.length > 0 && (
-            <div className="mb-1 dc-t-micro leading-snug text-amber-600">{concept.notes.join('；')}</div>
+            <div className="mb-1 dc-t-micro leading-snug text-dc-warn">{concept.notes.join('；')}</div>
           )}
 
           {sameClassPeers.length > 0 && (
             <div className="mb-1">
-              <div className="mb-0.5 dc-t-micro text-slate-400">同类（同一共动类）</div>
+              <div className="mb-0.5 dc-t-micro text-dc-text-3">同类（同一共动类）</div>
               <div className="flex flex-wrap gap-1">
                 {sameClassPeers.map((n) => (
                   <button
@@ -192,10 +204,10 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                     type="button"
                     onClick={() => onOpenStock?.(n.market as MarketTag, n.code, n.name)}
                     title={`${n.code} ${n.name}｜相关 ${n.corr.toFixed(3)}｜同类`}
-                    className="rounded border border-violet-200 bg-white px-1 py-px dc-t-data text-slate-600 hover:border-violet-400"
+                    className="rounded-dc-sm border border-dc-border bg-dc-layer-1 px-1 py-px dc-t-data text-dc-text-2 hover:bg-dc-layer-3"
                   >
                     {n.name}
-                    <span className={`ml-1 font-mono ${corrColor(n.corr)}`}>{n.corr.toFixed(2)}</span>
+                    <span className={`ml-1 font-mono ${corrTone(n.corr)}`}>{n.corr.toFixed(2)}</span>
                   </button>
                 ))}
               </div>
@@ -204,7 +216,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
 
           {otherPeers.length > 0 && (
             <div className="mb-1">
-              <div className="mb-0.5 dc-t-micro text-slate-400">最近共动邻居（不同类，仅供参考）</div>
+              <div className="mb-0.5 dc-t-micro text-dc-text-3">最近共动邻居（不同类，仅供参考）</div>
               <div className="flex flex-wrap gap-1">
                 {otherPeers.map((n) => (
                   <button
@@ -212,10 +224,10 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                     type="button"
                     onClick={() => onOpenStock?.(n.market as MarketTag, n.code, n.name)}
                     title={`${n.code} ${n.name}｜相关 ${n.corr.toFixed(3)}｜不同类`}
-                    className="rounded border border-slate-200 bg-white/70 px-1 py-px dc-t-data text-slate-500 hover:border-slate-400"
+                    className="rounded-dc-sm border border-dc-border bg-dc-layer-1 px-1 py-px dc-t-data text-dc-text-3 hover:bg-dc-layer-3"
                   >
                     {n.name}
-                    <span className={`ml-1 font-mono ${corrColor(n.corr)}`}>{n.corr.toFixed(2)}</span>
+                    <span className={`ml-1 font-mono ${corrTone(n.corr)}`}>{n.corr.toFixed(2)}</span>
                   </button>
                 ))}
               </div>
@@ -223,7 +235,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
           )}
 
           {/* 命名：可选增强 */}
-          <div className="mt-1 flex items-center gap-1 border-t border-violet-100 pt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-1 border-t border-dc-border pt-1">
             <button
               type="button"
               disabled={concept.classId === null || namingBusy || namingRouteMissing || avail?.available === false}
@@ -239,7 +251,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
               }
               className="dc-btn dc-btn--accent dc-btn--icon flex items-center gap-1 px-1.5 py-0.5 dc-t-data disabled:opacity-40"
             >
-              <Sparkles size={10} />
+              <Sparkles size={11} />
               {namingBusy ? '命名中…' : '让模型命名这个班'}
             </button>
             {named !== null && (
@@ -248,23 +260,23 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
                 disabled={namingBusy}
                 onClick={() => void doNaming(true)}
                 title="忽略缓存重新命名（会真的再调一次模型）"
-                className="rounded px-1 py-0.5 dc-t-micro text-slate-400 hover:bg-white disabled:opacity-40"
+                className="rounded-dc-sm px-1 py-0.5 dc-t-micro text-dc-text-3 hover:bg-dc-layer-3 disabled:opacity-40"
               >
                 重算
               </button>
             )}
             {namingRouteMissing && (
-              <span className="dc-t-micro text-amber-600">命名桥接未注册：请重启 dsh web（host 半是进程内加载的）</span>
+              <span className="dc-t-micro text-dc-warn">命名桥接未注册：请重启 dsh web（host 半是进程内加载的）</span>
             )}
             {!namingRouteMissing && avail !== null && !avail.available && (
-              <span className="dc-t-micro text-amber-600">模型不可用：{avail.reason}</span>
+              <span className="dc-t-micro text-dc-warn">模型不可用：{avail.reason}</span>
             )}
             {avail?.available === true && named === null && (
-              <span className="dc-t-micro text-slate-400">
+              <span className="dc-t-micro text-dc-text-3">
                 {avail.provider}/{avail.model}
               </span>
             )}
-            {outcome?.ok === true && outcome.cached && <span className="dc-t-micro text-slate-400">（缓存命中）</span>}
+            {outcome?.ok === true && outcome.cached && <span className="dc-t-micro text-dc-text-3">（缓存命中）</span>}
           </div>
 
           {/* 命名失败：**就地重试命名**（旧版只有右上角的"重新取数"，那条路要重跑整块聚类，
@@ -285,6 +297,7 @@ export function StockConceptCard({ market, code, onOpenStock }: Props) {
           {outcome !== null && outcome.ok === true && (
             <NamingResultPanel
               outcome={outcome}
+              structure={structure}
               refreshing={namingBusy}
               onRefresh={() => void doNaming(true)}
             />

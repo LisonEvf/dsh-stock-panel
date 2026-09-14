@@ -290,12 +290,17 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
     }
   }, [market, code, mode, metric, height, paint])
 
+  /**
+   * 日K / 分时切换。用共享的 `.dc-seg` 分段控件（与工作台的图表分段同源），
+   * **不再各写一份 emerald 药丸**：原来是 `bg-emerald-500 text-white`，
+   * 而宿主**暗色**下 `--dsw-alias-button-primary-fill` 接近白色，§7 的暗色重映射把
+   * `bg-emerald-500` 换成 `--dc-accent-fill` → 药丸变近白、`text-white` 却没跟着换，
+   * 实测暗色下这一处是全屏唯一成片近白像素（10×10 亮度块扫描）。
+   */
   const btn = (m: IndexChartMode, label: string) => (
     <button
       onClick={() => setMode(m)}
-      className={`rounded px-2 py-0.5 dc-t-data font-medium transition-colors ${
-        mode === m ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400 hover:text-slate-600'
-      }`}
+      className={`dc-seg-btn${mode === m ? ' is-on' : ''}`}
     >
       {label}
     </button>
@@ -304,8 +309,8 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
   const metricBtn = (m: SubMetric, label: string) => (
     <button
       onClick={() => setMetric(m)}
-      className={`rounded px-1.5 py-0.5 dc-t-micro font-medium ${
-        metric === m ? 'bg-blue-50 text-blue-500' : 'text-slate-300 hover:bg-white hover:text-slate-500'
+      className={`rounded-dc-sm px-1.5 py-0.5 dc-t-micro font-medium ${
+        metric === m ? 'dc-soft-info text-dc-info' : 'text-dc-text-3 hover:bg-dc-layer-3 hover:text-dc-text-2'
       }`}
     >
       {label}
@@ -315,11 +320,13 @@ export function IndexChart({ market, code, name, height = 320 }: Props) {
   return (
     <div className="w-full">
       <div className="mb-1 flex items-center justify-end gap-1">
-        {btn('day', '日K')}
-        {btn('min', '分时')}
+        <span className="dc-seg">
+          {btn('day', '日K')}
+          {btn('min', '分时')}
+        </span>
         {mode === 'day' && (
           <>
-            <span className="mx-0.5 h-3 w-px bg-slate-200" />
+            <span className="mx-0.5 h-3 w-px" style={{ background: 'var(--dc-border)' }} />
             {metricBtn('vol', '量')}
             {metricBtn('amount', '额')}
           </>

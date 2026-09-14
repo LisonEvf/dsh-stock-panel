@@ -25,7 +25,9 @@ import {
   type AiTaskKind,
   type AiTaskRequest,
   type AiTaskResponse,
+  type WarPlan,
 } from './lib/ai-contract'
+import { guardWarPlan } from './lib/war-plan-guard'
 import { AI_CALL_ROUTE } from './lib/endpoints'
 
 /** 本插件在消息来源里的标识（Message.source.plugin）。 */
@@ -212,7 +214,7 @@ const AI_MAX_SHRINKS = 3
  */
 export async function runAiTask(rt: AiRuntime, req: AiTaskRequest): Promise<AiTaskResponse> {
   const task = req?.task
-  if (task !== 'stock-verdict' && task !== 'review-plan' && task !== 'scout-rank') {
+  if (task !== 'stock-verdict' && task !== 'review-plan' && task !== 'scout-rank' && task !== 'war-plan') {
     return { ok: false, kind: 'bad-request', error: `未知任务：${String(task)}` }
   }
   if (rt.llm === undefined) {
@@ -230,12 +232,15 @@ export async function runAiTask(rt: AiRuntime, req: AiTaskRequest): Promise<AiTa
   let context = req.context
   let attempt = 0 // 已发起的模型调用次数
   let shrinks = 0 // 已执行的裁剪次数
+  /** 最近一次真正发出去时的上下文体积（回传给 UI 展示；见 AiCallMeta.contextBytes）。 */
+  let lastBytes = contextBytes(context)
 
   /** 组装 meta（裁过/重试过都如实记录）。 */
   const metaOf = (): AiCallMeta => ({
     provider: route.provider,
     model: route.model,
     ms: Date.now() - started,
+    contextBytes: lastBytes,
     ...(shrunk.length > 0 ? { shrunk: [...shrunk] } : {}),
     ...(attempt > 1 ? { attempts: attempt } : {}),
   })
@@ -255,6 +260,7 @@ export async function runAiTask(rt: AiRuntime, req: AiTaskRequest): Promise<AiTa
   try {
     for (;;) {
       const bytes = contextBytes(context)
+      lastBytes = bytes
       // ① 超限：先裁（裁不动才报错，保持「不悄悄截断」的诚实性）
       if (bytes > AI_CONTEXT_MAX_BYTES) {
         if (tryShrink()) continue
@@ -311,7 +317,16 @@ export async function runAiTask(rt: AiRuntime, req: AiTaskRequest): Promise<AiTa
         } as AiTaskResponse & { reasoning?: string }
       }
 
-      const json = parseAiResult(task as AiTaskKind, out.text)
+      /**
+       * 作战思路（`war-plan`）是**唯一带素材白名单**的任务：模型点名素材之外的票、
+       * 自造板块名、引文反查不到，都在这里被剔除/标注后回传（`json.guard`），
+       * 界面会如实显示剔除了什么 —— 见 `lib/war-plan-guard.ts` 头部。
+       * 放在 host 半执行是刻意的：护栏必须是**权威侧**，不能只靠前端自觉。
+       */
+      let json: unknown = parseAiResult(task as AiTaskKind, out.text)
+      if (task === 'war-plan' && json !== null && typeof json === 'object') {
+        json = guardWarPlan(json as WarPlan, context)
+      }
       return {
         ok: true,
         task: task as AiTaskKind,

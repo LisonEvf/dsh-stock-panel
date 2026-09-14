@@ -1,0 +1,1 @@
+$ eslint src scripts --max-warnings 0

@@ -1,0 +1,44 @@
+open session: clicked
+切到 A股工作台：ok
+切到 作战：ok
+
+[1] 首屏（休市 / 无素材时该说什么）
+  卡片在场 = true · 状态 = error · 按钮 = ["生成","重试"]
+  头部：作战思路（模型）生成
+  正文：作战思路（模型）生成模型没有给出作战思路业务错宿主半还是旧版本（客户端已更新）：重启 dsh web 让 host 半重新加载即可 —— 插件的 host 半在进程启动时载入一次原因：未知任务：war-plan重试
+  AI 可用性：{"ok":true,"available":true,"provider":"deepseek-official","model":"deepseek-v4-flash"}
+  📸 acceptance\shots\warplan-01-first-screen.png
+
+[2] 等自动生成收敛（≤180s；采集 + 一次模型调用）
+  自动生成收敛：true
+  状态 = error · 整卡文本：
+    作战思路（模型）生成模型没有给出作战思路业务错宿主半还是旧版本（客户端已更新）：重启 dsh web 让 host 半重新加载即可 —— 插件的 host 半在进程启动时载入一次原因：未知任务：war-plan重试
+  📸 acceptance\shots\warplan-02-auto-result.png
+
+[3] 手动点「重算」（force 路径：越过时段缓存再跑一次）
+  点按钮：ok
+  收敛：true
+  状态 = error · 按钮 = ["生成","重试"]
+  头部：作战思路（模型）生成
+  方向段：null（行 0）
+  候选段：null（行 0）
+  落点段：null（行 0）
+  证据段：null
+  护栏段：null
+  整卡 rank 行数 = 0
+  📸 acceptance\shots\warplan-03-after-generate.png
+
+[4] 透明度三件套 + 手动覆盖入口
+  {
+  "whitelistShown": false,
+  "guardShown": false,
+  "adoptionShown": false,
+  "qCardsCollapsed": false,
+  "qCardsMounted": false,
+  "silenceNote": false,
+  "storage": 0,
+  "head": "作战思路（模型）生成"
+}
+  console 错误 0 条
+
+[probe-war-plan] 完成（截图在 acceptance/shots）

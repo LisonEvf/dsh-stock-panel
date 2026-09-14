@@ -84,9 +84,11 @@ function makeCallTool(opts = {}) {
       case 'hist_concept_classes':
         return { ok: true, as_of: AS_OF, classes: [{ class_id: 6, size: 2, weak_chain: Boolean(opts.weakChain) }] }
       case 'belong_board':
+        // 字段名必须是**真数据层的字段**（board_symbol_name）。这里曾写成 board_name，
+        // 与当时的错代码同源 → 冒烟全绿而线上 belong_board 恒为 0 条（2026-09-14 事故）。
         return [
-          { board_type: '4', board_name: 'CPO概念' },
-          { board_type: '12', board_name: '通信设备' },
+          { board_type: '4', board_symbol_name: 'CPO概念' },
+          { board_type: '12', board_symbol_name: '通信设备' },
         ]
       case 'kline':
         return [
@@ -212,6 +214,10 @@ console.log('[4] 全链路：采集 → 模型 → 护栏 → 缓存')
   assert(out.result.degradedReason === 'none', '无降级')
   assert(calls.some((c) => c.name === 'unusual'), 'as_of = 今日 → 采了实时异动')
   assert(out.sourcesUsed.includes('belong_board') && out.sourcesUsed.includes('kline'), '板块与日K都采到')
+  // 结构标签（官方行业口径，确定性）：与模型结论**并列**回传，任何 as_of 都成立。
+  // 它是"素材最缺的那天列表仍然可读"的唯一保证，所以接线断了必须在这里红。
+  assert(out.structure?.label === '通信设备', `结构标签回传（实际 ${JSON.stringify(out.structure)}）`)
+  assert(out.structure?.basis === 'industry' && out.structure?.covered === 2, '结构标签口径为行业、覆盖 2/2 只')
 
   const again = await mod.nameClass(rt, { classId: 6 })
   assert(again.cached === true && llm.calls() === 1, '同口径第二次命中缓存（模型只调一次）')
