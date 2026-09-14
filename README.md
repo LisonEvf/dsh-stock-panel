@@ -38,52 +38,36 @@ A 股**盯盘执行台** —— DSH Web 插件（挂在官方 `conversation.view
 
 ## 安装（add 即现，零额外修改/配置）
 
-**四条路，按"少操心"排序**（都真机跑过；★ = 一条命令、零配置）：
+**三条路，按"少操心"排序**（都真机跑过；★ = 一条命令、零配置）：
 
 | # | 命令 | 额外要做什么 |
 | --- | --- | --- |
 | **① ★ 发布产物的 tarball（推荐）** | `dsh plugin --profile web add https://github.com/LisonEvf/dsh-stock-panel/releases/download/v1.6.0/lisonevf-dsh-stock-panel-1.6.0.tgz` | **什么都不用**（公开 Release 资产；tarball 已带 `lib/`，不跑构建脚本） |
 | **② ★ 跟 main 走** | `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main --config.dangerouslyAllowAllBuilds=true` | **不用改配置文件**（行内 flag 放行构建脚本；代价是这条路会在安装时现场 `pnpm build`） |
-| ③ registry（GitHub Packages） | `dsh plugin --profile web add @lisonevf/dsh-stock-panel` | 要写一次 `~/.npmrc`（scoped 源 + PAT），见下 |
-| ④ 本地开发 | `dsh plugin --profile web add .`（在插件仓库目录） | —（`link:` 挂载，改源码只需 build + 重启） |
+| ③ 本地开发 | `dsh plugin --profile web add .`（在插件仓库目录） | —（`link:` 挂载，改源码只需 build + 重启） |
 
 之后**重启 `dsh web`** 并**硬刷新浏览器**（Ctrl+Shift+R）——会话页出现「**A股工作台**」视图标签页。
 不需要手工登记 settings、不需要跑脚本、**也不改动宿主任何文件**。
-> registry 上 `0.3.5` 及以前是**旧形态**（1.0.0 ~ 1.4.0 从未发过 registry），请装 **1.6.0 及以后**。
+> 发布渠道只有 **GitHub Release 资产**一条（每个版本一个 `lisonevf-dsh-stock-panel-<版本>.tgz`，
+> 由 `pnpm release:asset` 生成）。装法请用上表 ①②，**不要**去别处找包。
 
-**① 为什么它是一条命令**：tarball 是**已构建产物**，pnpm 直接用、不执行任何构建脚本 → 既不需要 token，
+**① 为什么它是一条命令**：tarball 是**已构建产物**，pnpm 直接用、不执行任何构建脚本 → 既不需要凭证，
 也不需要 allowBuilds；dsh 认的是安装后的真实包名，所以 `dsh.profile.bundles` 照样自动加上。
-真机验证（全新 `DSH_HOME` + 只装本包）：装到的 `lib/client.js` 与 Release 资产**逐字节一致**，
-`bundles` 变 `[dsh-base, @lisonevf/dsh-stock-panel]`，`dsh web` 起得来。
-> 每个版本的资产都在 Release 页（`releases/tag/v<版本>`），文件名固定 `lisonevf-dsh-stock-panel-<版本>.tgz` ——
-> 想锁版本就把 URL 里的版本号换掉即可。发布产物的 tarball 与 registry 上同名版本**是同一份**（shasum 相同）。
+真机验证（全新 `DSH_HOME` + 空 profile）：装到的 `lib/client.js` 与 Release 资产**逐字节一致**，
+`bundles` 变 `[dsh-base, @lisonevf/dsh-stock-panel]`，`dsh web` 起得来（host 半注册全部路由），
+浏览器里 `viewRegistered: true`、19 个内置工具、console 0 报错。
+> 想锁版本就把 URL 里的版本号换掉（Release 页：`releases/tag/v<版本>`，资产名固定）。
 
 **② 为什么不用改配置**：`--config.<key>=<value>` 由 dsh 原样转发给 pnpm，于是"拦构建脚本"这道闸当场放行。
 代价与边界（实测）：
-- 这条路每次安装都要**现场构建**（`prepare` → `pnpm build`，约 50s），且 `dangerouslyAllowAllBuilds` 是**放行该命令的全部构建脚本**；
+- 这条路每次安装都要**现场构建**（`prepare` → `pnpm build`，约 50s），且 `dangerouslyAllowAllBuilds` 放行的是**该命令的全部**构建脚本；
 - 不想每次带 flag，就在 **profile 的** `pnpm-workspace.yaml`（`$DSH_HOME/profiles/web/pnpm-workspace.yaml`）里写一次
   `dangerouslyAllowAllBuilds: true`，之后 `add` 也都是单命令；
-- 想用**精确放行**（只放行本包）也行，但 key **精确到 commit**
+- 想**精确放行**只放行本包也行，但 key **精确到 commit**
   （`'@lisonevf/dsh-stock-panel@https://codeload.github.com/LisonEvf/dsh-stock-panel/tar.gz/<commit-sha>': true`）——
   只写包名、`'@lisonevf/*'`、URL 通配**都不认**，所以 main 每推一次就得重加一把；
 - **`#v1.6.0` 这个 tag 装不上**（它早于 `publish` 脚本改名：pnpm 的 prepare 会把 `publish` 当生命周期钩子一起跑
-  → `npm publish` 失败，见 `CHANGELOG.md` 头部）。**git 安装请用 `#main`**（或任何 ≥ `25dc05d` 的提交）。
-
-**③ 这条路要额外配 `.npmrc`（实测：认证是硬要求，公开包也不例外）** —— GitHub Packages 的 npm 源**读也要 token**：
-只配 scoped 源、不带 token 就是 `E401 Unauthorized - authentication token not provided`；连 scoped 源都不配则直接 404
-（默认 registry = npmjs，那里没有本包）。`~/.npmrc` 里两行（token 用 classic PAT，勾 `read:packages`）：
-
-```
-@lisonevf:registry=https://npm.pkg.github.com/
-//npm.pkg.github.com/:_authToken=<你的 PAT>
-```
-
-它同样是装**已构建产物**、不跑构建脚本。真机端到端验证过（全新 `DSH_HOME`）：`bundles` 自动变
-`[dsh-base, dsh-web-app, @lisonevf/dsh-stock-panel]`，`dsh web` 起得来（host 半注册全部路由），
-浏览器里 `viewRegistered: true`、19 个内置工具、console 0 报错。
-> 为什么不是"最短命令"：只要还挂在 GitHub Packages，认证就跑不掉。若要 **`dsh plugin --profile web add @lisonevf/dsh-stock-panel`
-> 这一条零配置命令**，得把包**同时发到公共 npmjs**（`@lisonevf` 这个 scope 在 npmjs 上目前是空的，公开包 free）——
-> 属于发布渠道决策，需要 npmjs 账号登录后才能做。
+  → 内部再发一次包而失败）。**git 安装请用 `#main`**（或任何 ≥ `25dc05d` 的提交）。
 
 | 环节 | 机制 |
 | --- | --- |
@@ -95,8 +79,8 @@ A 股**盯盘执行台** —— DSH Web 插件（挂在官方 `conversation.view
 > ⚠️ **构建产物 ≠ 运行实例**：`lib/` 是构建输出（已 gitignore），浏览器加载的是**上次刷新时**的 bundle；
 > host 半是**进程内**加载的，改了代码**必须重启 `dsh web`**。只 build 不重启/不刷新 = 看到的还是旧界面。
 > 一条命令判断：`node scripts/verify-live.mjs`（比对运行实例与当前源码的 buildId，不一致会直接告诉你重启）。
-> 注意它是拿**本地工作树**当基准的，所以对 **registry 安装**的实例跑会报「构建 id 不一致」——那是预期的
-> （发布产物 ≠ 你正在改的这份源码），不是坏掉。
+> 注意它是拿**本地工作树**当基准的，所以对 **非工作树**（Release 资产）起出来的实例跑会报「构建 id 不一致」
+> ——那是预期的（装的是发布产物，不是你在改的这份源码），不是坏掉。
 
 ## 界面结构
 
@@ -396,8 +380,7 @@ frontend-dsh/
 
 ## 版本
 
-当前版本 **1.6.0**（`package.json` 为唯一来源）。**1.5.0 是第一个发到 registry 的现形态版本**
-（此前 registry 上只有 `0.3.5`，1.0.0 ~ 1.4.0 都没发过）：
+当前版本 **1.6.0**（`package.json` 为唯一来源；每个版本的安装物见 `releases/tag/v<版本>`）：
 
 - **1.4.0**（2026-09-12）= v1.2 官方槽迁移 + v1.3 宽视图沉浸式/AI 双通道 + v1.4 流程驱动导航的合并发布；
 - **1.5.0**（2026-09-13）= 版面（类型尺度/宽度利用）与契约（数据层/轮询/持久化）收口 + 工作台外壳适配
@@ -407,8 +390,9 @@ frontend-dsh/
   自挖板块修掉 `belong_board` 字段名事故并补上**结构标签 + 传递链伪类过滤 + 主题名归一**、版面重做；
   行情页重新组合成**环境带 + 指数│梯队 + 榜单│异动**（真机 780px 下旧组合藏了 74% / 83% 的内容）。
 
-定版流程（升版 → CHANGELOG 定版 → `pnpm build && pnpm test && pnpm guard` → 提交 + `git tag -a vX.Y.Z`
-→ `pnpm publish`）写在 `CHANGELOG.md` 头部；版本史见 `CHANGELOG.md`，下一批见 `docs/ROADMAP.md`。
+定版流程（升版 → CHANGELOG 定版 → `pnpm build && pnpm test && pnpm guard` → 提交 + `git tag -a vX.Y.Z` 并推送
+→ `GITHUB_TOKEN=… pnpm release:asset` 把 tarball 挂成 Release 资产）写在 `CHANGELOG.md` 头部；
+版本史见 `CHANGELOG.md`，下一批见 `docs/ROADMAP.md`。**发布渠道只有 Release 资产一条**（见 §安装）。
 
 ## 本地开发加载
 

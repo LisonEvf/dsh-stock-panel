@@ -11,6 +11,9 @@ gateway/state/
 # tsc composite build info
 *.tsbuildinfo
 
+# 发布打包的临时目录（scripts/release-asset.mjs 产出，随手可重建）
+/.release/
+
 # 真机截图工作目录（十几 MB，且可一条命令重建：acceptance/shots.mjs、acceptance/readme-shots.mjs）
 # README 真正引用的那几张已入库在 docs/images/
 acceptance/shots/

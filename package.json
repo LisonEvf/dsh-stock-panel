@@ -2,9 +2,6 @@
   "name": "@lisonevf/dsh-stock-panel",
   "version": "1.6.0",
   "private": false,
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com/"
-  },
   "description": "A股盯盘执行台 — DSH Web 插件（官方 conversation.view 视图标签「A股工作台」：复盘/作战/行情/自挖板块 + AI 一键研判）",
   "type": "module",
   "main": "./lib/index.js",
@@ -87,6 +84,6 @@
     "report:bundle": "node scripts/bundle-report.mjs --minify",
     "concept:sweep": "node scripts/concept-sweep.mjs",
     "concept:stability": "node scripts/concept-stability.mjs",
-    "publish:github": "npm publish --registry=https://npm.pkg.github.com"
+    "release:asset": "node scripts/release-asset.mjs"
   }
 }

@@ -15,10 +15,10 @@
 //
 // 退出码：①②③ 全过 = 0；否则 1（④ 只是信息项，不影响退出码）。
 //
-// ⚠️ 基准是**本地工作树**（`computeBuildId()` 哈希 src/ + package.json）：对「从 registry / 包管理器安装」
-//    的实例跑，构建 id **必然不一致**（发布产物 ≠ 你手上这份源码），那是预期提示、不是故障；
-//    只有 `link:` / 本地 checkout 起的实例才该完全一致。同理，改过 package.json（哪怕只改脚本名）也要
-//    重新 `pnpm build`，否则本脚本会一直提示「运行的是旧 host 半」——那是真的不一致，不是误报。
+// ⚠️ 基准是**本地工作树**（`computeBuildId()` 哈希 src/ + package.json）：对**非工作树**的实例
+//    （从 Release 资产 tarball 装出来的那份）跑，构建 id **必然不一致** —— 装的是发布产物、不是你手上这份源码，
+//    那是预期提示、不是故障；只有 `link:` / 本地 checkout 起的实例才该完全一致。同理，改过 package.json
+//    （哪怕只改脚本名）也要重新 `pnpm build`，否则本脚本会一直提示「运行的是旧 host 半」——那是真的不一致，不是误报。
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'

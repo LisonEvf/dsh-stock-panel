@@ -2,55 +2,56 @@
 
 > 本文件于 **2026-09-12 补齐**（此前 MISSING，1.1.0 → 1.3.0 的变更无法追溯）。
 > 记录规则：**每批一次原子提交 + 一条 CHANGELOG**；版本号**单一来源 = `package.json`**；文档只写批次/版本名，不复制绝对数字（体积、工具数、超时由脚本输出）。
-> **定版流程（1.5.0 起）**：批次累积时先写成 `[未发布]`，发布时① `package.json` 升版 → ② 本节加 `## [x.y.z] 日期` 并把该批 `[未发布]` 段落降为 `###` 小节 → ③ `pnpm build && pnpm test && pnpm guard` → ④ 提交 + `git tag -a vx.y.z` → ⑤ `pnpm publish`（registry = GitHub Packages，见 `package.json` 的 `publishConfig`）。
+> **定版流程（1.6.0 起：发布物 = Release 资产）**：批次累积时先写成 `[未发布]`，发布时① `package.json` 升版 → ② 本节加 `## [x.y.z] 日期` 并把该批 `[未发布]` 段落降为 `###` 小节 → ③ `pnpm build && pnpm test && pnpm guard` → ④ 提交 + `git tag -a vx.y.z` **并推送 tag** → ⑤ `GITHUB_TOKEN=… pnpm release:asset`（打包 → 建/找该 tag 的 Release → 上传 `lisonevf-dsh-stock-panel-x.y.z.tgz` → 打印那条一键安装命令）。
+> **安装渠道只有 Release 资产一条**：用户侧 `dsh plugin --profile web add <该 tarball 的 URL>` —— 一条命令、零配置、零凭证（tarball 已含 `lib/`，不跑构建脚本）；**不用 npm registry**（1.5.0 曾发到 GitHub Packages，该渠道已退役、不再是安装路径）。
 >
-> ⚠️ **版本号历史遗留（1.4.0 已收口）**：2026-09-12 之前提交标签写到 `1.1.0`，`package.json` 在工作区被改成 `1.3.0`（长期未提交），而 README 用 v1.2/v1.3/v1.4 描述界面迭代。**2026-09-12 起** v1.2/v1.3/v1.4 合并为 `1.4.0` 一次发布，版本号单一来源 = `package.json`。**1.5.0（2026-09-13）**首次真正发到 registry，并补上 `v1.5.0` tag。
+> ⚠️ **版本号历史遗留（1.4.0 已收口）**：2026-09-12 之前提交标签写到 `1.1.0`，`package.json` 在工作区被改成 `1.3.0`（长期未提交），而 README 用 v1.2/v1.3/v1.4 描述界面迭代。**2026-09-12 起** v1.2/v1.3/v1.4 合并为 `1.4.0` 一次发布，版本号单一来源 = `package.json`。
 >
-> ⚠️ **第 ⑤ 步的坑（2026-09-14 实测，已修）**：`package.json` 里那个名为 **`publish`** 的 script 会被当作 **npm 生命周期钩子** —— `pnpm publish` 成功发完之后，它还会再跑一次 `npm publish`，于是控制台紧跟一条红色
-> `EPUBLISHCONFLICT: You cannot publish over the previously published versions: x.y.z`。**版本其实已经发出去了**，
-> 别被这条错吓到、也别随手改版本号重发：用 `npm view <pkg>@x.y.z --registry=https://npm.pkg.github.com/` 看有没有该版本、
-> 必要时 `npm pack` 解包与本地 `lib/` 逐字节比对（本次即如此确认：published `lib/client.js` 与本地 sha256 前缀一致）。
-> 该 script 已改名 **`publish:github`**（不再是生命周期名），`pnpm publish` 从此干净退出。
+> ⚠️ **`package.json` 里别放名为 `publish` 的 script**（2026-09-14 踩过）：它属于 npm 生命周期钩子，会在"发完之后"再被执行一次；更要紧的是 pnpm 准备 **git 依赖**时也把它跑起来，于是从 GitHub 装包会莫名失败。现已无任何 publish script（发布走 `pnpm release:asset`），但**贴给用户的 git 安装请用 `#main`**：早于改名的那几个提交（含 `v1.6.0` tag）仍带着它，装不上。
 
 ---
 
 ## [未发布]
 
-**安装路径实测（三条路都跑过一遍）** —— 一条命令零配置的那条已配置就绪（Release 资产）
+**安装渠道收敛为一条：GitHub Release 资产** —— 一条命令、零配置；发布流程随之从 `pnpm publish` 换成 `pnpm release:asset`
 
-> 触发：用户先问「通过 registry 安装是否可行、是不是要额外 npmrc；如果不用，能不能 `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main` 一键装」，
-> 再问「**怎么能让用户一键安装**」。
-> 全部结论都是**真机跑出来的**（不是读文档推的）：各自装了包、起了实例、在真浏览器里确认视图注册。细节写进 `README.md` §安装。
+> 触发：用户先问「通过 registry 安装是否可行、是不是要额外配置；能不能 `... add github:LisonEvf/dsh-stock-panel#main` 一键装」，
+> 再问「**怎么能让用户一键安装**」，并明确要求**不再保留 npm registry 渠道**。
+> 结论都是**真机跑出来的**（各自装了包、起了实例、在真浏览器里确认视图注册），细节写进 `README.md` §安装。
 
-### 2026-09-14 · 一键安装：把发布产物挂成 Release 资产（**一条命令、零配置、零凭证**）
-- 现状：`@lisonevf/dsh-stock-panel` 在 **GitHub Packages**，而那个源**读也要 token** → 无论怎么写，用户都得先配 `~/.npmrc`；
-  `github:#main` 那条路则要现场构建，被 pnpm 的 allowBuilds 闸门挡住（见下）。**两条都不是"一键"**。
-- 做法：把 **registry 上那份 1.6.0 tarball**（`npm pack` 下载，shasum 与 registry 的 `dist.shasum` 一致）挂成 `v1.6.0` 的 Release 资产。
-  tarball 是**已构建产物** → pnpm 直接用、**不执行任何构建脚本** → 不需要 token、不需要 allowBuilds，dsh 照样按真实包名 reconcile 进 `dsh.profile.bundles`。
-- **一键命令**（真机验证：全新 `DSH_HOME`、空 profile、零配置）：
+### 2026-09-14 · 一键安装：把发布产物挂成 Release 资产（★ 一条命令、零配置、零凭证）
+- 做法：把当前版本的构建打成 tarball，挂到该版本 tag 的 GitHub Release。tarball 里已含 `lib/`，pnpm 拿它**不执行任何构建脚本**
+  → 用户侧**不需要凭证、不需要 allowBuilds、不改任何配置**；dsh 按安装后的真实包名 reconcile，`dsh.profile.bundles` 自动加上本包。
+- **一键命令**（真机验证：全新 `DSH_HOME` + 空 profile、零配置）：
   `dsh plugin --profile web add https://github.com/LisonEvf/dsh-stock-panel/releases/download/v1.6.0/lisonevf-dsh-stock-panel-1.6.0.tgz`
-  → 装到的 `lib/client.js` 与 Release 资产**逐字节一致**（sha256 `8ad3fc00…`）、`bundles` 变 `[dsh-base, @lisonevf/dsh-stock-panel]`、
-  版本 1.6.0；Release 正文里也写了这条命令。
-- **第二条一键路径**（跟 main 走、不改配置文件）：`--config.dangerouslyAllowAllBuilds=true` 由 dsh 原样转发给 pnpm，当场放行构建脚本闸门 ——
-  `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main --config.dangerouslyAllowAllBuilds=true`（实测通过，代价：每次安装现场构建 ~50s）。
-- **还差一步才能"最短命令"**：`dsh plugin --profile web add @lisonevf/dsh-stock-panel`（零配置）要求包同时在**公共 npmjs** 上
-  （`@lisonevf` scope 在 npmjs 目前是空的、公开包免费）。这属于发布渠道决策：要 npmjs 账号登录后才能做，**未做**。
+  → 装到的 `lib/client.js` 与 Release 资产**逐字节一致**、`bundles` 变 `[dsh-base, @lisonevf/dsh-stock-panel]`、版本 1.6.0；
+  起 `dsh web` 后 host 半注册全部路由（TDX 桥接 / build 路由 / 持久化域 12 张表 / 对话工具 ×8 / AI 桥接 / 命名桥接），
+  浏览器里 `viewRegistered: true`、19 个内置工具、console 0 报错。
+- 新增 `scripts/release-asset.mjs`（`pnpm release:asset`），把发布变成一条可复跑的命令：
+  ① 查产物与源码一致（`build-client --check`）→ ② 查 tag 已存在且**已推送到远端** → ③ `npm pack`
+  → ④ 建/找该 tag 的 Release、上传资产（正文自动写入那条一键命令 + sha256）→ ⑤ 打印命令。
+- 两条纪律写进脚本（都是这次踩出来的）：
+  - **同名资产默认拒绝覆盖**：已发布的资产就是用户装的那一份，应当不可变；新版本请升版本号重走流程，确需重发同一版本要显式 `--force`；
+  - **收尾不用 `process.exit()`**：Windows + Node 24 下 `fetch` 还有挂起句柄时，`process.exit(N)` 会让进程以 libuv 断言崩溃
+    （退出码 `0xC0000409` 而不是 `N`）—— 只设 `process.exitCode`，让事件循环自然收尾。
+- `package.json` 随之清掉 `publishConfig` 与 publish script，新增 `release:asset`；`.release/`（打包中转目录）进 `.gitignore`。
 
-### 2026-09-14 · registry 安装：可行，但**认证是硬要求**（公开包也一样）
-- 干净环境实测三档：不配 scoped 源 → 404（默认 registry=npmjs，那里没有本包）；只配 `@lisonevf:registry=https://npm.pkg.github.com/`、不带 token → **`E401 authentication token not provided`**；配上 `_authToken` → 通过。故 `.npmrc` 两行是必须的（token 用 classic PAT，勾 `read:packages`）。
-- **端到端验证**（不是"装上了就算"）：把 `DSH_HOME` 指到一个**全新临时家目录**模拟另一台机器 → `dsh plugin --profile web add @lisonevf/dsh-stock-panel@1.6.0` → profile 的 `dsh.profile.bundles` 自动变 `[dsh-base, dsh-web-app, @lisonevf/dsh-stock-panel]` → `dsh web` 起得来（host 半把 TDX 桥接 / build 路由 / 持久化域 12 张表 / 对话工具 ×8 / AI 桥接 / 命名桥接全注册上）→ 真浏览器里 `viewRegistered: true`、`version 1.6.0`、19 个内置工具、console 0 报错。
-- 顺带确认：registry 装的是**已构建产物**（tarball 里带 `lib/`），所以**不跑构建脚本**、不需要任何 allowlist。
-
-### 2026-09-14 · GitHub 直装：不需要 token，但**首次必然失败一次**
-- `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main` 在全新 profile 上实测报
-  `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` —— 这条路要**现场构建**（`prepare` 跑 `pnpm build`），而 pnpm 默认拦 git 依赖的构建脚本；
-  dsh 自己也会把该补的 key 与做法打出来（`runPlugin()` 的 git 分支，见 `@deepseek-ai/dsh` 的 `lib/plugin-*.js`）。
-- 补进 **profile 的** `pnpm-workspace.yaml` 后重跑即成功（实测装出来的 `lib/client.js` 与本地构建同为 667,371 字节）。
-- ⚠️ 三条值得记住的实测结论：① 那把 key **精确到 commit**（`'@lisonevf/dsh-stock-panel@https://codeload.github.com/.../tar.gz/<sha>'`）—— 只写**包名**、`'@lisonevf/*'`、codeload URL **通配都不认**，所以 main 每推一次要重加一把；② 免维护的写法是 `dangerouslyAllowAllBuilds: true`（放行范围更大）；③ **`#v1.6.0` 装不上** —— 那个提交里 `publish` 脚本还在，pnpm 的 prepare 会把它当生命周期钩子一起跑 → `npm publish` 失败（这正是本版把它改名 `publish:github` 的原因）。**git 安装用 `#main`**。
+### 2026-09-14 · 渠道退役 + `github:#main` 这条备选
+- **npm registry 渠道退役**：不再作为安装路径，也不再写进 README / 用户指南 / 定版流程。历史上 1.5.0 与 1.6.0 确实发过
+  GitHub Packages，那两个已发布版本留在原处不动（不影响任何人），但**不再是受支持的装法**——安装只有「Release 资产」与「`github:#main`」两条。
+- **`github:#main`（跟主线走）** 仍可用；不想改任何配置文件的写法是：
+  `dsh plugin --profile web add github:LisonEvf/dsh-stock-panel#main --config.dangerouslyAllowAllBuilds=true`
+  （`--config.*` 由 dsh 原样转发给 pnpm）。代价：每次安装**现场构建**（约 50s），且该 flag 放行的是该命令的**全部**构建脚本。
+- ⚠️ git 路径的三条实测结论（保留，免得下次重踩）：① 精确放行用的 allowBuilds key **精确到 commit**
+  （只写包名 / `'@lisonevf/*'` / URL 通配**都不认**），main 每推一次要重加一把；② 免维护写法是 `dangerouslyAllowAllBuilds: true`；
+  ③ **`#v1.6.0` 这个 tag 装不上** —— 那个提交里 `publish` 脚本还在，pnpm 准备 git 依赖时会把 `publish` 当生命周期钩子一起跑（内部又去发一次包而失败）。
+  **git 安装用 `#main`**（或任何 ≥ `25dc05d` 的提交）。
 
 ### 2026-09-14 · 顺带修掉两个"自己会踩自己"的地方
-- **构建 id 含 `package.json`**（`scripts/build-id.mjs` 的 `HASH_FILES`）：发布后只改了 `package.json` 的脚本名、没重新 `build` → `verify-live` 立刻报「构建 id 不一致（运行 fd545a63 / 源码 ce1cf6f6）→ 请重启 dsh web」，而**真正该做的是 `pnpm build`**。已在 `scripts/verify-live.mjs` 头部把这条写清（并说明：拿本地工作树当基准，对 registry 安装的实例报不一致属预期），`README.md` §安装 同步。
-- 本地 `lib/` 已按当前源码重建（id = `ce1cf6f6`），`build-client --check` / 体积护栏 665KB / 28 文件单测 / lint 复验全绿。
+- **构建 id 含 `package.json`**（`scripts/build-id.mjs` 的 `HASH_FILES`）：发布后只改了 `package.json`（脚本名）而没重新 `build`
+  → `verify-live` 立刻报「构建 id 不一致 → 请重启 dsh web」，而**真正该做的是 `pnpm build`**。已在 `scripts/verify-live.mjs` 头部写清，
+  并说明：它拿**本地工作树**当基准，所以对**非工作树**（Release 资产）起出来的实例报不一致属预期。
+- 本地 `lib/` 按当前源码重建（id = `727d0b67`），`build-client --check` / 体积护栏 665KB / 28 文件单测 / lint / guard 复验全绿。
 
 ---
 
@@ -58,10 +59,10 @@
 
 **重点页专项 + 作战板块重做** —— 作战思路改由模型给结论（以其他板块为素材）；自挖板块修掉字段名事故 + 分类命名三项补强 + 版面重做；行情页重新组合
 
-> 发布物：`@lisonevf/dsh-stock-panel@1.6.0`（registry = GitHub Packages）+ git tag `v1.6.0`。
-> **发布已确认**：registry 上 `1.6.0` 存在且 `dist-tags.latest = 1.6.0`；`npm pack` 解包后 `lib/client.js`
-> 与本地构建**逐字节一致**（sha256 前缀 `8ad3fc000ca529bd`），host 半含 `war-plan` 路由与 `pseudo_class` /
-> `board_symbol_name` / `a2b-2` 等本版标记 —— 即"发出去的就是这一份"。
+> 发布物：git tag `v1.6.0` + `v1.6.0` 的 Release 资产 `lisonevf-dsh-stock-panel-1.6.0.tgz`（一键安装命令见该 Release 正文）。
+> **发布已确认**：资产解包后的 `lib/client.js` 与本地构建**逐字节一致**（sha256 前缀 `8ad3fc000ca529bd`），
+> host 半含 `war-plan` 路由与 `pseudo_class` / `board_symbol_name` / `a2b-2` 等本版标记 —— 即"装下去的就是这一份"。
+> （本版当时也发过一次 GitHub Packages，该渠道随后退役，见 `[未发布]`；已发布的那份留在原处，但不再是受支持的装法。）
 > 本批两条主线都由用户直接点名：①「重做作战板块，是大模型提供作战思路而不是用户自己选择，注意以其他板块为基础，
 > 而不是空穴来风」；②「重点优化自挖板块，既要解决分类命名问题，也要优化显示美观」。两批各自都靠**真机探针**
 > 推翻了"看起来已经好了"的结论（离线单测抓不到的那类问题）。
