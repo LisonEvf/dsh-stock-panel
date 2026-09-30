@@ -49,6 +49,13 @@ dsh plugin --profile web add https://github.com/LisonEvf/dsh-stock-panel/release
 | --- | --- |
 | ![自挖板块](docs/images/04-concept.png) | ![工作台](docs/images/05-stock.png) |
 
+| 选股筛选：快照筛选 + MA 信号 + AI 排序 | 监控规则：规则与命中 |
+| --- | --- |
+| ![选股筛选](docs/images/07-scout.png) | ![监控规则](docs/images/08-alerts.png) |
+
+| <img src="docs/images/06-ai.png" width="340" alt="AI 决策卡"> | **右栏常驻的 AI 决策卡**（左为特写）<br><br>「一键研判」经 host 半直调官方 `ctx.llm` 拿严格 JSON，归一后回填四处：这张决策卡（立场 / 把握分 / 支撑要点 / 风险）、主图**关键价位线**、复盘预期排序参考区、选股 AI 排序。<br><br>**结果永远只读**——逐条「+」才写进你的清单，已在清单的条目标注而不重复插入。 |
+| --- | --- |
+
 ---
 
 ## 三个真正不一样的地方
