@@ -157,7 +157,7 @@ dsh plugin --profile web add https://github.com/LisonEvf/dsh-stock-panel/release
 | 注册给对话的工具 | **8 个对话工具**（行情 4 + 自挖概念 4） | 同上 |
 | 持久化 | 12 张表 | `src/lib/state-tables.ts` |
 | 客户端体积护栏 | 体积护栏（665KB） | `scripts/check-bundle-size.mjs` |
-| 单测 | 单元测试（`node:test` + esbuild 打包，离线；30 文件） | `tests/*.test.ts` |
+| 单测 | 单元测试（`node:test` + esbuild 打包，离线；28 文件） | `tests/*.test.ts` |
 | 命名相关断言 | （93 条命名相关断言） | `tests/naming-*.test.ts` |
 
 `tests/docs-consistency.test.ts` 会把上表逐个比对——**数字漂了会红，改了措辞也要同步它的正则**。
